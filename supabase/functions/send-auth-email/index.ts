@@ -5,8 +5,12 @@ import { Resend } from "https://esm.sh/resend@2.0.0";
 const resend = new Resend(Deno.env.get("RESEND_API_KEY") as string);
 let hookSecret = Deno.env.get("SEND_EMAIL_HOOK_SECRET") as string;
 
-// Strip "v1," prefix if present - standardwebhooks expects just "whsec_..." format
-if (hookSecret && hookSecret.startsWith("v1,")) {
+// Supabase provides: "v1,whsec_<base64>". standardwebhooks expects ONLY the base64 part.
+if (hookSecret?.startsWith("v1,whsec_")) {
+  hookSecret = hookSecret.replace("v1,whsec_", "");
+} else if (hookSecret?.startsWith("whsec_")) {
+  hookSecret = hookSecret.replace("whsec_", "");
+} else if (hookSecret?.startsWith("v1,")) {
   hookSecret = hookSecret.substring(3);
 }
 
