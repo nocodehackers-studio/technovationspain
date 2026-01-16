@@ -62,8 +62,7 @@ const handler = async (req: Request): Promise<Response> => {
     });
 
     // Build the ticket URL
-    const appUrl = Deno.env.get("SUPABASE_URL")?.replace(".supabase.co", "") || "";
-    const ticketUrl = `https://technovationspain.lovable.app/my-tickets/${registration.id}`;
+    const ticketUrl = `https://technovationspain.lovable.app/tickets/${registration.id}`;
 
     // Send email using Resend API
     const emailResponse = await fetch("https://api.resend.com/emails", {

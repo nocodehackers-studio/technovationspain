@@ -275,8 +275,8 @@ export default function ParticipantDashboard() {
                     Mis Entradas
                   </CardTitle>
                   <Button variant="ghost" size="sm" asChild>
-                    <Link to="/my-tickets" className="gap-1">
-                      Ver todas
+                    <Link to="/events" className="gap-1">
+                      Ver eventos
                       <ArrowRight className="h-4 w-4" />
                     </Link>
                   </Button>
@@ -307,7 +307,7 @@ export default function ParticipantDashboard() {
                       return (
                         <Link
                           key={reg.id}
-                          to={`/my-tickets/${reg.id}`}
+                          to={`/tickets/${reg.id}`}
                           className="flex items-center justify-between p-3 rounded-lg bg-muted/50 hover:bg-muted transition-colors"
                         >
                           <div className="space-y-1">

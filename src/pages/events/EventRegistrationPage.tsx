@@ -117,8 +117,8 @@ export default function EventRegistrationPage() {
                   </Link>
                 </Button>
                 <Button variant="outline" asChild>
-                  <Link to="/my-tickets">
-                    Mis entradas
+                  <Link to="/dashboard">
+                    Ir al dashboard
                   </Link>
                 </Button>
               </div>
