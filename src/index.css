@@ -3,131 +3,126 @@
 @tailwind utilities;
 
 /* Technovation España Design System
-   Dual theme: Vibrant for participants/mentors, Professional for admin
+   Dark/Black elegant theme with ShadCN components
    All colors MUST be HSL.
 */
 
 @layer base {
   :root {
-    /* Core brand colors - Vibrant purple/blue palette */
+    /* Light mode - Clean white with dark accents */
     --background: 0 0% 100%;
-    --foreground: 250 30% 15%;
+    --foreground: 0 0% 3.9%;
 
     --card: 0 0% 100%;
-    --card-foreground: 250 30% 15%;
+    --card-foreground: 0 0% 3.9%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 250 30% 15%;
+    --popover-foreground: 0 0% 3.9%;
 
-    /* Primary: Technovation Purple */
-    --primary: 270 80% 55%;
-    --primary-foreground: 0 0% 100%;
+    /* Primary: Deep Black */
+    --primary: 0 0% 9%;
+    --primary-foreground: 0 0% 98%;
 
-    /* Secondary: Vibrant Blue */
-    --secondary: 220 90% 96%;
-    --secondary-foreground: 220 80% 45%;
+    /* Secondary: Soft Gray */
+    --secondary: 0 0% 96.1%;
+    --secondary-foreground: 0 0% 9%;
 
-    /* Muted: Soft gray with slight purple tint */
-    --muted: 270 20% 96%;
-    --muted-foreground: 250 15% 45%;
+    /* Muted: Light Gray */
+    --muted: 0 0% 96.1%;
+    --muted-foreground: 0 0% 45.1%;
 
-    /* Accent: Electric Teal */
-    --accent: 175 80% 45%;
-    --accent-foreground: 0 0% 100%;
+    /* Accent: Subtle warm tone */
+    --accent: 0 0% 96.1%;
+    --accent-foreground: 0 0% 9%;
 
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 0 0% 100%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
 
-    /* Success: Vibrant Green */
-    --success: 150 80% 42%;
-    --success-foreground: 0 0% 100%;
+    /* Success: Muted Green */
+    --success: 142 76% 36%;
+    --success-foreground: 0 0% 98%;
 
-    /* Warning: Warm Orange */
-    --warning: 35 95% 55%;
-    --warning-foreground: 0 0% 100%;
+    /* Warning: Muted Amber */
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 9%;
 
-    /* Info: Sky Blue */
-    --info: 200 90% 50%;
-    --info-foreground: 0 0% 100%;
+    /* Info: Muted Blue */
+    --info: 221 83% 53%;
+    --info-foreground: 0 0% 98%;
 
-    --border: 250 20% 90%;
-    --input: 250 20% 90%;
-    --ring: 270 80% 55%;
+    --border: 0 0% 89.8%;
+    --input: 0 0% 89.8%;
+    --ring: 0 0% 3.9%;
 
-    --radius: 0.75rem;
+    --radius: 0.5rem;
 
-    /* Sidebar (Admin) */
-    --sidebar-background: 250 30% 12%;
-    --sidebar-foreground: 250 10% 90%;
-    --sidebar-primary: 270 80% 60%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 250 25% 18%;
-    --sidebar-accent-foreground: 250 10% 90%;
-    --sidebar-border: 250 25% 20%;
-    --sidebar-ring: 270 80% 55%;
+    /* Sidebar - Dark theme */
+    --sidebar-background: 0 0% 3.9%;
+    --sidebar-foreground: 0 0% 98%;
+    --sidebar-primary: 0 0% 98%;
+    --sidebar-primary-foreground: 0 0% 9%;
+    --sidebar-accent: 0 0% 14.9%;
+    --sidebar-accent-foreground: 0 0% 98%;
+    --sidebar-border: 0 0% 14.9%;
+    --sidebar-ring: 0 0% 98%;
 
-    /* Custom gradients */
-    --gradient-primary: linear-gradient(135deg, hsl(270 80% 55%) 0%, hsl(220 80% 50%) 100%);
-    --gradient-accent: linear-gradient(135deg, hsl(175 80% 45%) 0%, hsl(200 90% 50%) 100%);
-    --gradient-warm: linear-gradient(135deg, hsl(35 95% 55%) 0%, hsl(350 85% 60%) 100%);
-    --gradient-success: linear-gradient(135deg, hsl(150 80% 42%) 0%, hsl(175 80% 45%) 100%);
-    
-    /* Category colors for beginner/junior/senior */
-    --category-beginner: 35 95% 55%;
-    --category-junior: 270 80% 55%;
-    --category-senior: 220 80% 50%;
+    /* Category colors */
+    --category-beginner: 38 92% 50%;
+    --category-junior: 262 83% 58%;
+    --category-senior: 221 83% 53%;
   }
 
   .dark {
-    --background: 250 30% 8%;
-    --foreground: 250 10% 95%;
+    /* Dark mode - Pure black experience */
+    --background: 0 0% 3.9%;
+    --foreground: 0 0% 98%;
 
-    --card: 250 30% 12%;
-    --card-foreground: 250 10% 95%;
+    --card: 0 0% 3.9%;
+    --card-foreground: 0 0% 98%;
 
-    --popover: 250 30% 12%;
-    --popover-foreground: 250 10% 95%;
+    --popover: 0 0% 3.9%;
+    --popover-foreground: 0 0% 98%;
 
-    --primary: 270 80% 60%;
-    --primary-foreground: 0 0% 100%;
+    --primary: 0 0% 98%;
+    --primary-foreground: 0 0% 9%;
 
-    --secondary: 250 25% 18%;
-    --secondary-foreground: 250 10% 90%;
+    --secondary: 0 0% 14.9%;
+    --secondary-foreground: 0 0% 98%;
 
-    --muted: 250 25% 18%;
-    --muted-foreground: 250 15% 60%;
+    --muted: 0 0% 14.9%;
+    --muted-foreground: 0 0% 63.9%;
 
-    --accent: 175 80% 50%;
-    --accent-foreground: 0 0% 100%;
+    --accent: 0 0% 14.9%;
+    --accent-foreground: 0 0% 98%;
 
-    --destructive: 0 70% 50%;
-    --destructive-foreground: 0 0% 100%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
 
-    --success: 150 70% 45%;
-    --success-foreground: 0 0% 100%;
+    --success: 142 70% 45%;
+    --success-foreground: 0 0% 98%;
 
-    --warning: 35 90% 50%;
-    --warning-foreground: 0 0% 100%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 9%;
 
-    --info: 200 85% 55%;
-    --info-foreground: 0 0% 100%;
+    --info: 217 91% 60%;
+    --info-foreground: 0 0% 98%;
 
-    --border: 250 25% 20%;
-    --input: 250 25% 20%;
-    --ring: 270 80% 60%;
+    --border: 0 0% 14.9%;
+    --input: 0 0% 14.9%;
+    --ring: 0 0% 83.1%;
 
-    --sidebar-background: 250 30% 6%;
-    --sidebar-foreground: 250 10% 90%;
-    --sidebar-primary: 270 80% 60%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 250 25% 12%;
-    --sidebar-accent-foreground: 250 10% 90%;
-    --sidebar-border: 250 25% 15%;
-    --sidebar-ring: 270 80% 60%;
+    --sidebar-background: 0 0% 0%;
+    --sidebar-foreground: 0 0% 98%;
+    --sidebar-primary: 0 0% 98%;
+    --sidebar-primary-foreground: 0 0% 9%;
+    --sidebar-accent: 0 0% 9%;
+    --sidebar-accent-foreground: 0 0% 98%;
+    --sidebar-border: 0 0% 14.9%;
+    --sidebar-ring: 0 0% 98%;
 
-    --category-beginner: 35 90% 50%;
-    --category-junior: 270 75% 60%;
-    --category-senior: 220 75% 55%;
+    --category-beginner: 38 92% 50%;
+    --category-junior: 262 83% 58%;
+    --category-senior: 221 83% 53%;
   }
 }
 
@@ -143,24 +138,16 @@
 }
 
 @layer utilities {
-  .gradient-primary {
-    background: var(--gradient-primary);
+  .gradient-dark {
+    background: linear-gradient(135deg, hsl(0 0% 0%) 0%, hsl(0 0% 9%) 100%);
   }
   
-  .gradient-accent {
-    background: var(--gradient-accent);
-  }
-  
-  .gradient-warm {
-    background: var(--gradient-warm);
-  }
-  
-  .gradient-success {
-    background: var(--gradient-success);
+  .gradient-subtle {
+    background: linear-gradient(135deg, hsl(0 0% 96%) 0%, hsl(0 0% 100%) 100%);
   }
 
-  .text-gradient-primary {
-    background: var(--gradient-primary);
+  .text-gradient {
+    background: linear-gradient(135deg, hsl(0 0% 20%) 0%, hsl(0 0% 40%) 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
@@ -185,11 +172,11 @@
   }
 }
 
-/* Custom scrollbar */
+/* Custom scrollbar - Minimal dark */
 @layer utilities {
   .scrollbar-thin {
     scrollbar-width: thin;
-    scrollbar-color: hsl(var(--muted-foreground)) transparent;
+    scrollbar-color: hsl(0 0% 30%) transparent;
   }
 
   .scrollbar-thin::-webkit-scrollbar {
@@ -202,11 +189,22 @@
   }
 
   .scrollbar-thin::-webkit-scrollbar-thumb {
-    background-color: hsl(var(--muted-foreground) / 0.3);
+    background-color: hsl(0 0% 30%);
     border-radius: 3px;
   }
 
   .scrollbar-thin::-webkit-scrollbar-thumb:hover {
-    background-color: hsl(var(--muted-foreground) / 0.5);
+    background-color: hsl(0 0% 40%);
+  }
+}
+
+/* Card hover effects */
+@layer utilities {
+  .card-hover {
+    @apply transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5;
+  }
+  
+  .card-interactive {
+    @apply transition-all duration-200 cursor-pointer hover:bg-accent/50;
   }
 }
