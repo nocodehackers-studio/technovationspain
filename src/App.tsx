@@ -13,6 +13,7 @@ import AuthCallback from "./pages/AuthCallback";
 import Onboarding from "./pages/Onboarding";
 import PendingVerification from "./pages/PendingVerification";
 import NotFound from "./pages/NotFound";
+import ParticipantDashboard from "./pages/ParticipantDashboard";
 
 // Admin Pages
 import AdminDashboard from "./pages/admin/AdminDashboard";
@@ -100,6 +101,13 @@ const App = () => (
             <Route path="/admin/settings" element={
               <ProtectedRoute requiredRoles={["admin"]}>
                 <AdminSettings />
+              </ProtectedRoute>
+            } />
+            
+            {/* Participant dashboard */}
+            <Route path="/dashboard" element={
+              <ProtectedRoute>
+                <ParticipantDashboard />
               </ProtectedRoute>
             } />
             

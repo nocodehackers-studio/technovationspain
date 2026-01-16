@@ -55,8 +55,8 @@ export default function AuthCallback() {
           if (highestRole === 'admin') {
             navigate('/admin', { replace: true });
           } else {
-            // Redirect to events list for other users
-            navigate('/events', { replace: true });
+            // Redirect to dashboard for other users
+            navigate('/dashboard', { replace: true });
           }
         } else {
           setError('No se pudo verificar tu sesión. Por favor, intenta de nuevo.');

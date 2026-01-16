@@ -35,8 +35,8 @@ export default function Index() {
     if (!isVerified) {
       return <Navigate to="/pending-verification" replace />;
     }
-    // Verified user - go to events
-    return <Navigate to="/events" replace />;
+    // Verified user - go to dashboard
+    return <Navigate to="/dashboard" replace />;
   }
 
   const handleSignUp = async (e: React.FormEvent) => {
