@@ -31,7 +31,6 @@ import EventsListPage from "./pages/events/EventsListPage";
 import EventDetailPage from "./pages/events/EventDetailPage";
 import EventRegistrationPage from "./pages/events/EventRegistrationPage";
 import RegistrationConfirmationPage from "./pages/events/RegistrationConfirmationPage";
-import MyTicketsPage from "./pages/events/MyTicketsPage";
 import TicketDetailPage from "./pages/events/TicketDetailPage";
 
 const queryClient = new QueryClient();
@@ -132,12 +131,7 @@ const App = () => (
                 <RegistrationConfirmationPage />
               </ProtectedRoute>
             } />
-            <Route path="/my-tickets" element={
-              <ProtectedRoute>
-                <MyTicketsPage />
-              </ProtectedRoute>
-            } />
-            <Route path="/my-tickets/:registrationId" element={
+            <Route path="/tickets/:registrationId" element={
               <ProtectedRoute>
                 <TicketDetailPage />
               </ProtectedRoute>

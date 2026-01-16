@@ -27,7 +27,7 @@ export default function TicketDetailPage() {
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
           <p className="text-destructive mb-4">Entrada no encontrada</p>
-          <Button onClick={() => navigate('/my-tickets')}>Volver a mis entradas</Button>
+          <Button onClick={() => navigate('/dashboard')}>Volver al dashboard</Button>
         </div>
       </div>
     );
@@ -71,9 +71,9 @@ export default function TicketDetailPage() {
       {/* Header */}
       <div className="bg-background border-b">
         <div className="max-w-lg mx-auto px-4 py-4">
-          <Button variant="ghost" onClick={() => navigate('/my-tickets')} className="gap-2">
+          <Button variant="ghost" onClick={() => navigate('/dashboard')} className="gap-2">
             <ArrowLeft className="h-4 w-4" />
-            Volver a mis entradas
+            Volver al dashboard
           </Button>
         </div>
       </div>

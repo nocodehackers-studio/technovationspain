@@ -168,9 +168,9 @@ export default function RegistrationConfirmationPage() {
         {/* Links */}
         <div className="text-center">
           <Button variant="link" asChild>
-            <Link to="/my-tickets" className="gap-2">
+            <Link to="/dashboard" className="gap-2">
               <Ticket className="h-4 w-4" />
-              Ver todas mis entradas
+              Ir al dashboard
             </Link>
           </Button>
         </div>
