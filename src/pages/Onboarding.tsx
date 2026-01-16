@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { Sparkles, User, Calendar, Mail, ArrowRight, ArrowLeft } from 'lucide-react';
 import { z } from 'zod';
@@ -16,7 +15,8 @@ const onboardingSchema = z.object({
   first_name: z.string().min(1, 'El nombre es obligatorio').max(100),
   last_name: z.string().min(1, 'Los apellidos son obligatorios').max(100),
   date_of_birth: z.string().min(1, 'La fecha de nacimiento es obligatoria'),
-  role: z.enum(['participant', 'mentor', 'judge', 'volunteer'] as const),
+  // Only participant role is allowed for public signup - other roles are assigned by admin
+  role: z.literal('participant'),
   tg_email: z.string().email('Email inválido').optional().or(z.literal('')),
   phone: z.string().max(20).optional(),
   postal_code: z.string().max(10).optional(),
@@ -174,12 +174,8 @@ export default function Onboarding() {
     return age < 14;
   };
 
-  const roleLabels: Record<string, string> = {
-    participant: 'Participante (8-18 años)',
-    mentor: 'Mentora',
-    judge: 'Jueza',
-    volunteer: 'Voluntaria',
-  };
+  // Role is fixed to participant for public signup
+  const roleLabel = 'Participante (8-18 años)';
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-secondary via-background to-muted p-4">
@@ -270,26 +266,14 @@ export default function Onboarding() {
                     )}
                   </div>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="role">¿Cuál es tu rol? *</Label>
-                    <Select
-                      value={formData.role}
-                      onValueChange={(value) => updateField('role', value)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Selecciona tu rol" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {Object.entries(roleLabels).map(([value, label]) => (
-                          <SelectItem key={value} value={value}>
-                            {label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {errors.role && (
-                      <p className="text-sm text-destructive">{errors.role}</p>
-                    )}
+                  {/* Role is fixed to participant for public signup */}
+                  <div className="rounded-lg bg-muted p-4">
+                    <Label className="text-sm font-medium">Tu rol</Label>
+                    <p className="text-base font-semibold text-foreground mt-1">{roleLabel}</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      El registro público es solo para participantes. Si eres mentora, jueza o 
+                      voluntaria, contacta con tu coordinadora regional.
+                    </p>
                   </div>
 
                   <Button

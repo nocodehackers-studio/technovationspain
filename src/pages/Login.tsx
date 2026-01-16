@@ -112,7 +112,7 @@ export default function Login() {
 
         <Card className="border-none shadow-2xl">
           <CardHeader className="text-center">
-            <CardTitle className="text-2xl font-display">Bienvenida</CardTitle>
+            <CardTitle className="text-2xl font-display">Iniciar sesión</CardTitle>
             <CardDescription>
               Accede con tu email para continuar
             </CardDescription>
@@ -165,15 +165,12 @@ export default function Login() {
         </Card>
 
         <p className="text-center text-sm text-muted-foreground">
-          Al continuar, aceptas nuestros{' '}
-          <Link to="/terms" className="text-primary hover:underline">
-            Términos de Servicio
-          </Link>{' '}
-          y{' '}
-          <Link to="/privacy" className="text-primary hover:underline">
-            Política de Privacidad
+          ¿No tienes cuenta?{' '}
+          <Link to="/signup" className="text-primary hover:underline font-medium">
+            Regístrate como participante
           </Link>
         </p>
+
       </div>
     </div>
   );
