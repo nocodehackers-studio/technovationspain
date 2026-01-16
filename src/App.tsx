@@ -24,6 +24,14 @@ import AdminImportCSV from "./pages/admin/AdminImportCSV";
 import AdminReports from "./pages/admin/AdminReports";
 import AdminSettings from "./pages/admin/AdminSettings";
 
+// Event Pages
+import EventsListPage from "./pages/events/EventsListPage";
+import EventDetailPage from "./pages/events/EventDetailPage";
+import EventRegistrationPage from "./pages/events/EventRegistrationPage";
+import RegistrationConfirmationPage from "./pages/events/RegistrationConfirmationPage";
+import MyTicketsPage from "./pages/events/MyTicketsPage";
+import TicketDetailPage from "./pages/events/TicketDetailPage";
+
 const queryClient = new QueryClient();
 
 const App = () => (
@@ -91,6 +99,38 @@ const App = () => (
             <Route path="/admin/settings" element={
               <ProtectedRoute requiredRoles={["admin"]}>
                 <AdminSettings />
+              </ProtectedRoute>
+            } />
+            
+            {/* Event routes */}
+            <Route path="/events" element={
+              <ProtectedRoute>
+                <EventsListPage />
+              </ProtectedRoute>
+            } />
+            <Route path="/events/:eventId" element={
+              <ProtectedRoute>
+                <EventDetailPage />
+              </ProtectedRoute>
+            } />
+            <Route path="/events/:eventId/register" element={
+              <ProtectedRoute>
+                <EventRegistrationPage />
+              </ProtectedRoute>
+            } />
+            <Route path="/events/:eventId/confirmation/:registrationId" element={
+              <ProtectedRoute>
+                <RegistrationConfirmationPage />
+              </ProtectedRoute>
+            } />
+            <Route path="/my-tickets" element={
+              <ProtectedRoute>
+                <MyTicketsPage />
+              </ProtectedRoute>
+            } />
+            <Route path="/my-tickets/:registrationId" element={
+              <ProtectedRoute>
+                <TicketDetailPage />
               </ProtectedRoute>
             } />
             
