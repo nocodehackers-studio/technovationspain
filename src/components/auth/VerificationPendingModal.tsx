@@ -27,7 +27,7 @@ export function VerificationPendingModal() {
 
   const handleSignOut = async () => {
     await signOut();
-    navigate('/login');
+    navigate('/');
   };
 
   // Don't render anything if loading or verified
