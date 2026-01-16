@@ -11,6 +11,7 @@ import { VerificationPendingModal } from "@/components/auth/VerificationPendingM
 import Index from "./pages/Index";
 import AuthCallback from "./pages/AuthCallback";
 import Onboarding from "./pages/Onboarding";
+import PendingVerification from "./pages/PendingVerification";
 import NotFound from "./pages/NotFound";
 
 // Admin Pages
@@ -47,7 +48,7 @@ const App = () => (
           <Routes>
             {/* Public routes */}
             <Route path="/auth/callback" element={<AuthCallback />} />
-            
+            <Route path="/pending-verification" element={<PendingVerification />} />
             {/* Protected routes */}
             <Route path="/onboarding" element={
               <ProtectedRoute>
