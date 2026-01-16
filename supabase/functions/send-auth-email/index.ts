@@ -3,7 +3,12 @@ import { Webhook } from "https://esm.sh/standardwebhooks@1.0.0";
 import { Resend } from "https://esm.sh/resend@2.0.0";
 
 const resend = new Resend(Deno.env.get("RESEND_API_KEY") as string);
-const hookSecret = Deno.env.get("SEND_EMAIL_HOOK_SECRET") as string;
+let hookSecret = Deno.env.get("SEND_EMAIL_HOOK_SECRET") as string;
+
+// Strip "v1," prefix if present - standardwebhooks expects just "whsec_..." format
+if (hookSecret && hookSecret.startsWith("v1,")) {
+  hookSecret = hookSecret.substring(3);
+}
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
