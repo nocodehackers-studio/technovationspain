@@ -1,0 +1,483 @@
+import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { ColumnDef } from "@tanstack/react-table";
+import { supabase } from "@/integrations/supabase/client";
+import { AdminLayout } from "@/components/admin/AdminLayout";
+import { DataTable } from "@/components/admin/DataTable";
+import { StatusBadge } from "@/components/admin/StatusBadge";
+import { RoleBadge } from "@/components/admin/RoleBadge";
+import { ConfirmDialog } from "@/components/admin/ConfirmDialog";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { toast } from "sonner";
+import { MoreHorizontal, Plus, UserCheck, UserX, Mail, Edit, Trash2 } from "lucide-react";
+import { Profile, AppRole, VerificationStatus } from "@/types/database";
+
+type UserWithRole = Profile & { role?: AppRole };
+
+export default function AdminUsers() {
+  const queryClient = useQueryClient();
+  const [selectedUser, setSelectedUser] = useState<UserWithRole | null>(null);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+
+  // Fetch users with roles
+  const { data: users, isLoading } = useQuery({
+    queryKey: ["admin-users"],
+    queryFn: async () => {
+      const { data: profiles, error: profilesError } = await supabase
+        .from("profiles")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (profilesError) throw profilesError;
+
+      const { data: roles, error: rolesError } = await supabase
+        .from("user_roles")
+        .select("*");
+
+      if (rolesError) throw rolesError;
+
+      // Merge profiles with roles
+      const usersWithRoles: UserWithRole[] = (profiles || []).map((profile) => {
+        const userRole = roles?.find((r) => r.user_id === profile.id);
+        return {
+          ...profile,
+          role: userRole?.role as AppRole | undefined,
+        };
+      });
+
+      return usersWithRoles;
+    },
+  });
+
+  // Update user mutation
+  const updateUserMutation = useMutation({
+    mutationFn: async ({
+      userId,
+      updates,
+    }: {
+      userId: string;
+      updates: Partial<Profile>;
+    }) => {
+      const { error } = await supabase
+        .from("profiles")
+        .update(updates)
+        .eq("id", userId);
+      
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin-users"] });
+      toast.success("Usuario actualizado correctamente");
+      setEditDialogOpen(false);
+    },
+    onError: (error) => {
+      toast.error(`Error al actualizar: ${error.message}`);
+    },
+  });
+
+  // Update verification status
+  const updateVerificationMutation = useMutation({
+    mutationFn: async ({
+      userId,
+      status,
+    }: {
+      userId: string;
+      status: VerificationStatus;
+    }) => {
+      const { error } = await supabase
+        .from("profiles")
+        .update({ verification_status: status })
+        .eq("id", userId);
+      
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin-users"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-dashboard-metrics"] });
+      toast.success("Estado de verificación actualizado");
+    },
+    onError: (error) => {
+      toast.error(`Error: ${error.message}`);
+    },
+  });
+
+  // Delete user mutation
+  const deleteUserMutation = useMutation({
+    mutationFn: async (userId: string) => {
+      // Note: This requires admin rights and cascade deletes set up in DB
+      const { error } = await supabase.auth.admin.deleteUser(userId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin-users"] });
+      toast.success("Usuario eliminado correctamente");
+      setDeleteDialogOpen(false);
+    },
+    onError: (error) => {
+      toast.error(`Error al eliminar: ${error.message}`);
+    },
+  });
+
+  const columns: ColumnDef<UserWithRole>[] = [
+    {
+      accessorKey: "avatar",
+      header: "",
+      cell: ({ row }) => {
+        const initials = `${row.original.first_name?.charAt(0) || ""}${row.original.last_name?.charAt(0) || ""}`.toUpperCase() || "?";
+        return (
+          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary text-sm font-medium">
+            {initials}
+          </div>
+        );
+      },
+    },
+    {
+      accessorKey: "name",
+      header: "Nombre",
+      cell: ({ row }) => (
+        <div className="flex flex-col">
+          <span className="font-medium">
+            {row.original.first_name} {row.original.last_name}
+          </span>
+          <span className="text-xs text-muted-foreground">{row.original.email}</span>
+        </div>
+      ),
+    },
+    {
+      accessorKey: "role",
+      header: "Rol",
+      cell: ({ row }) => row.original.role ? <RoleBadge role={row.original.role} /> : <span className="text-muted-foreground">—</span>,
+    },
+    {
+      accessorKey: "verification_status",
+      header: "Estado",
+      cell: ({ row }) => (
+        <StatusBadge status={row.original.verification_status || "pending"} />
+      ),
+    },
+    {
+      accessorKey: "tg_id",
+      header: "TG ID",
+      cell: ({ row }) => (
+        <span className="font-mono text-sm">
+          {row.original.tg_id || "—"}
+        </span>
+      ),
+    },
+    {
+      accessorKey: "created_at",
+      header: "Registro",
+      cell: ({ row }) => (
+        <span className="text-sm text-muted-foreground">
+          {new Date(row.original.created_at || "").toLocaleDateString("es-ES")}
+        </span>
+      ),
+    },
+    {
+      id: "actions",
+      cell: ({ row }) => {
+        const user = row.original;
+        return (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" className="h-8 w-8 p-0">
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>Acciones</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => {
+                  setSelectedUser(user);
+                  setEditDialogOpen(true);
+                }}
+              >
+                <Edit className="mr-2 h-4 w-4" />
+                Editar
+              </DropdownMenuItem>
+              {user.verification_status !== "verified" && (
+                <DropdownMenuItem
+                  onClick={() => updateVerificationMutation.mutate({ userId: user.id, status: "verified" })}
+                >
+                  <UserCheck className="mr-2 h-4 w-4" />
+                  Verificar
+                </DropdownMenuItem>
+              )}
+              {user.verification_status !== "rejected" && (
+                <DropdownMenuItem
+                  onClick={() => updateVerificationMutation.mutate({ userId: user.id, status: "rejected" })}
+                >
+                  <UserX className="mr-2 h-4 w-4" />
+                  Rechazar
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem>
+                <Mail className="mr-2 h-4 w-4" />
+                Enviar Email
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                className="text-destructive"
+                onClick={() => {
+                  setSelectedUser(user);
+                  setDeleteDialogOpen(true);
+                }}
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Eliminar
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        );
+      },
+    },
+  ];
+
+  return (
+    <AdminLayout title="Gestión de Usuarios">
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Usuarios</h1>
+            <p className="text-muted-foreground">
+              Gestiona los usuarios de la plataforma
+            </p>
+          </div>
+          <Button onClick={() => setCreateDialogOpen(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            Crear Usuario
+          </Button>
+        </div>
+
+        <DataTable
+          columns={columns}
+          data={users || []}
+          searchPlaceholder="Buscar por nombre, email o TG ID..."
+          loading={isLoading}
+          onExport={() => {
+            // TODO: Implement CSV export
+            toast.info("Exportación en desarrollo");
+          }}
+        />
+      </div>
+
+      {/* Edit User Dialog */}
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Editar Usuario</DialogTitle>
+            <DialogDescription>
+              Modifica los datos del usuario
+            </DialogDescription>
+          </DialogHeader>
+          {selectedUser && (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const formData = new FormData(e.currentTarget);
+                updateUserMutation.mutate({
+                  userId: selectedUser.id,
+                  updates: {
+                    first_name: formData.get("first_name") as string,
+                    last_name: formData.get("last_name") as string,
+                    phone: formData.get("phone") as string,
+                    postal_code: formData.get("postal_code") as string,
+                    tg_id: formData.get("tg_id") as string,
+                    tg_email: formData.get("tg_email") as string,
+                    verification_status: formData.get("verification_status") as VerificationStatus,
+                  },
+                });
+              }}
+              className="space-y-4"
+            >
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="first_name">Nombre</Label>
+                  <Input
+                    id="first_name"
+                    name="first_name"
+                    defaultValue={selectedUser.first_name || ""}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="last_name">Apellidos</Label>
+                  <Input
+                    id="last_name"
+                    name="last_name"
+                    defaultValue={selectedUser.last_name || ""}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="email">Email</Label>
+                  <Input
+                    id="email"
+                    value={selectedUser.email}
+                    disabled
+                    className="bg-muted"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="tg_email">Email TG</Label>
+                  <Input
+                    id="tg_email"
+                    name="tg_email"
+                    defaultValue={selectedUser.tg_email || ""}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="tg_id">TG ID</Label>
+                  <Input
+                    id="tg_id"
+                    name="tg_id"
+                    defaultValue={selectedUser.tg_id || ""}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="phone">Teléfono</Label>
+                  <Input
+                    id="phone"
+                    name="phone"
+                    defaultValue={selectedUser.phone || ""}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="postal_code">Código Postal</Label>
+                  <Input
+                    id="postal_code"
+                    name="postal_code"
+                    defaultValue={selectedUser.postal_code || ""}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="verification_status">Estado</Label>
+                  <Select
+                    name="verification_status"
+                    defaultValue={selectedUser.verification_status || "pending"}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="pending">Pendiente</SelectItem>
+                      <SelectItem value="verified">Verificado</SelectItem>
+                      <SelectItem value="manual_review">Revisión Manual</SelectItem>
+                      <SelectItem value="rejected">Rechazado</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setEditDialogOpen(false)}
+                >
+                  Cancelar
+                </Button>
+                <Button type="submit" disabled={updateUserMutation.isPending}>
+                  {updateUserMutation.isPending ? "Guardando..." : "Guardar"}
+                </Button>
+              </DialogFooter>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation */}
+      <ConfirmDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        title="¿Eliminar usuario?"
+        description={`Esta acción eliminará permanentemente a ${selectedUser?.first_name} ${selectedUser?.last_name}. Esta acción no se puede deshacer.`}
+        confirmText="Eliminar"
+        variant="danger"
+        onConfirm={() => selectedUser && deleteUserMutation.mutate(selectedUser.id)}
+        loading={deleteUserMutation.isPending}
+      />
+
+      {/* Create User Dialog */}
+      <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Crear Usuario</DialogTitle>
+            <DialogDescription>
+              Se enviará un Magic Link al email indicado
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              const formData = new FormData(e.currentTarget);
+              const email = formData.get("email") as string;
+              
+              // Send magic link to create user
+              const { error } = await supabase.auth.signInWithOtp({
+                email,
+                options: {
+                  emailRedirectTo: `${window.location.origin}/auth/callback`,
+                },
+              });
+
+              if (error) {
+                toast.error(`Error: ${error.message}`);
+              } else {
+                toast.success(`Se ha enviado un Magic Link a ${email}`);
+                setCreateDialogOpen(false);
+              }
+            }}
+            className="space-y-4"
+          >
+            <div className="space-y-2">
+              <Label htmlFor="new_email">Email</Label>
+              <Input
+                id="new_email"
+                name="email"
+                type="email"
+                placeholder="usuario@ejemplo.com"
+                required
+              />
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setCreateDialogOpen(false)}
+              >
+                Cancelar
+              </Button>
+              <Button type="submit">Enviar Magic Link</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </AdminLayout>
+  );
+}
