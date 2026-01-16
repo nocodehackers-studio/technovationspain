@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
+import { Webhook } from "https://esm.sh/standardwebhooks@1.0.0";
 import { Resend } from "https://esm.sh/resend@2.0.0";
 
 const resend = new Resend(Deno.env.get("RESEND_API_KEY") as string);
@@ -20,23 +21,24 @@ serve(async (req) => {
   }
 
   console.log("Received auth email hook request");
-
-  // Validate authorization token
-  const authHeader = req.headers.get("authorization");
-  const expectedToken = `Bearer ${hookSecret}`;
   
-  if (!authHeader || authHeader !== expectedToken) {
-    console.error("Unauthorized: Invalid or missing authorization token");
-    return new Response(
-      JSON.stringify({ error: { message: "Unauthorized" } }),
-      { status: 401, headers: { "Content-Type": "application/json", ...corsHeaders } }
-    );
-  }
+  // Log header keys for debugging (not values for security)
+  const headerKeys = Array.from(req.headers.keys());
+  console.log("Request header keys:", headerKeys.join(", "));
+
+  const payload = await req.text();
+  const headers = Object.fromEntries(req.headers);
 
   try {
-    const body = await req.json();
-    const { user, email_data } = body as {
-      user: { email: string };
+    // Verify webhook signature
+    const wh = new Webhook(hookSecret);
+    const {
+      user,
+      email_data: { token, token_hash, redirect_to, email_action_type },
+    } = wh.verify(payload, headers) as {
+      user: {
+        email: string;
+      };
       email_data: {
         token: string;
         token_hash: string;
@@ -44,8 +46,6 @@ serve(async (req) => {
         email_action_type: string;
       };
     };
-
-    const { token, token_hash, redirect_to, email_action_type } = email_data;
 
     console.log(`Sending ${email_action_type} email to ${user.email}`);
 
@@ -172,7 +172,8 @@ serve(async (req) => {
       headers: { "Content-Type": "application/json", ...corsHeaders },
     });
   } catch (error: any) {
-    console.error("Error in send-auth-email function:", error);
+    console.error("Error in send-auth-email function:", error.message);
+    console.error("Full error:", JSON.stringify(error));
     return new Response(
       JSON.stringify({
         error: {
