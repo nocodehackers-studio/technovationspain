@@ -41,14 +41,21 @@ export default function AuthCallback() {
             return;
           }
 
-          // Check user role for proper redirect
-          const { data: roleData } = await supabase
-            .rpc('get_user_role', { _user_id: data.session.user.id });
+          // Check user role for proper redirect - prioritize admin
+          const { data: rolesData } = await supabase
+            .from('user_roles')
+            .select('role')
+            .eq('user_id', data.session.user.id);
 
-          if (roleData === 'admin') {
+          type AppRole = 'admin' | 'mentor' | 'judge' | 'volunteer' | 'participant';
+          const rolePriority: AppRole[] = ['admin', 'mentor', 'judge', 'volunteer', 'participant'];
+          const userRoles = (rolesData?.map(r => r.role) || []) as AppRole[];
+          const highestRole = rolePriority.find(r => userRoles.includes(r));
+
+          if (highestRole === 'admin') {
             navigate('/admin', { replace: true });
           } else {
-            // Redirect to events list for participants
+            // Redirect to events list for other users
             navigate('/events', { replace: true });
           }
         } else {
