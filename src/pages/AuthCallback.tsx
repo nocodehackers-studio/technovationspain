@@ -48,8 +48,8 @@ export default function AuthCallback() {
           if (roleData === 'admin') {
             navigate('/admin', { replace: true });
           } else {
-            // Redirect to role-specific dashboard when implemented
-            navigate('/participant', { replace: true });
+            // Redirect to events list for participants
+            navigate('/events', { replace: true });
           }
         } else {
           setError('No se pudo verificar tu sesión. Por favor, intenta de nuevo.');
