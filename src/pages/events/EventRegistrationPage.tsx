@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { ArrowLeft, ArrowRight, Check, Loader2 } from 'lucide-react';
-import { useEvent, useEventRegistration } from '@/hooks/useEventRegistration';
+import { ArrowLeft, ArrowRight, Check, Loader2, Ticket } from 'lucide-react';
+import { useEvent, useEventRegistration, useExistingRegistration } from '@/hooks/useEventRegistration';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -52,6 +52,7 @@ export default function EventRegistrationPage() {
   
   const { data: event, isLoading } = useEvent(eventId || '');
   const { register, isRegistering, error } = useEventRegistration(eventId || '');
+  const { data: existingRegistration, isLoading: isCheckingRegistration } = useExistingRegistration(eventId || '');
   
   const form = useForm<RegistrationFormValues>({
     resolver: zodResolver(registrationSchema),
@@ -73,10 +74,57 @@ export default function EventRegistrationPage() {
   const selectedTicket = event?.ticket_types?.find(t => t.id === selectedTicketId);
   const requiresTeam = selectedTicket?.requires_team;
   
-  if (isLoading) {
+  if (isLoading || isCheckingRegistration) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <LoadingSpinner />
+      </div>
+    );
+  }
+  
+  // Show message if user is already registered
+  if (existingRegistration) {
+    return (
+      <div className="min-h-screen bg-muted/30">
+        <div className="bg-background border-b">
+          <div className="max-w-2xl mx-auto px-4 py-4">
+            <Button variant="ghost" onClick={() => navigate(`/events/${eventId}`)} className="gap-2">
+              <ArrowLeft className="h-4 w-4" />
+              Volver al evento
+            </Button>
+          </div>
+        </div>
+        
+        <div className="max-w-2xl mx-auto px-4 py-16">
+          <Card className="text-center">
+            <CardHeader>
+              <div className="mx-auto w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mb-4">
+                <Ticket className="h-8 w-8 text-primary" />
+              </div>
+              <CardTitle className="text-2xl">Ya estás inscrito en este evento</CardTitle>
+              <CardDescription className="text-base mt-2">
+                Tu número de registro es: <span className="font-mono font-medium">{existingRegistration.registration_number}</span>
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-muted-foreground">
+                Puedes ver los detalles de tu inscripción y descargar tu entrada desde la página de confirmación.
+              </p>
+              <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                <Button asChild>
+                  <Link to={`/events/${eventId}/confirmation/${existingRegistration.id}`}>
+                    Ver mi entrada
+                  </Link>
+                </Button>
+                <Button variant="outline" asChild>
+                  <Link to="/my-tickets">
+                    Mis entradas
+                  </Link>
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     );
   }

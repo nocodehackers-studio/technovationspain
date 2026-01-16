@@ -68,11 +68,47 @@ export function useEventsList() {
   });
 }
 
+export function useExistingRegistration(eventId: string) {
+  return useQuery({
+    queryKey: ['existing-registration', eventId],
+    queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return null;
+      
+      const { data } = await supabase
+        .from('event_registrations')
+        .select('id, registration_status, registration_number')
+        .eq('event_id', eventId)
+        .eq('user_id', user.id)
+        .maybeSingle();
+      
+      return data;
+    },
+    enabled: !!eventId,
+  });
+}
+
 export function useEventRegistration(eventId: string) {
   const queryClient = useQueryClient();
   
   const registerMutation = useMutation({
     mutationFn: async (formData: RegistrationFormData) => {
+      // 0. Check if user is already registered
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (user) {
+        const { data: existingRegistration } = await supabase
+          .from('event_registrations')
+          .select('id, registration_status')
+          .eq('event_id', eventId)
+          .eq('user_id', user.id)
+          .maybeSingle();
+        
+        if (existingRegistration) {
+          throw new Error('Ya estás inscrito en este evento. Puedes ver tu entrada en "Mis entradas".');
+        }
+      }
+      
       // 1. Check capacity
       const { data: ticketType, error: ticketError } = await supabase
         .from('event_ticket_types')
@@ -94,8 +130,7 @@ export function useEventRegistration(eventId: string) {
       const qrCode = generateQRCode();
       const registrationNumber = generateRegistrationNumber();
       
-      // 4. Get current user if logged in
-      const { data: { user } } = await supabase.auth.getUser();
+      // 4. User already fetched above
       
       // 5. Create registration
       const { data: registration, error } = await supabase
