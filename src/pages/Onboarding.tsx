@@ -146,13 +146,13 @@ export default function Onboarding() {
       // Redirect based on role
       const roleRoutes: Record<AppRole, string> = {
         admin: '/admin',
-        mentor: '/mentor',
-        participant: '/participant',
-        volunteer: '/volunteer',
-        judge: '/judge',
+        mentor: '/dashboard',
+        participant: '/dashboard',
+        volunteer: '/dashboard',
+        judge: '/dashboard',
       };
 
-      navigate(roleRoutes[formData.role] || '/', { replace: true });
+      navigate(roleRoutes[formData.role] || '/dashboard', { replace: true });
     } catch (error: any) {
       console.error('Onboarding error:', error);
       toast({
