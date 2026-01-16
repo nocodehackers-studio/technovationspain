@@ -49,10 +49,15 @@ export default function Index() {
 
     setLoading(true);
     
+    // Use the published URL for production, fallback to current origin for development
+    const baseUrl = window.location.hostname.includes('lovable.app') 
+      ? 'https://technovationspain.lovable.app'
+      : window.location.origin;
+    
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
+        emailRedirectTo: `${baseUrl}/auth/callback`,
       },
     });
 
