@@ -25,21 +25,31 @@ export default function AuthCallback() {
           // Check if user has completed onboarding
           const { data: profile, error: profileError } = await supabase
             .from('profiles')
-            .select('onboarding_completed')
+            .select('first_name, last_name, date_of_birth, onboarding_completed')
             .eq('id', data.session.user.id)
-            .single();
+            .maybeSingle();
 
-          if (profileError) {
-            console.error('Profile fetch error:', profileError);
-            // Profile might not exist yet, redirect to onboarding
+          // Profile doesn't exist or onboarding not completed
+          const needsOnboarding = !profile || 
+            !profile.onboarding_completed || 
+            !profile.first_name || 
+            !profile.last_name || 
+            !profile.date_of_birth;
+
+          if (needsOnboarding) {
             navigate('/onboarding', { replace: true });
             return;
           }
 
-          if (profile && !profile.onboarding_completed) {
-            navigate('/onboarding', { replace: true });
+          // Check user role for proper redirect
+          const { data: roleData } = await supabase
+            .rpc('get_user_role', { _user_id: data.session.user.id });
+
+          if (roleData === 'admin') {
+            navigate('/admin', { replace: true });
           } else {
-            navigate('/', { replace: true });
+            // Redirect to role-specific dashboard when implemented
+            navigate('/participant', { replace: true });
           }
         } else {
           setError('No se pudo verificar tu sesión. Por favor, intenta de nuevo.');
@@ -67,9 +77,9 @@ export default function AuthCallback() {
           <CardContent>
             <Button
               className="w-full"
-              onClick={() => navigate('/login', { replace: true })}
+              onClick={() => navigate('/', { replace: true })}
             >
-              Volver al inicio de sesión
+              Volver al inicio
             </Button>
           </CardContent>
         </Card>

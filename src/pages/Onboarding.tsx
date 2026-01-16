@@ -86,7 +86,7 @@ export default function Onboarding() {
         description: 'No hay sesión activa. Por favor, inicia sesión de nuevo.',
         variant: 'destructive',
       });
-      navigate('/login');
+      navigate('/');
       return;
     }
 
