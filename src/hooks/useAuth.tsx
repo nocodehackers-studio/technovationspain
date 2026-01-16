@@ -40,15 +40,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       setProfile(profileData as unknown as Profile);
 
-      // Fetch role
-      const { data: roleData, error: roleError } = await supabase
+      // Fetch role - prioritize admin role if user has multiple roles
+      const { data: rolesData, error: roleError } = await supabase
         .from('user_roles')
         .select('role')
-        .eq('user_id', userId)
-        .single();
+        .eq('user_id', userId);
 
-      if (!roleError && roleData) {
-        setRole(roleData.role as AppRole);
+      if (!roleError && rolesData && rolesData.length > 0) {
+        // Prioritize admin > mentor > judge > volunteer > participant
+        const rolePriority: AppRole[] = ['admin', 'mentor', 'judge', 'volunteer', 'participant'];
+        const userRoles = rolesData.map(r => r.role as AppRole);
+        const highestRole = rolePriority.find(r => userRoles.includes(r)) || userRoles[0];
+        setRole(highestRole);
       }
     } catch (error) {
       console.error('Error in fetchProfile:', error);
