@@ -137,38 +137,141 @@ export type Database = {
           },
         ]
       }
+      event_agenda: {
+        Row: {
+          color: string | null
+          created_at: string | null
+          description: string | null
+          end_time: string
+          event_id: string | null
+          id: string
+          sort_order: number | null
+          start_time: string
+          title: string
+        }
+        Insert: {
+          color?: string | null
+          created_at?: string | null
+          description?: string | null
+          end_time: string
+          event_id?: string | null
+          id?: string
+          sort_order?: number | null
+          start_time: string
+          title: string
+        }
+        Update: {
+          color?: string | null
+          created_at?: string | null
+          description?: string | null
+          end_time?: string
+          event_id?: string | null
+          id?: string
+          sort_order?: number | null
+          start_time?: string
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_agenda_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       event_registrations: {
         Row: {
           checked_in_at: string | null
+          checked_in_by: string | null
+          companion_of_registration_id: string | null
           created_at: string | null
+          data_consent: boolean | null
+          dni: string | null
+          email: string | null
           event_id: string | null
+          first_name: string | null
           id: string
+          image_consent: boolean | null
+          is_companion: boolean | null
+          last_name: string | null
+          phone: string | null
           qr_code: string
+          registration_number: string | null
           registration_status: string | null
           team_id: string | null
+          team_id_tg: string | null
+          team_name: string | null
+          tg_email: string | null
+          ticket_type_id: string | null
           user_id: string | null
         }
         Insert: {
           checked_in_at?: string | null
+          checked_in_by?: string | null
+          companion_of_registration_id?: string | null
           created_at?: string | null
+          data_consent?: boolean | null
+          dni?: string | null
+          email?: string | null
           event_id?: string | null
+          first_name?: string | null
           id?: string
+          image_consent?: boolean | null
+          is_companion?: boolean | null
+          last_name?: string | null
+          phone?: string | null
           qr_code: string
+          registration_number?: string | null
           registration_status?: string | null
           team_id?: string | null
+          team_id_tg?: string | null
+          team_name?: string | null
+          tg_email?: string | null
+          ticket_type_id?: string | null
           user_id?: string | null
         }
         Update: {
           checked_in_at?: string | null
+          checked_in_by?: string | null
+          companion_of_registration_id?: string | null
           created_at?: string | null
+          data_consent?: boolean | null
+          dni?: string | null
+          email?: string | null
           event_id?: string | null
+          first_name?: string | null
           id?: string
+          image_consent?: boolean | null
+          is_companion?: boolean | null
+          last_name?: string | null
+          phone?: string | null
           qr_code?: string
+          registration_number?: string | null
           registration_status?: string | null
           team_id?: string | null
+          team_id_tg?: string | null
+          team_name?: string | null
+          tg_email?: string | null
+          ticket_type_id?: string | null
           user_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "event_registrations_checked_in_by_fkey"
+            columns: ["checked_in_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_registrations_companion_of_registration_id_fkey"
+            columns: ["companion_of_registration_id"]
+            isOneToOne: false
+            referencedRelation: "event_registrations"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "event_registrations_event_id_fkey"
             columns: ["event_id"]
@@ -184,10 +287,70 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "event_registrations_ticket_type_id_fkey"
+            columns: ["ticket_type_id"]
+            isOneToOne: false
+            referencedRelation: "event_ticket_types"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "event_registrations_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      event_ticket_types: {
+        Row: {
+          allowed_roles: string[] | null
+          created_at: string | null
+          current_count: number | null
+          description: string | null
+          event_id: string | null
+          id: string
+          is_active: boolean | null
+          max_capacity: number
+          name: string
+          requires_team: boolean | null
+          requires_verification: boolean | null
+          sort_order: number | null
+        }
+        Insert: {
+          allowed_roles?: string[] | null
+          created_at?: string | null
+          current_count?: number | null
+          description?: string | null
+          event_id?: string | null
+          id?: string
+          is_active?: boolean | null
+          max_capacity: number
+          name: string
+          requires_team?: boolean | null
+          requires_verification?: boolean | null
+          sort_order?: number | null
+        }
+        Update: {
+          allowed_roles?: string[] | null
+          created_at?: string | null
+          current_count?: number | null
+          description?: string | null
+          event_id?: string | null
+          id?: string
+          is_active?: boolean | null
+          max_capacity?: number
+          name?: string
+          requires_team?: boolean | null
+          requires_verification?: boolean | null
+          sort_order?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_ticket_types_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
             referencedColumns: ["id"]
           },
         ]
@@ -198,39 +361,63 @@ export type Database = {
           current_registrations: number | null
           date: string
           description: string | null
+          end_time: string | null
           event_type: string | null
           id: string
+          image_url: string | null
           location: string | null
+          location_address: string | null
+          location_city: string | null
+          location_coordinates: Json | null
+          location_name: string | null
           max_capacity: number | null
           name: string
           registration_close_date: string | null
           registration_open_date: string | null
+          start_time: string | null
+          status: string | null
         }
         Insert: {
           created_at?: string | null
           current_registrations?: number | null
           date: string
           description?: string | null
+          end_time?: string | null
           event_type?: string | null
           id?: string
+          image_url?: string | null
           location?: string | null
+          location_address?: string | null
+          location_city?: string | null
+          location_coordinates?: Json | null
+          location_name?: string | null
           max_capacity?: number | null
           name: string
           registration_close_date?: string | null
           registration_open_date?: string | null
+          start_time?: string | null
+          status?: string | null
         }
         Update: {
           created_at?: string | null
           current_registrations?: number | null
           date?: string
           description?: string | null
+          end_time?: string | null
           event_type?: string | null
           id?: string
+          image_url?: string | null
           location?: string | null
+          location_address?: string | null
+          location_city?: string | null
+          location_coordinates?: Json | null
+          location_name?: string | null
           max_capacity?: number | null
           name?: string
           registration_close_date?: string | null
           registration_open_date?: string | null
+          start_time?: string | null
+          status?: string | null
         }
         Relationships: []
       }
@@ -573,6 +760,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      decrement_registration_count: {
+        Args: { p_event_id: string; p_ticket_type_id: string }
+        Returns: undefined
+      }
       get_user_role: {
         Args: { _user_id: string }
         Returns: Database["public"]["Enums"]["app_role"]
@@ -583,6 +774,10 @@ export type Database = {
           _user_id: string
         }
         Returns: boolean
+      }
+      increment_registration_count: {
+        Args: { p_event_id: string; p_ticket_type_id: string }
+        Returns: undefined
       }
     }
     Enums: {
