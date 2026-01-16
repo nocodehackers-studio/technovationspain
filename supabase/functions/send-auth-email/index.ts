@@ -1,5 +1,4 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { Webhook } from "https://esm.sh/standardwebhooks@1.0.0";
 import { Resend } from "https://esm.sh/resend@2.0.0";
 
 const resend = new Resend(Deno.env.get("RESEND_API_KEY") as string);
@@ -20,30 +19,33 @@ serve(async (req) => {
     return new Response("Method not allowed", { status: 405 });
   }
 
-  const payload = await req.text();
-  const headers = Object.fromEntries(req.headers);
-  
   console.log("Received auth email hook request");
 
+  // Validate authorization token
+  const authHeader = req.headers.get("authorization");
+  const expectedToken = `Bearer ${hookSecret}`;
+  
+  if (!authHeader || authHeader !== expectedToken) {
+    console.error("Unauthorized: Invalid or missing authorization token");
+    return new Response(
+      JSON.stringify({ error: { message: "Unauthorized" } }),
+      { status: 401, headers: { "Content-Type": "application/json", ...corsHeaders } }
+    );
+  }
+
   try {
-    const wh = new Webhook(hookSecret);
-    const {
-      user,
-      email_data: { token, token_hash, redirect_to, email_action_type },
-    } = wh.verify(payload, headers) as {
-      user: {
-        email: string;
-      };
+    const body = await req.json();
+    const { user, email_data } = body as {
+      user: { email: string };
       email_data: {
         token: string;
         token_hash: string;
         redirect_to: string;
         email_action_type: string;
-        site_url: string;
-        token_new: string;
-        token_hash_new: string;
       };
     };
+
+    const { token, token_hash, redirect_to, email_action_type } = email_data;
 
     console.log(`Sending ${email_action_type} email to ${user.email}`);
 
