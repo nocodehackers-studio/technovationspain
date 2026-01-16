@@ -1,0 +1,598 @@
+import { useState, useCallback } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import Papa from "papaparse";
+import { supabase } from "@/integrations/supabase/client";
+import { AdminLayout } from "@/components/admin/AdminLayout";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { toast } from "sonner";
+import { Upload, FileSpreadsheet, CheckCircle2, XCircle, AlertCircle, ArrowLeft, ArrowRight } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { useAuth } from "@/hooks/useAuth";
+import { VerificationStatus } from "@/types/database";
+
+type ImportStep = "upload" | "preview" | "processing" | "results";
+
+interface CSVRow {
+  [key: string]: string;
+}
+
+interface ColumnMapping {
+  csvColumn: string;
+  dbField: string;
+}
+
+interface ImportResult {
+  total: number;
+  created: number;
+  updated: number;
+  errors: { row: number; reason: string; data: CSVRow }[];
+}
+
+const dbFields = [
+  { value: "email", label: "Email" },
+  { value: "first_name", label: "Nombre" },
+  { value: "last_name", label: "Apellidos" },
+  { value: "tg_id", label: "TG ID" },
+  { value: "tg_email", label: "Email TG" },
+  { value: "phone", label: "Teléfono" },
+  { value: "postal_code", label: "Código Postal" },
+  { value: "skip", label: "— Ignorar —" },
+];
+
+export default function AdminImportCSV() {
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+  
+  const [step, setStep] = useState<ImportStep>("upload");
+  const [file, setFile] = useState<File | null>(null);
+  const [csvData, setCsvData] = useState<CSVRow[]>([]);
+  const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
+  const [columnMappings, setColumnMappings] = useState<ColumnMapping[]>([]);
+  const [options, setOptions] = useState({
+    updateExisting: true,
+    createNew: true,
+    autoVerify: true,
+  });
+  const [progress, setProgress] = useState(0);
+  const [result, setResult] = useState<ImportResult | null>(null);
+
+  // Auto-detect column mappings based on header names
+  const autoDetectMappings = (headers: string[]): ColumnMapping[] => {
+    const mappingRules: Record<string, string[]> = {
+      email: ["email", "correo", "e-mail", "mail"],
+      first_name: ["first_name", "nombre", "first name", "name", "firstname"],
+      last_name: ["last_name", "apellidos", "last name", "surname", "lastname", "apellido"],
+      tg_id: ["tg_id", "technovation_id", "id", "participant_id", "mentor_id"],
+      tg_email: ["tg_email", "technovation_email"],
+      phone: ["phone", "telefono", "teléfono", "mobile", "tel"],
+      postal_code: ["postal_code", "codigo_postal", "zip", "zipcode", "cp"],
+    };
+
+    return headers.map((header) => {
+      const headerLower = header.toLowerCase().trim();
+      let matchedField = "skip";
+
+      for (const [field, patterns] of Object.entries(mappingRules)) {
+        if (patterns.some((p) => headerLower.includes(p))) {
+          matchedField = field;
+          break;
+        }
+      }
+
+      return { csvColumn: header, dbField: matchedField };
+    });
+  };
+
+  // Handle file upload
+  const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = e.target.files?.[0];
+    if (!selectedFile) return;
+
+    if (!selectedFile.name.endsWith(".csv")) {
+      toast.error("Por favor, selecciona un archivo CSV");
+      return;
+    }
+
+    if (selectedFile.size > 10 * 1024 * 1024) {
+      toast.error("El archivo no puede superar los 10MB");
+      return;
+    }
+
+    setFile(selectedFile);
+
+    Papa.parse(selectedFile, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => {
+        const headers = results.meta.fields || [];
+        setCsvHeaders(headers);
+        setCsvData(results.data as CSVRow[]);
+        setColumnMappings(autoDetectMappings(headers));
+        setStep("preview");
+      },
+      error: (error) => {
+        toast.error(`Error al leer el archivo: ${error.message}`);
+      },
+    });
+  }, []);
+
+  // Handle drag and drop
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    const droppedFile = e.dataTransfer.files[0];
+    if (droppedFile) {
+      const input = document.createElement("input");
+      input.type = "file";
+      const dataTransfer = new DataTransfer();
+      dataTransfer.items.add(droppedFile);
+      input.files = dataTransfer.files;
+      
+      handleFileUpload({ target: input } as any);
+    }
+  }, [handleFileUpload]);
+
+  // Process import
+  const importMutation = useMutation({
+    mutationFn: async () => {
+      const importResult: ImportResult = {
+        total: csvData.length,
+        created: 0,
+        updated: 0,
+        errors: [],
+      };
+
+      // Create a mapping from csv columns to db fields
+      const fieldMap: Record<string, string> = {};
+      columnMappings.forEach((m) => {
+        if (m.dbField !== "skip") {
+          fieldMap[m.csvColumn] = m.dbField;
+        }
+      });
+
+      // Find email column
+      const emailColumn = columnMappings.find((m) => m.dbField === "email")?.csvColumn;
+      if (!emailColumn) {
+        throw new Error("Debe mapear una columna como Email");
+      }
+
+      for (let i = 0; i < csvData.length; i++) {
+        const row = csvData[i];
+        setProgress(Math.round(((i + 1) / csvData.length) * 100));
+
+        try {
+          const email = row[emailColumn]?.trim().toLowerCase();
+          if (!email) {
+            importResult.errors.push({
+              row: i + 1,
+              reason: "Email vacío",
+              data: row,
+            });
+            continue;
+          }
+
+          // Build update object
+          const updateData: Record<string, any> = {};
+          for (const [csvCol, dbField] of Object.entries(fieldMap)) {
+            if (dbField !== "email" && row[csvCol]) {
+              updateData[dbField] = row[csvCol].trim();
+            }
+          }
+
+          // Add verification status if auto-verify is enabled
+          if (options.autoVerify) {
+            updateData.verification_status = "verified" as VerificationStatus;
+          }
+
+          // Check if user exists (by email or tg_email)
+          const { data: existingUsers } = await supabase
+            .from("profiles")
+            .select("id, email, tg_email")
+            .or(`email.eq.${email},tg_email.eq.${email}`);
+
+          if (existingUsers && existingUsers.length > 0) {
+            // Update existing user
+            if (options.updateExisting) {
+              const { error } = await supabase
+                .from("profiles")
+                .update(updateData)
+                .eq("id", existingUsers[0].id);
+
+              if (error) {
+                importResult.errors.push({
+                  row: i + 1,
+                  reason: error.message,
+                  data: row,
+                });
+              } else {
+                importResult.updated++;
+              }
+            }
+          } else if (options.createNew) {
+            // Create new profile entry (user needs to sign up separately)
+            // For now, we just log that we can't create users without auth
+            importResult.errors.push({
+              row: i + 1,
+              reason: "Usuario no existe. Debe registrarse primero.",
+              data: row,
+            });
+          }
+        } catch (error: any) {
+          importResult.errors.push({
+            row: i + 1,
+            reason: error.message || "Error desconocido",
+            data: row,
+          });
+        }
+      }
+
+      // Log the import
+      await supabase.from("csv_imports").insert({
+        uploaded_by: user?.id,
+        file_name: file?.name || "unknown.csv",
+        status: importResult.errors.length === importResult.total ? "failed" : "completed",
+        records_processed: importResult.total,
+        records_updated: importResult.updated,
+        records_new: importResult.created,
+        errors: importResult.errors.length > 0 ? importResult.errors : null,
+      });
+
+      return importResult;
+    },
+    onSuccess: (data) => {
+      setResult(data);
+      setStep("results");
+      queryClient.invalidateQueries({ queryKey: ["admin-users"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-dashboard-metrics"] });
+    },
+    onError: (error) => {
+      toast.error(`Error en la importación: ${error.message}`);
+      setStep("preview");
+    },
+  });
+
+  const handleStartImport = () => {
+    setStep("processing");
+    setProgress(0);
+    importMutation.mutate();
+  };
+
+  const resetImport = () => {
+    setStep("upload");
+    setFile(null);
+    setCsvData([]);
+    setCsvHeaders([]);
+    setColumnMappings([]);
+    setProgress(0);
+    setResult(null);
+  };
+
+  return (
+    <AdminLayout title="Importar CSV">
+      <div className="max-w-4xl mx-auto space-y-6">
+        {/* Progress Steps */}
+        <div className="flex items-center justify-center gap-4">
+          {["upload", "preview", "processing", "results"].map((s, i) => (
+            <div key={s} className="flex items-center gap-2">
+              <div
+                className={cn(
+                  "flex h-8 w-8 items-center justify-center rounded-full text-sm font-medium",
+                  step === s
+                    ? "bg-primary text-primary-foreground"
+                    : ["upload", "preview", "processing", "results"].indexOf(step) > i
+                    ? "bg-success text-success-foreground"
+                    : "bg-muted text-muted-foreground"
+                )}
+              >
+                {i + 1}
+              </div>
+              {i < 3 && <div className="h-0.5 w-8 bg-muted" />}
+            </div>
+          ))}
+        </div>
+
+        {/* Step 1: Upload */}
+        {step === "upload" && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Subir Archivo CSV</CardTitle>
+              <CardDescription>
+                Sube un archivo CSV exportado de Technovation Global para verificar usuarios
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div
+                className="border-2 border-dashed rounded-lg p-12 text-center hover:border-primary/50 transition-colors cursor-pointer"
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={handleDrop}
+                onClick={() => document.getElementById("csv-upload")?.click()}
+              >
+                <Upload className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
+                <p className="text-lg font-medium mb-2">
+                  Arrastra y suelta tu archivo CSV aquí
+                </p>
+                <p className="text-sm text-muted-foreground mb-4">
+                  o haz clic para seleccionar un archivo
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Máximo 10MB, formato .csv
+                </p>
+                <input
+                  id="csv-upload"
+                  type="file"
+                  accept=".csv"
+                  className="hidden"
+                  onChange={handleFileUpload}
+                />
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Step 2: Preview */}
+        {step === "preview" && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Previsualización y Mapeo</CardTitle>
+              <CardDescription>
+                Verifica el mapeo de columnas y las primeras filas del archivo
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* File info */}
+              <div className="flex items-center gap-3 p-4 bg-muted rounded-lg">
+                <FileSpreadsheet className="h-8 w-8 text-primary" />
+                <div>
+                  <p className="font-medium">{file?.name}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {csvData.length} registros encontrados
+                  </p>
+                </div>
+              </div>
+
+              {/* Column Mapping */}
+              <div className="space-y-4">
+                <h3 className="font-medium">Mapeo de Columnas</h3>
+                <div className="grid gap-3 md:grid-cols-2">
+                  {columnMappings.map((mapping, index) => (
+                    <div key={index} className="flex items-center gap-3">
+                      <span className="text-sm font-mono bg-muted px-2 py-1 rounded min-w-[120px] truncate">
+                        {mapping.csvColumn}
+                      </span>
+                      <span>→</span>
+                      <Select
+                        value={mapping.dbField}
+                        onValueChange={(value) => {
+                          const newMappings = [...columnMappings];
+                          newMappings[index].dbField = value;
+                          setColumnMappings(newMappings);
+                        }}
+                      >
+                        <SelectTrigger className="w-[160px]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {dbFields.map((field) => (
+                            <SelectItem key={field.value} value={field.value}>
+                              {field.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Preview Table */}
+              <div className="space-y-2">
+                <h3 className="font-medium">Vista Previa (primeras 5 filas)</h3>
+                <div className="border rounded-lg overflow-auto max-h-60">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        {csvHeaders.map((header) => (
+                          <TableHead key={header} className="whitespace-nowrap">
+                            {header}
+                          </TableHead>
+                        ))}
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {csvData.slice(0, 5).map((row, i) => (
+                        <TableRow key={i}>
+                          {csvHeaders.map((header) => (
+                            <TableCell key={header} className="whitespace-nowrap">
+                              {row[header] || "—"}
+                            </TableCell>
+                          ))}
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+
+              {/* Options */}
+              <div className="space-y-4">
+                <h3 className="font-medium">Opciones de Importación</h3>
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="updateExisting"
+                      checked={options.updateExisting}
+                      onCheckedChange={(checked) =>
+                        setOptions({ ...options, updateExisting: !!checked })
+                      }
+                    />
+                    <Label htmlFor="updateExisting">
+                      Actualizar usuarios existentes
+                    </Label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="autoVerify"
+                      checked={options.autoVerify}
+                      onCheckedChange={(checked) =>
+                        setOptions({ ...options, autoVerify: !!checked })
+                      }
+                    />
+                    <Label htmlFor="autoVerify">
+                      Verificar automáticamente usuarios importados
+                    </Label>
+                  </div>
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex justify-between">
+                <Button variant="outline" onClick={resetImport}>
+                  <ArrowLeft className="mr-2 h-4 w-4" />
+                  Volver
+                </Button>
+                <Button onClick={handleStartImport}>
+                  Procesar Importación
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Step 3: Processing */}
+        {step === "processing" && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Procesando Importación</CardTitle>
+              <CardDescription>
+                Por favor, espera mientras procesamos los registros
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="flex flex-col items-center gap-4 py-8">
+                <div className="h-16 w-16 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+                <p className="text-lg font-medium">
+                  Procesando {progress}% ({Math.round((progress / 100) * csvData.length)} de {csvData.length})
+                </p>
+                <Progress value={progress} className="w-full max-w-md" />
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Step 4: Results */}
+        {step === "results" && result && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Resultados de la Importación</CardTitle>
+              <CardDescription>
+                Resumen de la importación completada
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Summary Cards */}
+              <div className="grid gap-4 md:grid-cols-4">
+                <div className="flex items-center gap-3 p-4 bg-muted rounded-lg">
+                  <FileSpreadsheet className="h-8 w-8 text-primary" />
+                  <div>
+                    <p className="text-2xl font-bold">{result.total}</p>
+                    <p className="text-sm text-muted-foreground">Total procesados</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 p-4 bg-success/10 rounded-lg">
+                  <CheckCircle2 className="h-8 w-8 text-success" />
+                  <div>
+                    <p className="text-2xl font-bold">{result.updated}</p>
+                    <p className="text-sm text-muted-foreground">Actualizados</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 p-4 bg-info/10 rounded-lg">
+                  <CheckCircle2 className="h-8 w-8 text-info" />
+                  <div>
+                    <p className="text-2xl font-bold">{result.created}</p>
+                    <p className="text-sm text-muted-foreground">Creados</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 p-4 bg-destructive/10 rounded-lg">
+                  <XCircle className="h-8 w-8 text-destructive" />
+                  <div>
+                    <p className="text-2xl font-bold">{result.errors.length}</p>
+                    <p className="text-sm text-muted-foreground">Errores</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Errors Table */}
+              {result.errors.length > 0 && (
+                <div className="space-y-2">
+                  <h3 className="font-medium flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4 text-destructive" />
+                    Errores ({result.errors.length})
+                  </h3>
+                  <div className="border rounded-lg overflow-auto max-h-60">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Fila</TableHead>
+                          <TableHead>Motivo</TableHead>
+                          <TableHead>Datos</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {result.errors.slice(0, 20).map((error, i) => (
+                          <TableRow key={i}>
+                            <TableCell>{error.row}</TableCell>
+                            <TableCell className="text-destructive">
+                              {error.reason}
+                            </TableCell>
+                            <TableCell className="font-mono text-xs max-w-xs truncate">
+                              {JSON.stringify(error.data)}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                  {result.errors.length > 20 && (
+                    <p className="text-sm text-muted-foreground">
+                      Mostrando 20 de {result.errors.length} errores
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="flex justify-between">
+                <Button variant="outline" onClick={resetImport}>
+                  Nueva Importación
+                </Button>
+                <Button onClick={() => window.location.href = "/admin/users"}>
+                  Ir a Usuarios
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+      </div>
+    </AdminLayout>
+  );
+}

@@ -15,6 +15,17 @@ import AuthCallback from "./pages/AuthCallback";
 import Onboarding from "./pages/Onboarding";
 import NotFound from "./pages/NotFound";
 
+// Admin Pages
+import AdminDashboard from "./pages/admin/AdminDashboard";
+import AdminUsers from "./pages/admin/AdminUsers";
+import AdminTeams from "./pages/admin/AdminTeams";
+import AdminHubs from "./pages/admin/AdminHubs";
+import AdminEvents from "./pages/admin/AdminEvents";
+import AdminWorkshops from "./pages/admin/AdminWorkshops";
+import AdminImportCSV from "./pages/admin/AdminImportCSV";
+import AdminReports from "./pages/admin/AdminReports";
+import AdminSettings from "./pages/admin/AdminSettings";
+
 const queryClient = new QueryClient();
 
 const App = () => (
@@ -37,6 +48,53 @@ const App = () => (
             <Route path="/onboarding" element={
               <ProtectedRoute>
                 <Onboarding />
+              </ProtectedRoute>
+            } />
+            
+            {/* Admin routes */}
+            <Route path="/admin" element={
+              <ProtectedRoute requiredRoles={["admin"]}>
+                <AdminDashboard />
+              </ProtectedRoute>
+            } />
+            <Route path="/admin/users" element={
+              <ProtectedRoute requiredRoles={["admin"]}>
+                <AdminUsers />
+              </ProtectedRoute>
+            } />
+            <Route path="/admin/teams" element={
+              <ProtectedRoute requiredRoles={["admin"]}>
+                <AdminTeams />
+              </ProtectedRoute>
+            } />
+            <Route path="/admin/hubs" element={
+              <ProtectedRoute requiredRoles={["admin"]}>
+                <AdminHubs />
+              </ProtectedRoute>
+            } />
+            <Route path="/admin/events" element={
+              <ProtectedRoute requiredRoles={["admin"]}>
+                <AdminEvents />
+              </ProtectedRoute>
+            } />
+            <Route path="/admin/workshops" element={
+              <ProtectedRoute requiredRoles={["admin"]}>
+                <AdminWorkshops />
+              </ProtectedRoute>
+            } />
+            <Route path="/admin/import-csv" element={
+              <ProtectedRoute requiredRoles={["admin"]}>
+                <AdminImportCSV />
+              </ProtectedRoute>
+            } />
+            <Route path="/admin/reports" element={
+              <ProtectedRoute requiredRoles={["admin"]}>
+                <AdminReports />
+              </ProtectedRoute>
+            } />
+            <Route path="/admin/settings" element={
+              <ProtectedRoute requiredRoles={["admin"]}>
+                <AdminSettings />
               </ProtectedRoute>
             } />
             
