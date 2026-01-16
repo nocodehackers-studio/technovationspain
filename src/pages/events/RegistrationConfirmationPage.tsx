@@ -1,4 +1,4 @@
-import { useSearchParams, useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useParams, Link } from 'react-router-dom';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { CheckCircle, Calendar, MapPin, Download, CalendarPlus, Ticket } from 'lucide-react';
@@ -10,9 +10,8 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { QRTicket } from '@/components/events/QRTicket';
 
 export default function RegistrationConfirmationPage() {
-  const [searchParams] = useSearchParams();
+  const { registrationId } = useParams<{ registrationId: string }>();
   const navigate = useNavigate();
-  const registrationId = searchParams.get('id');
   
   const { data: registration, isLoading, error } = useRegistration(registrationId || '');
   

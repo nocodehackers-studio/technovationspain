@@ -128,7 +128,7 @@ export default function EventRegistrationPage() {
       });
       
       toast.success('¡Inscripción completada!');
-      navigate(`/events/${eventId}/register/confirmation?id=${registration.id}`);
+      navigate(`/events/${eventId}/confirmation/${registration.id}`);
     } catch (err: any) {
       toast.error(err.message || 'Error al procesar la inscripción');
     }
