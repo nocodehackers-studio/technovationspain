@@ -12,7 +12,7 @@ import { toast } from "sonner";
 import { Mail, ArrowLeft, Loader2, Info } from "lucide-react";
 
 export default function Index() {
-  const { user, isLoading, role } = useAuth();
+  const { user, isLoading, role, needsOnboarding, isVerified } = useAuth();
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
@@ -22,12 +22,21 @@ export default function Index() {
     return <LoadingPage />;
   }
 
-  // If logged in, redirect based on role
+  // If logged in, redirect based on role and onboarding status
   if (user) {
     if (role === "admin") {
       return <Navigate to="/admin" replace />;
     }
-    return <Navigate to="/onboarding" replace />;
+    // Check if user needs onboarding first
+    if (needsOnboarding) {
+      return <Navigate to="/onboarding" replace />;
+    }
+    // Check verification status
+    if (!isVerified) {
+      return <Navigate to="/pending-verification" replace />;
+    }
+    // Verified user - go to events
+    return <Navigate to="/events" replace />;
   }
 
   const handleSignUp = async (e: React.FormEvent) => {
