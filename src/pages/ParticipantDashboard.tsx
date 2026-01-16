@@ -12,17 +12,16 @@ import {
   CheckCircle2, 
   Clock, 
   LogOut,
-  Settings,
   Bell
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
-import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
+import { Skeleton } from '@/components/ui/skeleton';
 
 export default function ParticipantDashboard() {
   const { user, profile, role, signOut, isVerified } = useAuth();
@@ -102,15 +101,7 @@ export default function ParticipantDashboard() {
     enabled: !!user,
   });
 
-  const isLoading = eventsLoading || registrationsLoading || teamLoading;
-
-  if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <LoadingSpinner />
-      </div>
-    );
-  }
+  // Removed blocking loading state - now we show skeletons per section
 
   const initials = profile 
     ? `${profile.first_name?.charAt(0) || ''}${profile.last_name?.charAt(0) || ''}`
@@ -228,7 +219,13 @@ export default function ParticipantDashboard() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                {myTeam ? (
+                {teamLoading ? (
+                  <div className="space-y-3">
+                    <Skeleton className="h-6 w-32" />
+                    <Skeleton className="h-4 w-24" />
+                    <Skeleton className="h-4 w-40" />
+                  </div>
+                ) : myTeam ? (
                   <div className="space-y-3">
                     <div>
                       <h3 className="font-semibold text-lg">{myTeam.name}</h3>
@@ -289,7 +286,19 @@ export default function ParticipantDashboard() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                {myRegistrations && myRegistrations.length > 0 ? (
+                {registrationsLoading ? (
+                  <div className="space-y-3">
+                    {[1, 2].map((i) => (
+                      <div key={i} className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
+                        <div className="space-y-2">
+                          <Skeleton className="h-4 w-40" />
+                          <Skeleton className="h-3 w-24" />
+                        </div>
+                        <Skeleton className="h-5 w-20" />
+                      </div>
+                    ))}
+                  </div>
+                ) : myRegistrations && myRegistrations.length > 0 ? (
                   <div className="space-y-3">
                     {myRegistrations.map((reg) => {
                       const event = reg.event as any;
@@ -354,7 +363,21 @@ export default function ParticipantDashboard() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                {upcomingEvents && upcomingEvents.length > 0 ? (
+                {eventsLoading ? (
+                  <div className="space-y-3">
+                    {[1, 2].map((i) => (
+                      <div key={i} className="p-4 rounded-lg border">
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="space-y-2 flex-1">
+                            <Skeleton className="h-5 w-48" />
+                            <Skeleton className="h-4 w-32" />
+                          </div>
+                          <Skeleton className="h-5 w-16" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : upcomingEvents && upcomingEvents.length > 0 ? (
                   <div className="space-y-3">
                     {upcomingEvents.map((event) => (
                       <Link
