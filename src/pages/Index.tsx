@@ -49,10 +49,9 @@ export default function Index() {
 
     setLoading(true);
     
-    // Use the published URL for production, fallback to current origin for development
-    const baseUrl = window.location.hostname.includes('lovable.app') 
-      ? 'https://technovationspain.lovable.app'
-      : window.location.origin;
+    // Always use production URL except for localhost development
+    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    const baseUrl = isLocalhost ? window.location.origin : 'https://technovationspain.lovable.app';
     
     const { error } = await supabase.auth.signInWithOtp({
       email,
