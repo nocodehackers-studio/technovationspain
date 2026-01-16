@@ -163,7 +163,7 @@ serve(async (req) => {
     `;
 
     const { error } = await resend.emails.send({
-      from: "Technovation Spain <hola@nocodehackers.es>",
+      from: "Technovation Spain <hola@pruebas.nocodehackers.es>",
       to: [user.email],
       subject: subject,
       html: html,
