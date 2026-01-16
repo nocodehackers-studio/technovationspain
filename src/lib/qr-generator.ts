@@ -10,9 +10,12 @@ export function generateQRCode(): string {
   return `TGM-${year}-${shortCode}`;
 }
 
-export function generateRegistrationNumber(count: number): string {
-  // Format: TGM-2025-00001
+export function generateRegistrationNumber(): string {
+  // Format: TGM-YYYY-XXXXXXXX (year + unique alphanumeric)
+  // Using timestamp + random to avoid collisions
   const year = new Date().getFullYear();
-  const paddedCount = String(count).padStart(5, '0');
-  return `TGM-${year}-${paddedCount}`;
+  const timestamp = Date.now().toString(36).toUpperCase(); // Base36 timestamp
+  const random = Math.random().toString(36).substring(2, 5).toUpperCase(); // 3 random chars
+  const uniquePart = (timestamp + random).slice(-8); // Take last 8 characters
+  return `TGM-${year}-${uniquePart}`;
 }
