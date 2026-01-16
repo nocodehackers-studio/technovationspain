@@ -90,15 +90,9 @@ export function useEventRegistration(eventId: string) {
         throw new Error('Lo sentimos, no quedan plazas disponibles para este tipo de entrada');
       }
       
-      // 2. Get current registration count for registration number
-      const { count } = await supabase
-        .from('event_registrations')
-        .select('*', { count: 'exact', head: true })
-        .eq('event_id', eventId);
-      
-      // 3. Generate codes
+      // 2. Generate codes (unique, no count needed)
       const qrCode = generateQRCode();
-      const registrationNumber = generateRegistrationNumber((count || 0) + 1);
+      const registrationNumber = generateRegistrationNumber();
       
       // 4. Get current user if logged in
       const { data: { user } } = await supabase.auth.getUser();
