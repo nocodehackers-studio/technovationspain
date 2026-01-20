@@ -35,7 +35,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { MoreHorizontal, Plus, Edit, Trash2, Users, GraduationCap, Calendar } from "lucide-react";
+import { MoreHorizontal, Plus, Edit, Trash2, Users, GraduationCap, Calendar, Eye, EyeOff } from "lucide-react";
 import { Event, EventType } from "@/types/database";
 
 export default function AdminEvents() {
@@ -61,8 +61,8 @@ export default function AdminEvents() {
 
   // Create event mutation
   const createEventMutation = useMutation({
-    mutationFn: async (event: Omit<Event, "id" | "created_at" | "current_registrations">) => {
-      const { error } = await supabase.from("events").insert(event);
+    mutationFn: async (event: Record<string, unknown>) => {
+      const { error } = await supabase.from("events").insert(event as any);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -82,11 +82,11 @@ export default function AdminEvents() {
       updates,
     }: {
       eventId: string;
-      updates: Partial<Event>;
+      updates: Record<string, unknown>;
     }) => {
       const { error } = await supabase
         .from("events")
-        .update(updates)
+        .update(updates as any)
         .eq("id", eventId);
       
       if (error) throw error;
@@ -178,7 +178,19 @@ export default function AdminEvents() {
     },
     {
       accessorKey: "status",
-      header: "Estado",
+      header: "Publicación",
+      cell: ({ row }) => {
+        const isPublished = row.original.status === 'published';
+        return (
+          <Badge variant={isPublished ? 'default' : 'secondary'}>
+            {isPublished ? 'Publicado' : 'Borrador'}
+          </Badge>
+        );
+      },
+    },
+    {
+      id: "registration_status",
+      header: "Registro",
       cell: ({ row }) => {
         const status = getEventStatus(row.original);
         return <Badge variant={status.variant}>{status.label}</Badge>;
@@ -188,6 +200,7 @@ export default function AdminEvents() {
       id: "actions",
       cell: ({ row }) => {
         const event = row.original;
+        const isPublished = event.status === 'published';
         return (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -198,6 +211,26 @@ export default function AdminEvents() {
             <DropdownMenuContent align="end">
               <DropdownMenuLabel>Acciones</DropdownMenuLabel>
               <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => {
+                  updateEventMutation.mutate({
+                    eventId: event.id,
+                    updates: { status: isPublished ? 'draft' : 'published' },
+                  });
+                }}
+              >
+                {isPublished ? (
+                  <>
+                    <EyeOff className="mr-2 h-4 w-4" />
+                    Despublicar
+                  </>
+                ) : (
+                  <>
+                    <Eye className="mr-2 h-4 w-4" />
+                    Publicar
+                  </>
+                )}
+              </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => {
                   setSelectedEvent(event);
