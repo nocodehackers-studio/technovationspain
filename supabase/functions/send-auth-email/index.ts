@@ -1,6 +1,10 @@
-import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { Webhook } from "https://esm.sh/standardwebhooks@1.0.0";
 import { Resend } from "https://esm.sh/resend@2.0.0";
+
+// Declare EdgeRuntime for background tasks
+declare const EdgeRuntime: {
+  waitUntil: (promise: Promise<unknown>) => void;
+};
 
 const resend = new Resend(Deno.env.get("RESEND_API_KEY") as string);
 let hookSecret = Deno.env.get("SEND_EMAIL_HOOK_SECRET") as string;
@@ -19,7 +23,31 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-serve(async (req) => {
+// Background task to send email - runs after response is sent
+async function sendEmailInBackground(
+  email: string,
+  subject: string,
+  html: string
+): Promise<void> {
+  try {
+    const { error } = await resend.emails.send({
+      from: "Technovation Spain <hola@pruebas.nocodehackers.es>",
+      to: [email],
+      subject: subject,
+      html: html,
+    });
+
+    if (error) {
+      console.error("Background email error:", error);
+    } else {
+      console.log(`Email sent successfully to ${email}`);
+    }
+  } catch (err: any) {
+    console.error("Background email exception:", err.message);
+  }
+}
+
+Deno.serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -56,7 +84,7 @@ serve(async (req) => {
       };
     };
 
-    console.log(`Sending ${email_action_type} email to ${user.email}`);
+    console.log(`Queueing ${email_action_type} email to ${user.email}`);
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
     const magicLinkUrl = `${supabaseUrl}/auth/v1/verify?token=${token_hash}&type=${email_action_type}&redirect_to=${redirect_to}`;
@@ -162,20 +190,13 @@ serve(async (req) => {
 </html>
     `;
 
-    const { error } = await resend.emails.send({
-      from: "Technovation Spain <hola@pruebas.nocodehackers.es>",
-      to: [user.email],
-      subject: subject,
-      html: html,
-    });
+    // Send email in background using EdgeRuntime.waitUntil
+    // This allows us to respond immediately while email sends async
+    EdgeRuntime.waitUntil(sendEmailInBackground(user.email, subject, html));
 
-    if (error) {
-      console.error("Error sending email:", error);
-      throw error;
-    }
+    console.log(`Email queued for ${user.email}, responding immediately`);
 
-    console.log(`Email sent successfully to ${user.email}`);
-
+    // Return success immediately - email will be sent in background
     return new Response(JSON.stringify({}), {
       status: 200,
       headers: { "Content-Type": "application/json", ...corsHeaders },
