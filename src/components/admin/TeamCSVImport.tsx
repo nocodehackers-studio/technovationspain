@@ -318,7 +318,7 @@ export function TeamCSVImport({ open, onOpenChange, onImportComplete }: TeamCSVI
                 .insert({
                   team_id: teamId,
                   user_id: userId,
-                  member_type: "student",
+                  member_type: "participant",
                 });
               
               if (insertError) {
