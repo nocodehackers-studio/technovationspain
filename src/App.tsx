@@ -33,6 +33,7 @@ import EventDetailPage from "./pages/events/EventDetailPage";
 import EventRegistrationPage from "./pages/events/EventRegistrationPage";
 import RegistrationConfirmationPage from "./pages/events/RegistrationConfirmationPage";
 import TicketDetailPage from "./pages/events/TicketDetailPage";
+import ValidatePage from "./pages/validate/ValidatePage";
 
 const queryClient = new QueryClient();
 
@@ -148,9 +149,13 @@ const App = () => (
               </ProtectedRoute>
             } />
             
+            {/* Validation routes (admin-only, handles own auth) */}
+            <Route path="/validate" element={<ValidatePage />} />
+            <Route path="/validate/:code" element={<ValidatePage />} />
+
             {/* Main app */}
             <Route path="/" element={<Index />} />
-            
+
             {/* Catch-all */}
             <Route path="*" element={<NotFound />} />
           </Routes>
