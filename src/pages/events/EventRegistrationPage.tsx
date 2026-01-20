@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { ArrowLeft, ArrowRight, Check, Loader2, Ticket } from 'lucide-react';
 import { useEvent, useEventRegistration, useExistingRegistration } from '@/hooks/useEventRegistration';
+import { useAuth } from '@/hooks/useAuth';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -49,6 +50,7 @@ type RegistrationFormValues = z.infer<typeof registrationSchema>;
 export default function EventRegistrationPage() {
   const { eventId } = useParams<{ eventId: string }>();
   const navigate = useNavigate();
+  const { profile } = useAuth();
   const [step, setStep] = useState(1);
   const [companions, setCompanions] = useState<CompanionData[]>([]);
   
@@ -60,17 +62,28 @@ export default function EventRegistrationPage() {
     resolver: zodResolver(registrationSchema),
     defaultValues: {
       ticket_type_id: '',
-      first_name: '',
-      last_name: '',
-      email: '',
+      first_name: profile?.first_name || '',
+      last_name: profile?.last_name || '',
+      email: profile?.email || '',
       dni: '',
-      phone: '',
+      phone: profile?.phone || '',
       team_name: '',
-      tg_email: '',
+      tg_email: profile?.tg_email || '',
       image_consent: false,
       data_consent: false,
     },
   });
+  
+  // Update form values when profile loads
+  useEffect(() => {
+    if (profile) {
+      form.setValue('first_name', profile.first_name || '');
+      form.setValue('last_name', profile.last_name || '');
+      form.setValue('email', profile.email || '');
+      form.setValue('phone', profile.phone || '');
+      form.setValue('tg_email', profile.tg_email || '');
+    }
+  }, [profile, form]);
   
   const selectedTicketId = form.watch('ticket_type_id');
   const selectedTicket = event?.ticket_types?.find(t => t.id === selectedTicketId);
