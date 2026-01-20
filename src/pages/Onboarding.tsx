@@ -38,7 +38,7 @@ export default function Onboarding() {
     last_name: '',
     date_of_birth: '',
     role: 'participant',
-    tg_email: '',
+    tg_email: user?.email || '',
     phone: '',
     postal_code: '',
   });
