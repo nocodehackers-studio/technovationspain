@@ -1,19 +1,30 @@
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { CheckCircle, Calendar, MapPin, Download, CalendarPlus, Ticket } from 'lucide-react';
-import { useRegistration } from '@/hooks/useEventRegistration';
+import { CheckCircle, Calendar, MapPin, Download, CalendarPlus, Ticket, Users } from 'lucide-react';
+import { useRegistration, useRegistrationCompanions } from '@/hooks/useEventRegistration';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { QRTicket } from '@/components/events/QRTicket';
+import { Separator } from '@/components/ui/separator';
+
+const RELATIONSHIP_LABELS: Record<string, string> = {
+  mother: 'Madre',
+  father: 'Padre',
+  guardian: 'Tutor/a legal',
+  grandparent: 'Abuelo/a',
+  sibling: 'Hermano/a mayor',
+  other: 'Otro familiar',
+};
 
 export default function RegistrationConfirmationPage() {
   const { registrationId } = useParams<{ registrationId: string }>();
   const navigate = useNavigate();
   
   const { data: registration, isLoading, error } = useRegistration(registrationId || '');
+  const { data: companions } = useRegistrationCompanions(registrationId || '');
   
   if (isLoading) {
     return (
@@ -81,7 +92,7 @@ export default function RegistrationConfirmationPage() {
           </p>
         </div>
         
-        {/* Ticket Card */}
+        {/* Main Ticket Card */}
         <Card className="overflow-hidden">
           {/* Header with gradient */}
           <CardHeader className="bg-gradient-to-r from-primary to-primary/80 text-primary-foreground p-6">
@@ -105,7 +116,7 @@ export default function RegistrationConfirmationPage() {
             {/* Details */}
             <div className="space-y-4 pt-4 border-t">
               <div>
-                <p className="text-sm text-muted-foreground">Asistente</p>
+                <p className="text-sm text-muted-foreground">Asistente principal</p>
                 <p className="font-medium">{registration.first_name} {registration.last_name}</p>
               </div>
               
@@ -157,11 +168,46 @@ export default function RegistrationConfirmationPage() {
           </div>
         </Card>
         
+        {/* Companion Tickets */}
+        {companions && companions.length > 0 && (
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 text-lg font-semibold">
+              <Users className="h-5 w-5" />
+              <span>Entradas de acompañantes ({companions.length})</span>
+            </div>
+            
+            {companions.map((companion) => (
+              <Card key={companion.id} className="overflow-hidden">
+                <CardHeader className="bg-gradient-to-r from-secondary to-secondary/80 text-secondary-foreground p-4">
+                  <div className="text-center">
+                    <p className="text-xs opacity-90 font-medium tracking-wider">ACOMPAÑANTE</p>
+                    <h3 className="font-bold">{companion.first_name} {companion.last_name}</h3>
+                    <p className="text-xs opacity-75">
+                      {RELATIONSHIP_LABELS[companion.relationship || ''] || companion.relationship}
+                    </p>
+                  </div>
+                </CardHeader>
+                
+                <CardContent className="p-4 space-y-4">
+                  {/* Companion QR Code */}
+                  <div className="flex justify-center py-2">
+                    <QRTicket code={companion.qr_code} size={140} />
+                  </div>
+                  
+                  <div className="text-center text-sm text-muted-foreground">
+                    <p>Acompañante de: {registration.first_name} {registration.last_name}</p>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+        
         {/* Info Alert */}
         <Alert>
           <AlertDescription>
-            <strong>⚠️ Importante:</strong> Presenta este QR en la entrada del evento para acceder. 
-            Puedes mostrarlo desde tu móvil o imprimirlo.
+            <strong>⚠️ Importante:</strong> Cada persona debe presentar su propio QR en la entrada del evento para acceder. 
+            {companions && companions.length > 0 && ' Los acompañantes también necesitan mostrar sus entradas individuales.'}
           </AlertDescription>
         </Alert>
         

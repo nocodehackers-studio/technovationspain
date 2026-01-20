@@ -392,6 +392,7 @@ export type Database = {
           id: string
           is_active: boolean | null
           max_capacity: number
+          max_companions: number
           name: string
           requires_team: boolean | null
           requires_verification: boolean | null
@@ -406,6 +407,7 @@ export type Database = {
           id?: string
           is_active?: boolean | null
           max_capacity: number
+          max_companions?: number
           name: string
           requires_team?: boolean | null
           requires_verification?: boolean | null
@@ -420,6 +422,7 @@ export type Database = {
           id?: string
           is_active?: boolean | null
           max_capacity?: number
+          max_companions?: number
           name?: string
           requires_team?: boolean | null
           requires_verification?: boolean | null
