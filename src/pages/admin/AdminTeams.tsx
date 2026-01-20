@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { DataTable } from "@/components/admin/DataTable";
 import { ConfirmDialog } from "@/components/admin/ConfirmDialog";
+import { TeamCSVImport } from "@/components/admin/TeamCSVImport";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -26,7 +27,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { MoreHorizontal, Plus, Edit, Trash2, Users } from "lucide-react";
+import { MoreHorizontal, Plus, Edit, Trash2, Users, Upload } from "lucide-react";
 import { Team, TeamCategory } from "@/types/database";
 
 export default function AdminTeams() {
@@ -35,6 +36,7 @@ export default function AdminTeams() {
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
 
   // Fetch teams with member counts
   const { data: teams, isLoading } = useQuery({
@@ -311,10 +313,16 @@ export default function AdminTeams() {
               Gestiona los equipos de participantes
             </p>
           </div>
-          <Button onClick={() => setCreateDialogOpen(true)}>
-            <Plus className="mr-2 h-4 w-4" />
-            Crear Equipo
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setImportDialogOpen(true)}>
+              <Upload className="mr-2 h-4 w-4" />
+              Importar CSV
+            </Button>
+            <Button onClick={() => setCreateDialogOpen(true)}>
+              <Plus className="mr-2 h-4 w-4" />
+              Crear Equipo
+            </Button>
+          </div>
         </div>
 
         <DataTable
@@ -374,6 +382,16 @@ export default function AdminTeams() {
         variant="danger"
         onConfirm={() => selectedTeam && deleteTeamMutation.mutate(selectedTeam.id)}
         loading={deleteTeamMutation.isPending}
+      />
+
+      {/* CSV Import Dialog */}
+      <TeamCSVImport
+        open={importDialogOpen}
+        onOpenChange={setImportDialogOpen}
+        onImportComplete={() => {
+          queryClient.invalidateQueries({ queryKey: ["admin-teams"] });
+          toast.success("Importación completada");
+        }}
       />
     </AdminLayout>
   );
