@@ -313,14 +313,20 @@ export function TeamCSVImport({ open, onOpenChange, onImportComplete }: TeamCSVI
               .maybeSingle();
 
             if (!existingMember) {
-              await supabase
+              const { error: insertError } = await supabase
                 .from("team_members")
                 .insert({
                   team_id: teamId,
                   user_id: userId,
                   member_type: "student",
                 });
-              importResult.membersLinked++;
+              
+              if (insertError) {
+                console.error("Error inserting team member:", insertError);
+                importResult.errors.push(`Error vinculando estudiante ${email}: ${insertError.message}`);
+              } else {
+                importResult.membersLinked++;
+              }
             }
           } else {
             // Update authorized_students if exists
@@ -357,14 +363,20 @@ export function TeamCSVImport({ open, onOpenChange, onImportComplete }: TeamCSVI
               .maybeSingle();
 
             if (!existingMember) {
-              await supabase
+              const { error: insertError } = await supabase
                 .from("team_members")
                 .insert({
                   team_id: teamId,
                   user_id: userId,
                   member_type: "mentor",
                 });
-              importResult.membersLinked++;
+              
+              if (insertError) {
+                console.error("Error inserting team member:", insertError);
+                importResult.errors.push(`Error vinculando mentor ${email}: ${insertError.message}`);
+              } else {
+                importResult.membersLinked++;
+              }
             }
           }
         }
