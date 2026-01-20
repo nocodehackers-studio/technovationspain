@@ -848,6 +848,7 @@ export type Database = {
         Args: { _user_id: string }
         Returns: Database["public"]["Enums"]["app_role"]
       }
+      get_user_team_ids: { Args: { _user_id: string }; Returns: string[] }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -858,6 +859,10 @@ export type Database = {
       increment_registration_count: {
         Args: { p_event_id: string; p_ticket_type_id: string }
         Returns: undefined
+      }
+      is_team_member: {
+        Args: { _team_id: string; _user_id: string }
+        Returns: boolean
       }
     }
     Enums: {
