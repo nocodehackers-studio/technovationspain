@@ -12,6 +12,12 @@ interface EventWithDetails extends Event {
   agenda: Tables<'event_agenda'>[];
 }
 
+interface CompanionData {
+  first_name: string;
+  last_name: string;
+  relationship: string;
+}
+
 interface RegistrationFormData {
   ticket_type_id: string;
   first_name: string;
@@ -26,6 +32,7 @@ interface RegistrationFormData {
   companion_of_registration_id?: string;
   image_consent: boolean;
   data_consent: boolean;
+  companions?: CompanionData[];
 }
 
 export function useEvent(eventId: string) {
@@ -126,13 +133,11 @@ export function useEventRegistration(eventId: string) {
         throw new Error('Lo sentimos, no quedan plazas disponibles para este tipo de entrada');
       }
       
-      // 2. Generate codes (unique, no count needed)
+      // 2. Generate codes for main registration
       const qrCode = generateQRCode();
       const registrationNumber = generateRegistrationNumber();
       
-      // 4. User already fetched above
-      
-      // 5. Create registration
+      // 3. Create main registration
       const { data: registration, error } = await supabase
         .from('event_registrations')
         .insert({
@@ -160,13 +165,33 @@ export function useEventRegistration(eventId: string) {
       
       if (error) throw error;
       
-      // 6. Update counters
+      // 4. Create companions if any
+      if (formData.companions && formData.companions.length > 0) {
+        const companionsToInsert = formData.companions.map(companion => ({
+          event_registration_id: registration.id,
+          first_name: companion.first_name,
+          last_name: companion.last_name,
+          relationship: companion.relationship,
+          qr_code: generateQRCode(), // Each companion gets their own QR code
+        }));
+        
+        const { error: companionError } = await supabase
+          .from('companions')
+          .insert(companionsToInsert);
+        
+        if (companionError) {
+          console.error('Error creating companions:', companionError);
+          // Don't throw - main registration was successful
+        }
+      }
+      
+      // 5. Update counters
       await supabase.rpc('increment_registration_count', {
         p_event_id: eventId,
         p_ticket_type_id: formData.ticket_type_id,
       });
       
-      // 7. Send confirmation email
+      // 6. Send confirmation email
       try {
         await supabase.functions.invoke('send-registration-confirmation', {
           body: { registrationId: registration.id },
@@ -226,6 +251,22 @@ export function useRegistration(registrationId: string) {
         `)
         .eq('id', registrationId)
         .single();
+      
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!registrationId,
+  });
+}
+
+export function useRegistrationCompanions(registrationId: string) {
+  return useQuery({
+    queryKey: ['registration-companions', registrationId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('companions')
+        .select('*')
+        .eq('event_registration_id', registrationId);
       
       if (error) throw error;
       return data;

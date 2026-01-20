@@ -29,6 +29,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
+import { CompanionFields, CompanionData } from '@/components/events/CompanionFields';
 
 const registrationSchema = z.object({
   ticket_type_id: z.string().min(1, 'Selecciona un tipo de entrada'),
@@ -49,6 +50,7 @@ export default function EventRegistrationPage() {
   const { eventId } = useParams<{ eventId: string }>();
   const navigate = useNavigate();
   const [step, setStep] = useState(1);
+  const [companions, setCompanions] = useState<CompanionData[]>([]);
   
   const { data: event, isLoading } = useEvent(eventId || '');
   const { register, isRegistering, error } = useEventRegistration(eventId || '');
@@ -73,6 +75,38 @@ export default function EventRegistrationPage() {
   const selectedTicketId = form.watch('ticket_type_id');
   const selectedTicket = event?.ticket_types?.find(t => t.id === selectedTicketId);
   const requiresTeam = selectedTicket?.requires_team;
+  const maxCompanions = selectedTicket?.max_companions || 0;
+  
+  // Determine number of steps based on whether companions are allowed
+  const totalSteps = maxCompanions > 0 ? 4 : 3;
+  
+  // Companion management functions
+  const handleAddCompanion = () => {
+    if (companions.length < maxCompanions) {
+      setCompanions([...companions, { first_name: '', last_name: '', relationship: '' }]);
+    }
+  };
+  
+  const handleRemoveCompanion = (index: number) => {
+    setCompanions(companions.filter((_, i) => i !== index));
+  };
+  
+  const handleUpdateCompanion = (index: number, field: keyof CompanionData, value: string) => {
+    const updated = [...companions];
+    updated[index] = { ...updated[index], [field]: value };
+    setCompanions(updated);
+  };
+  
+  // Validate companions
+  const validateCompanions = (): boolean => {
+    for (const companion of companions) {
+      if (!companion.first_name.trim() || !companion.last_name.trim() || !companion.relationship) {
+        toast.error('Por favor, completa todos los datos de los acompañantes');
+        return false;
+      }
+    }
+    return true;
+  };
   
   if (isLoading || isCheckingRegistration) {
     return (
@@ -145,19 +179,38 @@ export default function EventRegistrationPage() {
   const handleNext = async () => {
     if (step === 1) {
       const valid = await form.trigger('ticket_type_id');
-      if (valid) setStep(2);
+      if (valid) {
+        // Reset companions when changing ticket type
+        setCompanions([]);
+        setStep(2);
+      }
     } else if (step === 2) {
       const fieldsToValidate: (keyof RegistrationFormValues)[] = ['first_name', 'last_name', 'email'];
       if (requiresTeam) {
         fieldsToValidate.push('team_name', 'tg_email');
       }
       const valid = await form.trigger(fieldsToValidate);
-      if (valid) setStep(3);
+      if (valid) {
+        // Skip to confirmation if no companions allowed
+        setStep(maxCompanions > 0 ? 3 : 4);
+      }
+    } else if (step === 3 && maxCompanions > 0) {
+      // Validate companions step
+      if (validateCompanions()) {
+        setStep(4);
+      }
     }
   };
   
   const handleBack = () => {
-    if (step > 1) setStep(step - 1);
+    if (step > 1) {
+      // Handle skipping companions step when going back
+      if (step === 4 && maxCompanions === 0) {
+        setStep(2);
+      } else {
+        setStep(step - 1);
+      }
+    }
   };
   
   const onSubmit = async (values: RegistrationFormValues) => {
@@ -173,6 +226,7 @@ export default function EventRegistrationPage() {
         tg_email: values.tg_email || undefined,
         image_consent: values.image_consent,
         data_consent: values.data_consent,
+        companions: companions.length > 0 ? companions : undefined,
       });
       
       toast.success('¡Inscripción completada!');
@@ -180,6 +234,29 @@ export default function EventRegistrationPage() {
     } catch (err: any) {
       toast.error(err.message || 'Error al procesar la inscripción');
     }
+  };
+  
+  // Step labels based on whether companions are allowed
+  const getStepLabels = () => {
+    if (maxCompanions > 0) {
+      return ['Entrada', 'Datos', 'Acompañantes', 'Confirmar'];
+    }
+    return ['Entrada', 'Datos', 'Confirmar'];
+  };
+  
+  const stepLabels = getStepLabels();
+  
+  // Translate relationship values
+  const getRelationshipLabel = (value: string): string => {
+    const labels: Record<string, string> = {
+      mother: 'Madre',
+      father: 'Padre',
+      guardian: 'Tutor/a legal',
+      grandparent: 'Abuelo/a',
+      sibling: 'Hermano/a mayor',
+      other: 'Otro familiar',
+    };
+    return labels[value] || value;
   };
   
   return (
@@ -198,7 +275,7 @@ export default function EventRegistrationPage() {
       <div className="bg-background border-b">
         <div className="max-w-2xl mx-auto px-4 py-6">
           <div className="flex items-center justify-center gap-4">
-            {[1, 2, 3].map((s) => (
+            {Array.from({ length: totalSteps }, (_, i) => i + 1).map((s) => (
               <div key={s} className="flex items-center">
                 <div className={`
                   w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium
@@ -206,16 +283,18 @@ export default function EventRegistrationPage() {
                 `}>
                   {step > s ? <Check className="h-4 w-4" /> : s}
                 </div>
-                {s < 3 && (
-                  <div className={`w-16 h-0.5 mx-2 ${step > s ? 'bg-primary' : 'bg-muted'}`} />
+                {s < totalSteps && (
+                  <div className={`w-12 h-0.5 mx-2 ${step > s ? 'bg-primary' : 'bg-muted'}`} />
                 )}
               </div>
             ))}
           </div>
-          <div className="flex justify-center gap-8 mt-2 text-xs text-muted-foreground">
-            <span className={step >= 1 ? 'text-primary font-medium' : ''}>Entrada</span>
-            <span className={step >= 2 ? 'text-primary font-medium' : ''}>Datos</span>
-            <span className={step >= 3 ? 'text-primary font-medium' : ''}>Confirmar</span>
+          <div className="flex justify-center gap-6 mt-2 text-xs text-muted-foreground">
+            {stepLabels.map((label, i) => (
+              <span key={label} className={step >= i + 1 ? 'text-primary font-medium' : ''}>
+                {label}
+              </span>
+            ))}
           </div>
         </div>
       </div>
@@ -248,6 +327,7 @@ export default function EventRegistrationPage() {
                             {ticketTypes.map((ticket) => {
                               const available = (ticket.max_capacity || 0) - (ticket.current_count || 0);
                               const isSoldOut = available <= 0;
+                              const ticketMaxCompanions = ticket.max_companions || 0;
                               
                               return (
                                 <div
@@ -272,6 +352,11 @@ export default function EventRegistrationPage() {
                                       </Label>
                                       {ticket.description && (
                                         <p className="text-sm text-muted-foreground">{ticket.description}</p>
+                                      )}
+                                      {ticketMaxCompanions > 0 && (
+                                        <p className="text-xs text-primary mt-1">
+                                          Permite {ticketMaxCompanions} acompañante{ticketMaxCompanions > 1 ? 's' : ''}
+                                        </p>
                                       )}
                                     </div>
                                   </div>
@@ -432,8 +517,20 @@ export default function EventRegistrationPage() {
               </Card>
             )}
             
-            {/* Step 3: Confirmation */}
-            {step === 3 && (
+            {/* Step 3: Companions (only if allowed) */}
+            {step === 3 && maxCompanions > 0 && (
+              <CompanionFields
+                form={form}
+                maxCompanions={maxCompanions}
+                companions={companions}
+                onAddCompanion={handleAddCompanion}
+                onRemoveCompanion={handleRemoveCompanion}
+                onUpdateCompanion={handleUpdateCompanion}
+              />
+            )}
+            
+            {/* Step 4 (or 3 if no companions): Confirmation */}
+            {step === totalSteps && (
               <div className="space-y-6">
                 <Card>
                   <CardHeader>
@@ -450,7 +547,7 @@ export default function EventRegistrationPage() {
                         <p className="font-medium">{selectedTicket?.name}</p>
                       </div>
                       <div>
-                        <p className="text-muted-foreground">Asistente</p>
+                        <p className="text-muted-foreground">Asistente principal</p>
                         <p className="font-medium">
                           {form.getValues('first_name')} {form.getValues('last_name')}
                         </p>
@@ -461,11 +558,34 @@ export default function EventRegistrationPage() {
                       </div>
                     </div>
                     
+                    {companions.length > 0 && (
+                      <>
+                        <Separator />
+                        <div>
+                          <p className="text-muted-foreground mb-2">Acompañantes ({companions.length})</p>
+                          <div className="space-y-2">
+                            {companions.map((companion, index) => (
+                              <div key={index} className="flex justify-between items-center text-sm p-2 bg-muted/50 rounded">
+                                <span className="font-medium">
+                                  {companion.first_name} {companion.last_name}
+                                </span>
+                                <span className="text-muted-foreground">
+                                  {getRelationshipLabel(companion.relationship)}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </>
+                    )}
+                    
                     <Separator />
                     
                     <div className="flex justify-between items-center">
-                      <span className="font-medium">Total</span>
-                      <span className="text-lg font-bold text-primary">Gratis</span>
+                      <span className="font-medium">Total de entradas</span>
+                      <span className="text-lg font-bold text-primary">
+                        {1 + companions.length} entrada{companions.length > 0 ? 's' : ''} - Gratis
+                      </span>
                     </div>
                   </CardContent>
                 </Card>
@@ -488,7 +608,7 @@ export default function EventRegistrationPage() {
                           </FormControl>
                           <div className="space-y-1 leading-none">
                             <FormLabel className="font-normal text-sm">
-                              Autorizo la captación de imágenes durante el evento
+                              Autorizo la captación de imágenes durante el evento {companions.length > 0 ? '(para mí y mis acompañantes)' : ''}
                             </FormLabel>
                           </div>
                         </FormItem>
@@ -508,7 +628,7 @@ export default function EventRegistrationPage() {
                           </FormControl>
                           <div className="space-y-1 leading-none">
                             <FormLabel className="font-normal text-sm">
-                              He leído y acepto la política de privacidad y el tratamiento de mis datos personales *
+                              He leído y acepto la política de privacidad y el tratamiento de mis datos personales {companions.length > 0 ? '(y los de mis acompañantes)' : ''} *
                             </FormLabel>
                           </div>
                           <FormMessage />
@@ -523,7 +643,7 @@ export default function EventRegistrationPage() {
                       <CollapsibleContent className="mt-2 p-4 bg-muted rounded-lg text-sm text-muted-foreground">
                         Este evento puede ser retransmitido, grabado y/o publicado en nuestro canal de Youtube. 
                         Cuando te registras, estás autorizando a Asociación Power to Code a la captación de imágenes 
-                        de tu persona y/o de la menor participante, en fotografía o vídeo, durante el transcurso del evento.
+                        de tu persona y/o de la menor participante y sus acompañantes, en fotografía o vídeo, durante el transcurso del evento.
                         Los datos proporcionados serán tratados conforme al RGPD y la LOPDGDD.
                       </CollapsibleContent>
                     </Collapsible>
@@ -543,7 +663,7 @@ export default function EventRegistrationPage() {
                 <div />
               )}
               
-              {step < 3 ? (
+              {step < totalSteps ? (
                 <Button type="button" onClick={handleNext}>
                   Siguiente
                   <ArrowRight className="h-4 w-4 ml-2" />
