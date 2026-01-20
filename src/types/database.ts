@@ -71,7 +71,15 @@ export interface Event {
   name: string;
   event_type?: EventType | null;
   date: string;
+  status?: 'draft' | 'published' | null;
   location?: string | null;
+  location_name?: string | null;
+  location_address?: string | null;
+  location_city?: string | null;
+  location_coordinates?: Record<string, unknown> | null;
+  image_url?: string | null;
+  start_time?: string | null;
+  end_time?: string | null;
   max_capacity?: number | null;
   current_registrations: number;
   registration_open_date?: string | null;
