@@ -52,6 +52,86 @@ export type Database = {
           },
         ]
       }
+      authorized_students: {
+        Row: {
+          age: number | null
+          city: string | null
+          created_at: string
+          email: string
+          first_name: string | null
+          id: string
+          imported_at: string
+          last_name: string | null
+          matched_profile_id: string | null
+          media_consent: string | null
+          parent_email: string | null
+          parent_name: string | null
+          parental_consent: string | null
+          phone: string | null
+          school_name: string | null
+          signed_up_at: string | null
+          state: string | null
+          team_division: string | null
+          team_name: string | null
+          tg_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          age?: number | null
+          city?: string | null
+          created_at?: string
+          email: string
+          first_name?: string | null
+          id?: string
+          imported_at?: string
+          last_name?: string | null
+          matched_profile_id?: string | null
+          media_consent?: string | null
+          parent_email?: string | null
+          parent_name?: string | null
+          parental_consent?: string | null
+          phone?: string | null
+          school_name?: string | null
+          signed_up_at?: string | null
+          state?: string | null
+          team_division?: string | null
+          team_name?: string | null
+          tg_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          age?: number | null
+          city?: string | null
+          created_at?: string
+          email?: string
+          first_name?: string | null
+          id?: string
+          imported_at?: string
+          last_name?: string | null
+          matched_profile_id?: string | null
+          media_consent?: string | null
+          parent_email?: string | null
+          parent_name?: string | null
+          parental_consent?: string | null
+          phone?: string | null
+          school_name?: string | null
+          signed_up_at?: string | null
+          state?: string | null
+          team_division?: string | null
+          team_name?: string | null
+          tg_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "authorized_students_matched_profile_id_fkey"
+            columns: ["matched_profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       companions: {
         Row: {
           checked_in_at: string | null

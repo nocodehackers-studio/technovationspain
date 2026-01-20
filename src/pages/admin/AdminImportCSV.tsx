@@ -24,7 +24,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { toast } from "sonner";
-import { Upload, FileSpreadsheet, CheckCircle2, XCircle, AlertCircle, ArrowLeft, ArrowRight } from "lucide-react";
+import { Upload, FileSpreadsheet, CheckCircle2, XCircle, AlertCircle, ArrowLeft, ArrowRight, Users, UserPlus, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
 import { VerificationStatus } from "@/types/database";
@@ -44,17 +44,28 @@ interface ImportResult {
   total: number;
   created: number;
   updated: number;
+  skipped: number;
   errors: { row: number; reason: string; data: CSVRow }[];
 }
 
+// Database fields for mapping - extended for Technovation CSV
 const dbFields = [
-  { value: "email", label: "Email" },
+  { value: "email", label: "Email (principal)" },
   { value: "first_name", label: "Nombre" },
   { value: "last_name", label: "Apellidos" },
-  { value: "tg_id", label: "TG ID" },
-  { value: "tg_email", label: "Email TG" },
+  { value: "tg_id", label: "ID Technovation" },
   { value: "phone", label: "Teléfono" },
-  { value: "postal_code", label: "Código Postal" },
+  { value: "parent_name", label: "Nombre tutor/a" },
+  { value: "parent_email", label: "Email tutor/a" },
+  { value: "team_name", label: "Nombre equipo" },
+  { value: "team_division", label: "División equipo" },
+  { value: "school_name", label: "Centro educativo" },
+  { value: "city", label: "Ciudad" },
+  { value: "state", label: "Comunidad/Estado" },
+  { value: "age", label: "Edad" },
+  { value: "parental_consent", label: "Consentimiento parental" },
+  { value: "media_consent", label: "Consentimiento medios" },
+  { value: "signed_up_at", label: "Fecha registro TG" },
   { value: "skip", label: "— Ignorar —" },
 ];
 
@@ -69,22 +80,30 @@ export default function AdminImportCSV() {
   const [columnMappings, setColumnMappings] = useState<ColumnMapping[]>([]);
   const [options, setOptions] = useState({
     updateExisting: true,
-    createNew: true,
-    autoVerify: true,
+    autoVerifyRegistered: true,
   });
   const [progress, setProgress] = useState(0);
   const [result, setResult] = useState<ImportResult | null>(null);
 
-  // Auto-detect column mappings based on header names
+  // Auto-detect column mappings based on Technovation CSV headers
   const autoDetectMappings = (headers: string[]): ColumnMapping[] => {
     const mappingRules: Record<string, string[]> = {
       email: ["email", "correo", "e-mail", "mail"],
-      first_name: ["first_name", "nombre", "first name", "name", "firstname"],
-      last_name: ["last_name", "apellidos", "last name", "surname", "lastname", "apellido"],
-      tg_id: ["tg_id", "technovation_id", "id", "participant_id", "mentor_id"],
-      tg_email: ["tg_email", "technovation_email"],
-      phone: ["phone", "telefono", "teléfono", "mobile", "tel"],
-      postal_code: ["postal_code", "codigo_postal", "zip", "zipcode", "cp"],
+      first_name: ["first name", "first_name", "nombre", "firstname"],
+      last_name: ["last name", "last_name", "apellidos", "surname", "lastname", "apellido"],
+      tg_id: ["participant id", "participant_id", "tg_id", "technovation_id", "mentor id"],
+      phone: ["phone number", "phone", "telefono", "teléfono", "mobile", "tel"],
+      parent_name: ["parent guardian name", "parent_name", "tutor", "guardian name"],
+      parent_email: ["parent guardian email", "parent_email", "tutor email", "guardian email"],
+      team_name: ["team name", "team name(s)", "team_name", "equipo"],
+      team_division: ["team division", "division", "categoría", "category"],
+      school_name: ["school name", "school", "colegio", "centro", "institución"],
+      city: ["city", "ciudad", "localidad"],
+      state: ["state", "comunidad", "provincia", "region"],
+      age: ["age", "edad"],
+      parental_consent: ["parental consent", "consentimiento parental"],
+      media_consent: ["media consent", "consentimiento medios", "image consent"],
+      signed_up_at: ["signed up", "signup date", "fecha registro", "registration date"],
     };
 
     return headers.map((header) => {
@@ -92,7 +111,7 @@ export default function AdminImportCSV() {
       let matchedField = "skip";
 
       for (const [field, patterns] of Object.entries(mappingRules)) {
-        if (patterns.some((p) => headerLower.includes(p))) {
+        if (patterns.some((p) => headerLower.includes(p) || headerLower === p)) {
           matchedField = field;
           break;
         }
@@ -157,6 +176,7 @@ export default function AdminImportCSV() {
         total: csvData.length,
         created: 0,
         updated: 0,
+        skipped: 0,
         errors: [],
       };
 
@@ -189,51 +209,166 @@ export default function AdminImportCSV() {
             continue;
           }
 
-          // Build update object
-          const updateData: Record<string, any> = {};
+          // Build data object from CSV
+          const studentData: Record<string, any> = { email };
           for (const [csvCol, dbField] of Object.entries(fieldMap)) {
-            if (dbField !== "email" && row[csvCol]) {
-              updateData[dbField] = row[csvCol].trim();
+            if (row[csvCol] && row[csvCol].trim() !== "-") {
+              const value = row[csvCol].trim();
+              
+              // Handle special field conversions
+              if (dbField === "age") {
+                studentData[dbField] = parseInt(value) || null;
+              } else if (dbField === "signed_up_at") {
+                // Parse date format YYYY-MM-DD
+                studentData[dbField] = value || null;
+              } else {
+                studentData[dbField] = value;
+              }
             }
           }
 
-          // Add verification status if auto-verify is enabled
-          if (options.autoVerify) {
-            updateData.verification_status = "verified" as VerificationStatus;
-          }
+          // 1. Check if student is already in authorized_students
+          const { data: existingAuthorized } = await supabase
+            .from("authorized_students")
+            .select("id, matched_profile_id")
+            .eq("email", email)
+            .maybeSingle();
 
-          // Check if user exists (by email or tg_email)
-          const { data: existingUsers } = await supabase
+          // 2. Check if student has a profile in profiles table
+          const { data: existingProfile } = await supabase
             .from("profiles")
-            .select("id, email, tg_email")
-            .or(`email.eq.${email},tg_email.eq.${email}`);
+            .select("id, email, verification_status")
+            .or(`email.eq.${email},tg_email.eq.${email}`)
+            .maybeSingle();
 
-          if (existingUsers && existingUsers.length > 0) {
-            // Update existing user
+          if (existingProfile) {
+            // Student already registered - update and verify if option enabled
             if (options.updateExisting) {
-              const { error } = await supabase
+              const updateData: Record<string, any> = {
+                tg_id: studentData.tg_id,
+                tg_email: email,
+                first_name: studentData.first_name,
+                last_name: studentData.last_name,
+                phone: studentData.phone,
+              };
+              
+              if (options.autoVerifyRegistered) {
+                updateData.verification_status = "verified" as VerificationStatus;
+              }
+
+              const { error: updateError } = await supabase
                 .from("profiles")
                 .update(updateData)
-                .eq("id", existingUsers[0].id);
+                .eq("id", existingProfile.id);
 
-              if (error) {
+              if (updateError) {
                 importResult.errors.push({
                   row: i + 1,
-                  reason: error.message,
+                  reason: `Error actualizando perfil: ${updateError.message}`,
                   data: row,
                 });
               } else {
                 importResult.updated++;
+
+                // Also update/create authorized_students entry if not exists
+                if (!existingAuthorized) {
+                  await supabase.from("authorized_students").insert([{
+                    email: studentData.email,
+                    tg_id: studentData.tg_id,
+                    first_name: studentData.first_name,
+                    last_name: studentData.last_name,
+                    phone: studentData.phone,
+                    parent_name: studentData.parent_name,
+                    parent_email: studentData.parent_email,
+                    team_name: studentData.team_name,
+                    team_division: studentData.team_division,
+                    school_name: studentData.school_name,
+                    city: studentData.city,
+                    state: studentData.state,
+                    age: studentData.age,
+                    parental_consent: studentData.parental_consent,
+                    media_consent: studentData.media_consent,
+                    signed_up_at: studentData.signed_up_at,
+                    matched_profile_id: existingProfile.id,
+                  }]);
+                } else {
+                  await supabase.from("authorized_students")
+                    .update({ 
+                      tg_id: studentData.tg_id,
+                      first_name: studentData.first_name,
+                      last_name: studentData.last_name,
+                      phone: studentData.phone,
+                      parent_name: studentData.parent_name,
+                      parent_email: studentData.parent_email,
+                      team_name: studentData.team_name,
+                      team_division: studentData.team_division,
+                      school_name: studentData.school_name,
+                      city: studentData.city,
+                      state: studentData.state,
+                      age: studentData.age,
+                      parental_consent: studentData.parental_consent,
+                      media_consent: studentData.media_consent,
+                      signed_up_at: studentData.signed_up_at,
+                      matched_profile_id: existingProfile.id 
+                    })
+                    .eq("id", existingAuthorized.id);
+                }
               }
+            } else {
+              importResult.skipped++;
             }
-          } else if (options.createNew) {
-            // Create new profile entry (user needs to sign up separately)
-            // For now, we just log that we can't create users without auth
-            importResult.errors.push({
-              row: i + 1,
-              reason: "Usuario no existe. Debe registrarse primero.",
-              data: row,
-            });
+          } else if (existingAuthorized) {
+            // Already in whitelist but not registered yet - update data
+            if (options.updateExisting) {
+              const { error: updateError } = await supabase
+                .from("authorized_students")
+                .update(studentData)
+                .eq("id", existingAuthorized.id);
+
+              if (updateError) {
+                importResult.errors.push({
+                  row: i + 1,
+                  reason: `Error actualizando whitelist: ${updateError.message}`,
+                  data: row,
+                });
+              } else {
+                importResult.skipped++; // Already existed, just updated
+              }
+            } else {
+              importResult.skipped++;
+            }
+          } else {
+            // New student - add to whitelist
+            const { error: insertError } = await supabase
+              .from("authorized_students")
+              .insert([{
+                email: studentData.email,
+                tg_id: studentData.tg_id,
+                first_name: studentData.first_name,
+                last_name: studentData.last_name,
+                phone: studentData.phone,
+                parent_name: studentData.parent_name,
+                parent_email: studentData.parent_email,
+                team_name: studentData.team_name,
+                team_division: studentData.team_division,
+                school_name: studentData.school_name,
+                city: studentData.city,
+                state: studentData.state,
+                age: studentData.age,
+                parental_consent: studentData.parental_consent,
+                media_consent: studentData.media_consent,
+                signed_up_at: studentData.signed_up_at,
+              }]);
+
+            if (insertError) {
+              importResult.errors.push({
+                row: i + 1,
+                reason: `Error añadiendo a whitelist: ${insertError.message}`,
+                data: row,
+              });
+            } else {
+              importResult.created++;
+            }
           }
         } catch (error: any) {
           importResult.errors.push({
@@ -262,6 +397,7 @@ export default function AdminImportCSV() {
       setStep("results");
       queryClient.invalidateQueries({ queryKey: ["admin-users"] });
       queryClient.invalidateQueries({ queryKey: ["admin-dashboard-metrics"] });
+      queryClient.invalidateQueries({ queryKey: ["authorized-students"] });
     },
     onError: (error) => {
       toast.error(`Error en la importación: ${error.message}`);
@@ -286,7 +422,7 @@ export default function AdminImportCSV() {
   };
 
   return (
-    <AdminLayout title="Importar CSV">
+    <AdminLayout title="Importar Estudiantes">
       <div className="max-w-4xl mx-auto space-y-6">
         {/* Progress Steps */}
         <div className="flex items-center justify-center gap-4">
@@ -313,9 +449,10 @@ export default function AdminImportCSV() {
         {step === "upload" && (
           <Card>
             <CardHeader>
-              <CardTitle>Subir Archivo CSV</CardTitle>
+              <CardTitle>Importar Estudiantes de Technovation</CardTitle>
               <CardDescription>
-                Sube un archivo CSV exportado de Technovation Global para verificar usuarios
+                Sube el CSV exportado desde Technovation Global. Los estudiantes nuevos se añadirán a la whitelist 
+                y podrán acceder automáticamente cuando se registren con su email.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -343,6 +480,25 @@ export default function AdminImportCSV() {
                   onChange={handleFileUpload}
                 />
               </div>
+
+              {/* Info about the process */}
+              <div className="mt-6 p-4 bg-muted/50 rounded-lg space-y-3">
+                <h4 className="font-medium text-sm">¿Cómo funciona?</h4>
+                <ul className="text-sm text-muted-foreground space-y-2">
+                  <li className="flex items-start gap-2">
+                    <UserPlus className="h-4 w-4 mt-0.5 text-success" />
+                    <span><strong>Nuevos estudiantes:</strong> Se añaden a la whitelist. Cuando se registren con su email, tendrán acceso automático.</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <RefreshCw className="h-4 w-4 mt-0.5 text-primary" />
+                    <span><strong>Estudiantes existentes:</strong> Se actualizan sus datos y se verifican automáticamente.</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <Users className="h-4 w-4 mt-0.5 text-muted-foreground" />
+                    <span><strong>Ya en whitelist:</strong> Se actualizan sus datos si hay cambios.</span>
+                  </li>
+                </ul>
+              </div>
             </CardContent>
           </Card>
         )}
@@ -363,7 +519,7 @@ export default function AdminImportCSV() {
                 <div>
                   <p className="font-medium">{file?.name}</p>
                   <p className="text-sm text-muted-foreground">
-                    {csvData.length} registros encontrados
+                    {csvData.length} estudiantes encontrados
                   </p>
                 </div>
               </div>
@@ -374,7 +530,7 @@ export default function AdminImportCSV() {
                 <div className="grid gap-3 md:grid-cols-2">
                   {columnMappings.map((mapping, index) => (
                     <div key={index} className="flex items-center gap-3">
-                      <span className="text-sm font-mono bg-muted px-2 py-1 rounded min-w-[120px] truncate">
+                      <span className="text-sm font-mono bg-muted px-2 py-1 rounded min-w-[140px] truncate" title={mapping.csvColumn}>
                         {mapping.csvColumn}
                       </span>
                       <span>→</span>
@@ -386,7 +542,7 @@ export default function AdminImportCSV() {
                           setColumnMappings(newMappings);
                         }}
                       >
-                        <SelectTrigger className="w-[160px]">
+                        <SelectTrigger className="w-[180px]">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -409,21 +565,29 @@ export default function AdminImportCSV() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        {csvHeaders.map((header) => (
+                        {csvHeaders.slice(0, 6).map((header) => (
                           <TableHead key={header} className="whitespace-nowrap">
                             {header}
                           </TableHead>
                         ))}
+                        {csvHeaders.length > 6 && (
+                          <TableHead className="whitespace-nowrap text-muted-foreground">
+                            +{csvHeaders.length - 6} más
+                          </TableHead>
+                        )}
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {csvData.slice(0, 5).map((row, i) => (
                         <TableRow key={i}>
-                          {csvHeaders.map((header) => (
-                            <TableCell key={header} className="whitespace-nowrap">
+                          {csvHeaders.slice(0, 6).map((header) => (
+                            <TableCell key={header} className="whitespace-nowrap max-w-[150px] truncate">
                               {row[header] || "—"}
                             </TableCell>
                           ))}
+                          {csvHeaders.length > 6 && (
+                            <TableCell className="text-muted-foreground">...</TableCell>
+                          )}
                         </TableRow>
                       ))}
                     </TableBody>
@@ -444,19 +608,19 @@ export default function AdminImportCSV() {
                       }
                     />
                     <Label htmlFor="updateExisting">
-                      Actualizar usuarios existentes
+                      Actualizar datos de estudiantes que ya existen
                     </Label>
                   </div>
                   <div className="flex items-center gap-2">
                     <Checkbox
-                      id="autoVerify"
-                      checked={options.autoVerify}
+                      id="autoVerifyRegistered"
+                      checked={options.autoVerifyRegistered}
                       onCheckedChange={(checked) =>
-                        setOptions({ ...options, autoVerify: !!checked })
+                        setOptions({ ...options, autoVerifyRegistered: !!checked })
                       }
                     />
-                    <Label htmlFor="autoVerify">
-                      Verificar automáticamente usuarios importados
+                    <Label htmlFor="autoVerifyRegistered">
+                      Verificar automáticamente estudiantes ya registrados
                     </Label>
                   </div>
                 </div>
@@ -489,11 +653,12 @@ export default function AdminImportCSV() {
             <CardContent className="space-y-6">
               <div className="flex flex-col items-center gap-4 py-8">
                 <div className="h-16 w-16 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-                <p className="text-lg font-medium">
-                  Procesando {progress}% ({Math.round((progress / 100) * csvData.length)} de {csvData.length})
+                <p className="text-lg font-medium">Procesando estudiantes...</p>
+                <p className="text-sm text-muted-foreground">
+                  {Math.round(progress)}% completado
                 </p>
-                <Progress value={progress} className="w-full max-w-md" />
               </div>
+              <Progress value={progress} className="h-2" />
             </CardContent>
           </Card>
         )}
@@ -502,91 +667,95 @@ export default function AdminImportCSV() {
         {step === "results" && result && (
           <Card>
             <CardHeader>
-              <CardTitle>Resultados de la Importación</CardTitle>
+              <CardTitle>Importación Completada</CardTitle>
               <CardDescription>
-                Resumen de la importación completada
+                Resumen de la importación de estudiantes
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               {/* Summary Cards */}
               <div className="grid gap-4 md:grid-cols-4">
-                <div className="flex items-center gap-3 p-4 bg-muted rounded-lg">
-                  <FileSpreadsheet className="h-8 w-8 text-primary" />
-                  <div>
-                    <p className="text-2xl font-bold">{result.total}</p>
-                    <p className="text-sm text-muted-foreground">Total procesados</p>
-                  </div>
+                <div className="p-4 bg-muted rounded-lg text-center">
+                  <p className="text-2xl font-bold">{result.total}</p>
+                  <p className="text-sm text-muted-foreground">Total procesados</p>
                 </div>
-                <div className="flex items-center gap-3 p-4 bg-success/10 rounded-lg">
-                  <CheckCircle2 className="h-8 w-8 text-success" />
-                  <div>
-                    <p className="text-2xl font-bold">{result.updated}</p>
-                    <p className="text-sm text-muted-foreground">Actualizados</p>
-                  </div>
+                <div className="p-4 bg-success/10 rounded-lg text-center">
+                  <p className="text-2xl font-bold text-success">{result.created}</p>
+                  <p className="text-sm text-muted-foreground">Nuevos en whitelist</p>
                 </div>
-                <div className="flex items-center gap-3 p-4 bg-info/10 rounded-lg">
-                  <CheckCircle2 className="h-8 w-8 text-info" />
-                  <div>
-                    <p className="text-2xl font-bold">{result.created}</p>
-                    <p className="text-sm text-muted-foreground">Creados</p>
-                  </div>
+                <div className="p-4 bg-primary/10 rounded-lg text-center">
+                  <p className="text-2xl font-bold text-primary">{result.updated}</p>
+                  <p className="text-sm text-muted-foreground">Actualizados</p>
                 </div>
-                <div className="flex items-center gap-3 p-4 bg-destructive/10 rounded-lg">
-                  <XCircle className="h-8 w-8 text-destructive" />
-                  <div>
-                    <p className="text-2xl font-bold">{result.errors.length}</p>
-                    <p className="text-sm text-muted-foreground">Errores</p>
-                  </div>
+                <div className="p-4 bg-destructive/10 rounded-lg text-center">
+                  <p className="text-2xl font-bold text-destructive">{result.errors.length}</p>
+                  <p className="text-sm text-muted-foreground">Errores</p>
                 </div>
               </div>
 
-              {/* Errors Table */}
+              {/* Success Message */}
+              {result.errors.length === 0 ? (
+                <div className="flex items-center gap-3 p-4 bg-success/10 rounded-lg">
+                  <CheckCircle2 className="h-6 w-6 text-success" />
+                  <div>
+                    <p className="font-medium text-success">¡Importación exitosa!</p>
+                    <p className="text-sm text-muted-foreground">
+                      Todos los estudiantes han sido procesados correctamente.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-3 p-4 bg-warning/10 rounded-lg">
+                  <AlertCircle className="h-6 w-6 text-warning" />
+                  <div>
+                    <p className="font-medium text-warning">Importación completada con errores</p>
+                    <p className="text-sm text-muted-foreground">
+                      Algunos registros no pudieron ser procesados.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Error Details */}
               {result.errors.length > 0 && (
                 <div className="space-y-2">
                   <h3 className="font-medium flex items-center gap-2">
-                    <AlertCircle className="h-4 w-4 text-destructive" />
+                    <XCircle className="h-4 w-4 text-destructive" />
                     Errores ({result.errors.length})
                   </h3>
                   <div className="border rounded-lg overflow-auto max-h-60">
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Fila</TableHead>
-                          <TableHead>Motivo</TableHead>
-                          <TableHead>Datos</TableHead>
+                          <TableHead className="w-16">Fila</TableHead>
+                          <TableHead>Error</TableHead>
+                          <TableHead>Email</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {result.errors.slice(0, 20).map((error, i) => (
-                          <TableRow key={i}>
-                            <TableCell>{error.row}</TableCell>
-                            <TableCell className="text-destructive">
-                              {error.reason}
-                            </TableCell>
-                            <TableCell className="font-mono text-xs max-w-xs truncate">
-                              {JSON.stringify(error.data)}
-                            </TableCell>
-                          </TableRow>
-                        ))}
+                        {result.errors.map((error, i) => {
+                          const emailColumn = columnMappings.find((m) => m.dbField === "email")?.csvColumn;
+                          return (
+                            <TableRow key={i}>
+                              <TableCell>{error.row}</TableCell>
+                              <TableCell className="text-destructive">{error.reason}</TableCell>
+                              <TableCell className="text-muted-foreground">
+                                {emailColumn ? error.data[emailColumn] : "—"}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
                       </TableBody>
                     </Table>
                   </div>
-                  {result.errors.length > 20 && (
-                    <p className="text-sm text-muted-foreground">
-                      Mostrando 20 de {result.errors.length} errores
-                    </p>
-                  )}
                 </div>
               )}
 
               {/* Actions */}
-              <div className="flex justify-between">
+              <div className="flex justify-center gap-4">
                 <Button variant="outline" onClick={resetImport}>
-                  Nueva Importación
-                </Button>
-                <Button onClick={() => window.location.href = "/admin/users"}>
-                  Ir a Usuarios
-                  <ArrowRight className="ml-2 h-4 w-4" />
+                  <Upload className="mr-2 h-4 w-4" />
+                  Importar otro archivo
                 </Button>
               </div>
             </CardContent>
