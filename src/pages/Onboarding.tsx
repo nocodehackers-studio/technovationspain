@@ -112,14 +112,15 @@ export default function Onboarding() {
       
       if (formData.tg_email?.trim()) {
         // Use ilike for case-insensitive email comparison
+        // Search without matched_profile_id restriction to handle re-attempts
         const { data: authorized } = await supabase
           .from('authorized_students')
           .select('*')
           .ilike('email', formData.tg_email.trim())
-          .is('matched_profile_id', null)
           .maybeSingle();
         
-        if (authorized) {
+        // Consider in whitelist if exists AND (not matched OR matched with this same user)
+        if (authorized && (!authorized.matched_profile_id || authorized.matched_profile_id === user.id)) {
           isInWhitelist = true;
           authorizedData = authorized;
         }
@@ -151,13 +152,15 @@ export default function Onboarding() {
         throw profileError;
       }
 
-      // If in whitelist, update authorized_students and assign role
+      // If in whitelist, update authorized_students (only if not already matched) and assign role
       if (isInWhitelist && authorizedData) {
-        // Mark as matched in authorized_students
-        await supabase
-          .from('authorized_students')
-          .update({ matched_profile_id: user.id })
-          .eq('id', authorizedData.id);
+        // Mark as matched only if not already matched
+        if (!authorizedData.matched_profile_id) {
+          await supabase
+            .from('authorized_students')
+            .update({ matched_profile_id: user.id })
+            .eq('id', authorizedData.id);
+        }
 
         // Assign participant role - use upsert to avoid RLS issues
         const { error: roleError } = await supabase
@@ -170,16 +173,25 @@ export default function Onboarding() {
         }
       }
 
+      // Verify actual profile status from database after update
+      const { data: updatedProfile } = await supabase
+        .from('profiles')
+        .select('verification_status')
+        .eq('id', user.id)
+        .single();
+
+      const wasVerified = updatedProfile?.verification_status === 'verified';
+
       // Wait for profile refresh to complete before navigation
       await refreshProfile();
       
       // Small delay to ensure React processes the new auth state
       await new Promise(resolve => setTimeout(resolve, 150));
 
-      if (isInWhitelist) {
+      if (wasVerified || isInWhitelist) {
         toast({
           title: '¡Bienvenida!',
-          description: 'Tu cuenta ha sido verificada automáticamente.',
+          description: 'Tu cuenta ha sido verificada correctamente.',
         });
         navigate('/dashboard', { replace: true });
       } else {
