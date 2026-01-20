@@ -106,53 +106,85 @@ export default function Onboarding() {
     setIsLoading(true);
 
     try {
-      // Update profile
+      // Check if tg_email is in authorized_students (whitelist)
+      let isInWhitelist = false;
+      let authorizedData: any = null;
+      
+      if (formData.tg_email?.trim()) {
+        const { data: authorized } = await supabase
+          .from('authorized_students')
+          .select('*')
+          .eq('email', formData.tg_email.trim().toLowerCase())
+          .is('matched_profile_id', null)
+          .maybeSingle();
+        
+        if (authorized) {
+          isInWhitelist = true;
+          authorizedData = authorized;
+        }
+      }
+
+      // Update profile with verification status based on whitelist
+      const profileUpdate: any = {
+        first_name: formData.first_name.trim(),
+        last_name: formData.last_name.trim(),
+        date_of_birth: formData.date_of_birth,
+        tg_email: formData.tg_email?.trim() || null,
+        phone: formData.phone?.trim() || null,
+        postal_code: formData.postal_code?.trim() || null,
+        onboarding_completed: true,
+      };
+
+      // If in whitelist, auto-verify and copy TG data
+      if (isInWhitelist && authorizedData) {
+        profileUpdate.verification_status = 'verified';
+        profileUpdate.tg_id = authorizedData.tg_id;
+      }
+
       const { error: profileError } = await supabase
         .from('profiles')
-        .update({
-          first_name: formData.first_name.trim(),
-          last_name: formData.last_name.trim(),
-          date_of_birth: formData.date_of_birth,
-          tg_email: formData.tg_email?.trim() || null,
-          phone: formData.phone?.trim() || null,
-          postal_code: formData.postal_code?.trim() || null,
-          onboarding_completed: true,
-        })
+        .update(profileUpdate)
         .eq('id', user.id);
 
       if (profileError) {
         throw profileError;
       }
 
-      // Create user role
-      const { error: roleError } = await supabase
-        .from('user_roles')
-        .insert({
-          user_id: user.id,
-          role: formData.role,
-        });
+      // If in whitelist, update authorized_students and assign role
+      if (isInWhitelist && authorizedData) {
+        // Mark as matched in authorized_students
+        await supabase
+          .from('authorized_students')
+          .update({ matched_profile_id: user.id })
+          .eq('id', authorizedData.id);
 
-      if (roleError && !roleError.message.includes('duplicate')) {
-        throw roleError;
+        // Assign participant role - use upsert to avoid RLS issues
+        const { error: roleError } = await supabase
+          .from('user_roles')
+          .insert({ user_id: user.id, role: 'participant' as const });
+        
+        // Ignore duplicate errors
+        if (roleError && !roleError.message.includes('duplicate')) {
+          console.warn('Role assignment warning:', roleError.message);
+        }
       }
 
       await refreshProfile();
 
-      toast({
-        title: '¡Bienvenida!',
-        description: 'Tu perfil ha sido creado correctamente.',
-      });
-
-      // Redirect based on role
-      const roleRoutes: Record<AppRole, string> = {
-        admin: '/admin',
-        mentor: '/dashboard',
-        participant: '/dashboard',
-        volunteer: '/dashboard',
-        judge: '/dashboard',
-      };
-
-      navigate(roleRoutes[formData.role] || '/dashboard', { replace: true });
+      if (isInWhitelist) {
+        toast({
+          title: '¡Bienvenida!',
+          description: 'Tu cuenta ha sido verificada automáticamente.',
+        });
+        navigate('/dashboard', { replace: true });
+      } else {
+        toast({
+          title: 'Registro completado',
+          description: 'Tu perfil está pendiente de verificación.',
+        });
+        // Will show the pending verification modal
+        navigate('/pending-verification', { replace: true });
+      }
     } catch (error: any) {
       console.error('Onboarding error:', error);
       toast({
