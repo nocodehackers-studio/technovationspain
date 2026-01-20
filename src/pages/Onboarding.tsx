@@ -111,10 +111,11 @@ export default function Onboarding() {
       let authorizedData: any = null;
       
       if (formData.tg_email?.trim()) {
+        // Use ilike for case-insensitive email comparison
         const { data: authorized } = await supabase
           .from('authorized_students')
           .select('*')
-          .eq('email', formData.tg_email.trim().toLowerCase())
+          .ilike('email', formData.tg_email.trim())
           .is('matched_profile_id', null)
           .maybeSingle();
         
@@ -169,7 +170,11 @@ export default function Onboarding() {
         }
       }
 
+      // Wait for profile refresh to complete before navigation
       await refreshProfile();
+      
+      // Small delay to ensure React processes the new auth state
+      await new Promise(resolve => setTimeout(resolve, 150));
 
       if (isInWhitelist) {
         toast({
@@ -182,7 +187,6 @@ export default function Onboarding() {
           title: 'Registro completado',
           description: 'Tu perfil está pendiente de verificación.',
         });
-        // Will show the pending verification modal
         navigate('/pending-verification', { replace: true });
       }
     } catch (error: any) {
