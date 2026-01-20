@@ -8,6 +8,8 @@ import { ConfirmDialog } from "@/components/admin/ConfirmDialog";
 import { TeamCSVImport } from "@/components/admin/TeamCSVImport";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -27,8 +29,20 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { MoreHorizontal, Plus, Edit, Trash2, Users, Upload } from "lucide-react";
+import { MoreHorizontal, Plus, Edit, Trash2, Users, Upload, Mail, UserCircle } from "lucide-react";
 import { Team, TeamCategory } from "@/types/database";
+
+interface TeamMember {
+  id: string;
+  member_type: string | null;
+  joined_at: string | null;
+  user: {
+    id: string;
+    email: string;
+    first_name: string | null;
+    last_name: string | null;
+  } | null;
+}
 
 export default function AdminTeams() {
   const queryClient = useQueryClient();
@@ -37,6 +51,8 @@ export default function AdminTeams() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [membersDialogOpen, setMembersDialogOpen] = useState(false);
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
 
   // Fetch teams with member counts
   const { data: teams, isLoading } = useQuery({
@@ -202,7 +218,23 @@ export default function AdminTeams() {
                 <Edit className="mr-2 h-4 w-4" />
                 Editar
               </DropdownMenuItem>
-              <DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={async () => {
+                  setSelectedTeam(team);
+                  // Fetch team members
+                  const { data: members } = await supabase
+                    .from("team_members")
+                    .select(`
+                      id,
+                      member_type,
+                      joined_at,
+                      user:profiles!team_members_user_id_fkey(id, email, first_name, last_name)
+                    `)
+                    .eq("team_id", team.id);
+                  setTeamMembers(members as TeamMember[] || []);
+                  setMembersDialogOpen(true);
+                }}
+              >
                 <Users className="mr-2 h-4 w-4" />
                 Ver Miembros
               </DropdownMenuItem>
@@ -393,6 +425,67 @@ export default function AdminTeams() {
           toast.success("Importación completada");
         }}
       />
+
+      {/* Team Members Dialog */}
+      <Dialog open={membersDialogOpen} onOpenChange={setMembersDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Users className="h-5 w-5" />
+              Miembros de {selectedTeam?.name}
+            </DialogTitle>
+            <DialogDescription>
+              {teamMembers.length} miembro{teamMembers.length !== 1 ? "s" : ""} en el equipo
+            </DialogDescription>
+          </DialogHeader>
+          <ScrollArea className="max-h-[400px]">
+            {teamMembers.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <UserCircle className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                <p>Este equipo no tiene miembros</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {teamMembers.map((member) => (
+                  <div
+                    key={member.id}
+                    className="flex items-center gap-3 p-3 rounded-lg border bg-card"
+                  >
+                    <Avatar className="h-10 w-10">
+                      <AvatarFallback className="bg-primary/10 text-primary">
+                        {member.user?.first_name?.[0] || member.user?.email?.[0]?.toUpperCase() || "?"}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium truncate">
+                        {member.user?.first_name && member.user?.last_name
+                          ? `${member.user.first_name} ${member.user.last_name}`
+                          : member.user?.email || "Usuario desconocido"}
+                      </p>
+                      {member.user?.email && (
+                        <p className="text-sm text-muted-foreground flex items-center gap-1 truncate">
+                          <Mail className="h-3 w-3" />
+                          {member.user.email}
+                        </p>
+                      )}
+                    </div>
+                    <Badge
+                      variant="outline"
+                      className={
+                        member.member_type === "mentor"
+                          ? "bg-primary/10 text-primary border-primary/20"
+                          : "bg-secondary text-secondary-foreground"
+                      }
+                    >
+                      {member.member_type === "mentor" ? "Mentor" : "Estudiante"}
+                    </Badge>
+                  </div>
+                ))}
+              </div>
+            )}
+          </ScrollArea>
+        </DialogContent>
+      </Dialog>
     </AdminLayout>
   );
 }
