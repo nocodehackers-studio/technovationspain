@@ -21,6 +21,7 @@ import AdminUsers from "./pages/admin/AdminUsers";
 import AdminTeams from "./pages/admin/AdminTeams";
 import AdminHubs from "./pages/admin/AdminHubs";
 import AdminEvents from "./pages/admin/AdminEvents";
+import AdminEventEditor from "./pages/admin/AdminEventEditor";
 import AdminWorkshops from "./pages/admin/AdminWorkshops";
 import AdminImportCSV from "./pages/admin/AdminImportCSV";
 import AdminReports from "./pages/admin/AdminReports";
@@ -80,6 +81,16 @@ const App = () => (
             <Route path="/admin/events" element={
               <ProtectedRoute requiredRoles={["admin"]}>
                 <AdminEvents />
+              </ProtectedRoute>
+            } />
+            <Route path="/admin/events/new" element={
+              <ProtectedRoute requiredRoles={["admin"]}>
+                <AdminEventEditor />
+              </ProtectedRoute>
+            } />
+            <Route path="/admin/events/:eventId/edit" element={
+              <ProtectedRoute requiredRoles={["admin"]}>
+                <AdminEventEditor />
               </ProtectedRoute>
             } />
             <Route path="/admin/workshops" element={
