@@ -28,7 +28,29 @@ export interface Profile {
   postal_code?: string | null;
   hub_id?: string | null;
   onboarding_completed: boolean;
+  custom_fields?: Record<string, unknown> | null;
   created_at: string;
+  updated_at: string;
+}
+
+export interface TableCustomColumn {
+  id: string;
+  table_name: string;
+  column_key: string;
+  column_label: string;
+  column_type: string;
+  sort_order: number;
+  created_by?: string | null;
+  created_at: string;
+}
+
+export interface AdminTablePreferences {
+  id: string;
+  user_id: string;
+  table_name: string;
+  hidden_columns: string[];
+  column_order: string[];
+  saved_filters: Record<string, unknown>;
   updated_at: string;
 }
 

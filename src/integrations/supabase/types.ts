@@ -14,6 +14,36 @@ export type Database = {
   }
   public: {
     Tables: {
+      admin_table_preferences: {
+        Row: {
+          column_order: string[] | null
+          hidden_columns: string[] | null
+          id: string
+          saved_filters: Json | null
+          table_name: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          column_order?: string[] | null
+          hidden_columns?: string[] | null
+          id?: string
+          saved_filters?: Json | null
+          table_name: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          column_order?: string[] | null
+          hidden_columns?: string[] | null
+          id?: string
+          saved_filters?: Json | null
+          table_name?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       audit_logs: {
         Row: {
           action: string
@@ -589,6 +619,7 @@ export type Database = {
       profiles: {
         Row: {
           created_at: string | null
+          custom_fields: Json | null
           date_of_birth: string | null
           email: string
           first_name: string | null
@@ -607,6 +638,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string | null
+          custom_fields?: Json | null
           date_of_birth?: string | null
           email: string
           first_name?: string | null
@@ -625,6 +657,7 @@ export type Database = {
         }
         Update: {
           created_at?: string | null
+          custom_fields?: Json | null
           date_of_birth?: string | null
           email?: string
           first_name?: string | null
@@ -650,6 +683,39 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      table_custom_columns: {
+        Row: {
+          column_key: string
+          column_label: string
+          column_type: string | null
+          created_at: string | null
+          created_by: string | null
+          id: string
+          sort_order: number | null
+          table_name: string
+        }
+        Insert: {
+          column_key: string
+          column_label: string
+          column_type?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          sort_order?: number | null
+          table_name: string
+        }
+        Update: {
+          column_key?: string
+          column_label?: string
+          column_type?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          sort_order?: number | null
+          table_name?: string
+        }
+        Relationships: []
       }
       team_members: {
         Row: {

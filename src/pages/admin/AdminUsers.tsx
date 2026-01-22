@@ -1,12 +1,13 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ColumnDef } from "@tanstack/react-table";
 import { supabase } from "@/integrations/supabase/client";
 import { AdminLayout } from "@/components/admin/AdminLayout";
-import { DataTable } from "@/components/admin/DataTable";
+import { AirtableDataTable, FilterableColumn } from "@/components/admin/AirtableDataTable";
 import { StatusBadge } from "@/components/admin/StatusBadge";
 import { RoleBadge } from "@/components/admin/RoleBadge";
 import { ConfirmDialog } from "@/components/admin/ConfirmDialog";
+import { EditableCell } from "@/components/admin/EditableCell";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -35,9 +36,19 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { MoreHorizontal, Plus, UserCheck, UserX, Mail, Edit, Trash2 } from "lucide-react";
-import { Profile, AppRole, VerificationStatus } from "@/types/database";
+import { Profile, AppRole, VerificationStatus, TableCustomColumn } from "@/types/database";
 
 type UserWithRole = Profile & { role?: AppRole };
+
+// Slugify column label to create a key
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
 
 export default function AdminUsers() {
   const queryClient = useQueryClient();
@@ -45,6 +56,9 @@ export default function AdminUsers() {
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [addFieldDialogOpen, setAddFieldDialogOpen] = useState(false);
+  const [newFieldLabel, setNewFieldLabel] = useState("");
+  const [hiddenColumns, setHiddenColumns] = useState<string[]>([]);
 
   // Fetch users with roles
   const { data: users, isLoading } = useQuery({
@@ -68,11 +82,27 @@ export default function AdminUsers() {
         const userRole = roles?.find((r) => r.user_id === profile.id);
         return {
           ...profile,
+          custom_fields: (profile.custom_fields as Record<string, unknown>) || {},
           role: userRole?.role as AppRole | undefined,
         };
       });
 
       return usersWithRoles;
+    },
+  });
+
+  // Fetch custom columns
+  const { data: customColumns } = useQuery({
+    queryKey: ["table-custom-columns", "profiles"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("table_custom_columns")
+        .select("*")
+        .eq("table_name", "profiles")
+        .order("sort_order");
+
+      if (error) throw error;
+      return (data || []) as TableCustomColumn[];
     },
   });
 
@@ -83,13 +113,21 @@ export default function AdminUsers() {
       updates,
     }: {
       userId: string;
-      updates: Partial<Profile>;
+      updates: {
+        first_name?: string;
+        last_name?: string;
+        phone?: string;
+        postal_code?: string;
+        tg_id?: string;
+        tg_email?: string;
+        verification_status?: VerificationStatus;
+      };
     }) => {
       const { error } = await supabase
         .from("profiles")
         .update(updates)
         .eq("id", userId);
-      
+
       if (error) throw error;
     },
     onSuccess: () => {
@@ -99,6 +137,39 @@ export default function AdminUsers() {
     },
     onError: (error) => {
       toast.error(`Error al actualizar: ${error.message}`);
+    },
+  });
+
+  // Update custom field mutation
+  const updateCustomFieldMutation = useMutation({
+    mutationFn: async ({
+      userId,
+      fieldKey,
+      value,
+      currentCustomFields,
+    }: {
+      userId: string;
+      fieldKey: string;
+      value: string;
+      currentCustomFields: Record<string, unknown>;
+    }) => {
+      const updatedFields = {
+        ...currentCustomFields,
+        [fieldKey]: value,
+      };
+
+      const { error } = await supabase
+        .from("profiles")
+        .update({ custom_fields: updatedFields as unknown as Record<string, never> })
+        .eq("id", userId);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin-users"] });
+    },
+    onError: (error) => {
+      toast.error(`Error al guardar: ${error.message}`);
     },
   });
 
@@ -115,7 +186,7 @@ export default function AdminUsers() {
         .from("profiles")
         .update({ verification_status: status })
         .eq("id", userId);
-      
+
       if (error) throw error;
     },
     onSuccess: () => {
@@ -131,7 +202,6 @@ export default function AdminUsers() {
   // Delete user mutation
   const deleteUserMutation = useMutation({
     mutationFn: async (userId: string) => {
-      // Note: This requires admin rights and cascade deletes set up in DB
       const { error } = await supabase.auth.admin.deleteUser(userId);
       if (error) throw error;
     },
@@ -145,12 +215,41 @@ export default function AdminUsers() {
     },
   });
 
-  const columns: ColumnDef<UserWithRole>[] = [
+  // Add custom column mutation
+  const addColumnMutation = useMutation({
+    mutationFn: async (label: string) => {
+      const columnKey = slugify(label);
+      const { error } = await supabase.from("table_custom_columns").insert({
+        table_name: "profiles",
+        column_key: columnKey,
+        column_label: label,
+        column_type: "text",
+        sort_order: (customColumns?.length || 0) + 1,
+      });
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["table-custom-columns", "profiles"] });
+      toast.success("Campo creado correctamente");
+      setAddFieldDialogOpen(false);
+      setNewFieldLabel("");
+    },
+    onError: (error) => {
+      toast.error(`Error al crear campo: ${error.message}`);
+    },
+  });
+
+  // Static columns
+  const staticColumns: ColumnDef<UserWithRole>[] = [
     {
-      accessorKey: "avatar",
+      id: "avatar",
       header: "",
+      enableHiding: false,
       cell: ({ row }) => {
-        const initials = `${row.original.first_name?.charAt(0) || ""}${row.original.last_name?.charAt(0) || ""}`.toUpperCase() || "?";
+        const initials =
+          `${row.original.first_name?.charAt(0) || ""}${row.original.last_name?.charAt(0) || ""}`.toUpperCase() ||
+          "?";
         return (
           <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary text-sm font-medium">
             {initials}
@@ -161,23 +260,36 @@ export default function AdminUsers() {
     {
       accessorKey: "name",
       header: "Nombre",
+      enableHiding: true,
       cell: ({ row }) => (
         <div className="flex flex-col">
           <span className="font-medium">
             {row.original.first_name} {row.original.last_name}
           </span>
-          <span className="text-xs text-muted-foreground">{row.original.email}</span>
+          <span className="text-xs text-muted-foreground">
+            {row.original.email}
+          </span>
         </div>
       ),
     },
     {
       accessorKey: "role",
       header: "Rol",
-      cell: ({ row }) => row.original.role ? <RoleBadge role={row.original.role} /> : <span className="text-muted-foreground">—</span>,
+      enableHiding: true,
+      cell: ({ row }) =>
+        row.original.role ? (
+          <RoleBadge role={row.original.role} />
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        ),
     },
     {
       accessorKey: "verification_status",
       header: "Estado",
+      enableHiding: true,
+      filterFn: (row, id, value) => {
+        return row.getValue(id) === value;
+      },
       cell: ({ row }) => (
         <StatusBadge status={row.original.verification_status || "pending"} />
       ),
@@ -185,81 +297,167 @@ export default function AdminUsers() {
     {
       accessorKey: "tg_id",
       header: "TG ID",
+      enableHiding: true,
       cell: ({ row }) => (
-        <span className="font-mono text-sm">
-          {row.original.tg_id || "—"}
-        </span>
+        <span className="font-mono text-sm">{row.original.tg_id || "—"}</span>
+      ),
+    },
+    {
+      accessorKey: "phone",
+      header: "Teléfono",
+      enableHiding: true,
+      cell: ({ row }) => (
+        <span className="text-sm">{row.original.phone || "—"}</span>
       ),
     },
     {
       accessorKey: "created_at",
       header: "Registro",
+      enableHiding: true,
       cell: ({ row }) => (
         <span className="text-sm text-muted-foreground">
           {new Date(row.original.created_at || "").toLocaleDateString("es-ES")}
         </span>
       ),
     },
-    {
-      id: "actions",
+  ];
+
+  // Dynamic columns from custom fields
+  const dynamicColumns: ColumnDef<UserWithRole>[] = useMemo(() => {
+    return (customColumns || []).map((col) => ({
+      id: `custom_${col.column_key}`,
+      accessorKey: `custom_fields.${col.column_key}`,
+      header: col.column_label,
+      enableHiding: true,
       cell: ({ row }) => {
-        const user = row.original;
+        const customFields = (row.original.custom_fields || {}) as Record<string, unknown>;
+        const value = (customFields[col.column_key] as string) || "";
+
         return (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="h-8 w-8 p-0">
-                <MoreHorizontal className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuLabel>Acciones</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={() => {
-                  setSelectedUser(user);
-                  setEditDialogOpen(true);
-                }}
-              >
-                <Edit className="mr-2 h-4 w-4" />
-                Editar
-              </DropdownMenuItem>
-              {user.verification_status !== "verified" && (
-                <DropdownMenuItem
-                  onClick={() => updateVerificationMutation.mutate({ userId: user.id, status: "verified" })}
-                >
-                  <UserCheck className="mr-2 h-4 w-4" />
-                  Verificar
-                </DropdownMenuItem>
-              )}
-              {user.verification_status !== "rejected" && (
-                <DropdownMenuItem
-                  onClick={() => updateVerificationMutation.mutate({ userId: user.id, status: "rejected" })}
-                >
-                  <UserX className="mr-2 h-4 w-4" />
-                  Rechazar
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuItem>
-                <Mail className="mr-2 h-4 w-4" />
-                Enviar Email
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                className="text-destructive"
-                onClick={() => {
-                  setSelectedUser(user);
-                  setDeleteDialogOpen(true);
-                }}
-              >
-                <Trash2 className="mr-2 h-4 w-4" />
-                Eliminar
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <EditableCell
+            value={value}
+            onSave={(newValue) => {
+              updateCustomFieldMutation.mutate({
+                userId: row.original.id,
+                fieldKey: col.column_key,
+                value: newValue,
+                currentCustomFields: customFields,
+              });
+            }}
+          />
         );
       },
+    }));
+  }, [customColumns, updateCustomFieldMutation]);
+
+  // Actions column
+  const actionsColumn: ColumnDef<UserWithRole> = {
+    id: "actions",
+    enableHiding: false,
+    cell: ({ row }) => {
+      const user = row.original;
+      return (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" className="h-8 w-8 p-0">
+              <MoreHorizontal className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuLabel>Acciones</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={() => {
+                setSelectedUser(user);
+                setEditDialogOpen(true);
+              }}
+            >
+              <Edit className="mr-2 h-4 w-4" />
+              Editar
+            </DropdownMenuItem>
+            {user.verification_status !== "verified" && (
+              <DropdownMenuItem
+                onClick={() =>
+                  updateVerificationMutation.mutate({
+                    userId: user.id,
+                    status: "verified",
+                  })
+                }
+              >
+                <UserCheck className="mr-2 h-4 w-4" />
+                Verificar
+              </DropdownMenuItem>
+            )}
+            {user.verification_status !== "rejected" && (
+              <DropdownMenuItem
+                onClick={() =>
+                  updateVerificationMutation.mutate({
+                    userId: user.id,
+                    status: "rejected",
+                  })
+                }
+              >
+                <UserX className="mr-2 h-4 w-4" />
+                Rechazar
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuItem>
+              <Mail className="mr-2 h-4 w-4" />
+              Enviar Email
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              className="text-destructive"
+              onClick={() => {
+                setSelectedUser(user);
+                setDeleteDialogOpen(true);
+              }}
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              Eliminar
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      );
+    },
+  };
+
+  // Combine all columns
+  const columns = useMemo(
+    () => [...staticColumns, ...dynamicColumns, actionsColumn],
+    [staticColumns, dynamicColumns]
+  );
+
+  // Filterable columns config
+  const filterableColumns: FilterableColumn[] = [
+    {
+      key: "verification_status",
+      label: "Estado",
+      options: [
+        { value: "pending", label: "Pendiente" },
+        { value: "verified", label: "Verificado" },
+        { value: "manual_review", label: "Revisión Manual" },
+        { value: "rejected", label: "Rechazado" },
+      ],
+    },
+    {
+      key: "role",
+      label: "Rol",
+      options: [
+        { value: "participant", label: "Participante" },
+        { value: "mentor", label: "Mentor" },
+        { value: "judge", label: "Juez" },
+        { value: "volunteer", label: "Voluntario" },
+        { value: "admin", label: "Admin" },
+      ],
     },
   ];
+
+  const handleAddField = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newFieldLabel.trim()) return;
+    addColumnMutation.mutate(newFieldLabel.trim());
+  };
 
   return (
     <AdminLayout title="Gestión de Usuarios">
@@ -277,11 +475,15 @@ export default function AdminUsers() {
           </Button>
         </div>
 
-        <DataTable
+        <AirtableDataTable
           columns={columns}
           data={users || []}
           searchPlaceholder="Buscar por nombre, email o TG ID..."
           loading={isLoading}
+          filterableColumns={filterableColumns}
+          hiddenColumns={hiddenColumns}
+          onHiddenColumnsChange={setHiddenColumns}
+          onAddColumn={() => setAddFieldDialogOpen(true)}
           onExport={() => {
             // TODO: Implement CSV export
             toast.info("Exportación en desarrollo");
@@ -289,14 +491,49 @@ export default function AdminUsers() {
         />
       </div>
 
+      {/* Add Field Dialog */}
+      <Dialog open={addFieldDialogOpen} onOpenChange={setAddFieldDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Añadir Campo Personalizado</DialogTitle>
+            <DialogDescription>
+              Crea un nuevo campo de texto para almacenar información adicional
+              de los usuarios
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleAddField} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="field_label">Nombre del campo</Label>
+              <Input
+                id="field_label"
+                value={newFieldLabel}
+                onChange={(e) => setNewFieldLabel(e.target.value)}
+                placeholder="Ej: Notas, Empresa, Origen..."
+                required
+              />
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setAddFieldDialogOpen(false)}
+              >
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={addColumnMutation.isPending}>
+                {addColumnMutation.isPending ? "Creando..." : "Crear Campo"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
       {/* Edit User Dialog */}
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Editar Usuario</DialogTitle>
-            <DialogDescription>
-              Modifica los datos del usuario
-            </DialogDescription>
+            <DialogDescription>Modifica los datos del usuario</DialogDescription>
           </DialogHeader>
           {selectedUser && (
             <form
@@ -312,7 +549,9 @@ export default function AdminUsers() {
                     postal_code: formData.get("postal_code") as string,
                     tg_id: formData.get("tg_id") as string,
                     tg_email: formData.get("tg_email") as string,
-                    verification_status: formData.get("verification_status") as VerificationStatus,
+                    verification_status: formData.get(
+                      "verification_status"
+                    ) as VerificationStatus,
                   },
                 });
               }}
@@ -388,7 +627,9 @@ export default function AdminUsers() {
                     <SelectContent>
                       <SelectItem value="pending">Pendiente</SelectItem>
                       <SelectItem value="verified">Verificado</SelectItem>
-                      <SelectItem value="manual_review">Revisión Manual</SelectItem>
+                      <SelectItem value="manual_review">
+                        Revisión Manual
+                      </SelectItem>
                       <SelectItem value="rejected">Rechazado</SelectItem>
                     </SelectContent>
                   </Select>
@@ -419,7 +660,9 @@ export default function AdminUsers() {
         description={`Esta acción eliminará permanentemente a ${selectedUser?.first_name} ${selectedUser?.last_name}. Esta acción no se puede deshacer.`}
         confirmText="Eliminar"
         variant="danger"
-        onConfirm={() => selectedUser && deleteUserMutation.mutate(selectedUser.id)}
+        onConfirm={() =>
+          selectedUser && deleteUserMutation.mutate(selectedUser.id)
+        }
         loading={deleteUserMutation.isPending}
       />
 
@@ -437,8 +680,7 @@ export default function AdminUsers() {
               e.preventDefault();
               const formData = new FormData(e.currentTarget);
               const email = formData.get("email") as string;
-              
-              // Send magic link to create user
+
               const { error } = await supabase.auth.signInWithOtp({
                 email,
                 options: {
