@@ -26,9 +26,9 @@ import { NavLink } from "@/components/NavLink";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 
-// Logos from Supabase Storage
-const LOGO_TECHNOVATION = "https://orvkqnbshkxzyhqpjsdw.supabase.co/storage/v1/object/public/Assets/LOGO_Technovation_Girls_Transparente.png";
-const LOGO_POWER_TO_CODE = "https://orvkqnbshkxzyhqpjsdw.supabase.co/storage/v1/object/public/Assets/Logo%20transparente%20PowerToCode.png";
+// White logos from Supabase Storage for dark sidebar
+const LOGO_TECHNOVATION_WHITE = "https://orvkqnbshkxzyhqpjsdw.supabase.co/storage/v1/object/public/Assets/TechnovationGirls-White-Madrid%20(1).png";
+const LOGO_POWER_TO_CODE_WHITE = "https://orvkqnbshkxzyhqpjsdw.supabase.co/storage/v1/object/public/Assets/Logo%20transparente%20PowerToCode_white.svg";
 
 const menuItems = [
   { title: "Dashboard", url: "/admin", icon: LayoutDashboard },
@@ -52,20 +52,20 @@ export function AdminSidebar() {
     <Sidebar className="border-r border-sidebar-border">
       <SidebarHeader className="border-b border-sidebar-border p-4">
         <div className="flex flex-col gap-3">
-          {/* Technovation Logo */}
-          <div className="flex items-center justify-center bg-white rounded-lg p-2">
+          {/* Technovation Logo - White version */}
+          <div className="flex items-center justify-center">
             <img 
-              src={LOGO_TECHNOVATION} 
+              src={LOGO_TECHNOVATION_WHITE} 
               alt="Technovation Girls Madrid" 
               className="h-10 w-auto"
             />
           </div>
-          {/* Power to Code Logo */}
-          <div className="flex items-center justify-center bg-white rounded-lg p-2">
+          {/* Power to Code Logo - White version */}
+          <div className="flex items-center justify-center">
             <img 
-              src={LOGO_POWER_TO_CODE} 
+              src={LOGO_POWER_TO_CODE_WHITE} 
               alt="Power to Code" 
-              className="h-9 w-auto"
+              className="h-8 w-auto"
             />
           </div>
           <div className="text-center">
