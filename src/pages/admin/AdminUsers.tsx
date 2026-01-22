@@ -8,6 +8,7 @@ import { StatusBadge } from "@/components/admin/StatusBadge";
 import { RoleBadge } from "@/components/admin/RoleBadge";
 import { ConfirmDialog } from "@/components/admin/ConfirmDialog";
 import { EditableCell } from "@/components/admin/EditableCell";
+import { UserEditSheet } from "@/components/admin/UserEditSheet";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -17,18 +18,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { Plus } from "lucide-react";
-import { Profile, AppRole, VerificationStatus, TableCustomColumn } from "@/types/database";
+import { Profile, AppRole, TableCustomColumn } from "@/types/database";
 
 type UserWithRole = Profile & { role?: AppRole };
 
@@ -45,7 +39,7 @@ function slugify(text: string): string {
 export default function AdminUsers() {
   const queryClient = useQueryClient();
   const [selectedUser, setSelectedUser] = useState<UserWithRole | null>(null);
-  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editSheetOpen, setEditSheetOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [addFieldDialogOpen, setAddFieldDialogOpen] = useState(false);
@@ -98,41 +92,7 @@ export default function AdminUsers() {
     },
   });
 
-  // Update user mutation
-  const updateUserMutation = useMutation({
-    mutationFn: async ({
-      userId,
-      updates,
-    }: {
-      userId: string;
-      updates: {
-        first_name?: string;
-        last_name?: string;
-        phone?: string;
-        postal_code?: string;
-        tg_id?: string;
-        tg_email?: string;
-        verification_status?: VerificationStatus;
-      };
-    }) => {
-      const { error } = await supabase
-        .from("profiles")
-        .update(updates)
-        .eq("id", userId);
-
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["admin-users"] });
-      toast.success("Usuario actualizado correctamente");
-      setEditDialogOpen(false);
-    },
-    onError: (error) => {
-      toast.error(`Error al actualizar: ${error.message}`);
-    },
-  });
-
-  // Update custom field mutation
+  // Update custom field mutation (for inline editing in table)
   const updateCustomFieldMutation = useMutation({
     mutationFn: async ({
       userId,
@@ -165,32 +125,6 @@ export default function AdminUsers() {
     },
   });
 
-  // Update verification status
-  const updateVerificationMutation = useMutation({
-    mutationFn: async ({
-      userId,
-      status,
-    }: {
-      userId: string;
-      status: VerificationStatus;
-    }) => {
-      const { error } = await supabase
-        .from("profiles")
-        .update({ verification_status: status })
-        .eq("id", userId);
-
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["admin-users"] });
-      queryClient.invalidateQueries({ queryKey: ["admin-dashboard-metrics"] });
-      toast.success("Estado de verificación actualizado");
-    },
-    onError: (error) => {
-      toast.error(`Error: ${error.message}`);
-    },
-  });
-
   // Delete user mutation
   const deleteUserMutation = useMutation({
     mutationFn: async (userId: string) => {
@@ -201,6 +135,7 @@ export default function AdminUsers() {
       queryClient.invalidateQueries({ queryKey: ["admin-users"] });
       toast.success("Usuario eliminado correctamente");
       setDeleteDialogOpen(false);
+      setEditSheetOpen(false);
     },
     onError: (error) => {
       toast.error(`Error al eliminar: ${error.message}`);
@@ -418,6 +353,10 @@ export default function AdminUsers() {
           hiddenColumns={hiddenColumns}
           onHiddenColumnsChange={setHiddenColumns}
           onAddColumn={() => setAddFieldDialogOpen(true)}
+          onRowClick={(user) => {
+            setSelectedUser(user as UserWithRole);
+            setEditSheetOpen(true);
+          }}
           onExport={() => {
             // TODO: Implement CSV export
             toast.info("Exportación en desarrollo");
@@ -462,129 +401,16 @@ export default function AdminUsers() {
         </DialogContent>
       </Dialog>
 
-      {/* Edit User Dialog */}
-      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Editar Usuario</DialogTitle>
-            <DialogDescription>Modifica los datos del usuario</DialogDescription>
-          </DialogHeader>
-          {selectedUser && (
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                const formData = new FormData(e.currentTarget);
-                updateUserMutation.mutate({
-                  userId: selectedUser.id,
-                  updates: {
-                    first_name: formData.get("first_name") as string,
-                    last_name: formData.get("last_name") as string,
-                    phone: formData.get("phone") as string,
-                    postal_code: formData.get("postal_code") as string,
-                    tg_id: formData.get("tg_id") as string,
-                    tg_email: formData.get("tg_email") as string,
-                    verification_status: formData.get(
-                      "verification_status"
-                    ) as VerificationStatus,
-                  },
-                });
-              }}
-              className="space-y-4"
-            >
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="first_name">Nombre</Label>
-                  <Input
-                    id="first_name"
-                    name="first_name"
-                    defaultValue={selectedUser.first_name || ""}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="last_name">Apellidos</Label>
-                  <Input
-                    id="last_name"
-                    name="last_name"
-                    defaultValue={selectedUser.last_name || ""}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
-                  <Input
-                    id="email"
-                    value={selectedUser.email}
-                    disabled
-                    className="bg-muted"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="tg_email">Email TG</Label>
-                  <Input
-                    id="tg_email"
-                    name="tg_email"
-                    defaultValue={selectedUser.tg_email || ""}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="tg_id">TG ID</Label>
-                  <Input
-                    id="tg_id"
-                    name="tg_id"
-                    defaultValue={selectedUser.tg_id || ""}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="phone">Teléfono</Label>
-                  <Input
-                    id="phone"
-                    name="phone"
-                    defaultValue={selectedUser.phone || ""}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="postal_code">Código Postal</Label>
-                  <Input
-                    id="postal_code"
-                    name="postal_code"
-                    defaultValue={selectedUser.postal_code || ""}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="verification_status">Estado</Label>
-                  <Select
-                    name="verification_status"
-                    defaultValue={selectedUser.verification_status || "pending"}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="pending">Pendiente</SelectItem>
-                      <SelectItem value="verified">Verificado</SelectItem>
-                      <SelectItem value="manual_review">
-                        Revisión Manual
-                      </SelectItem>
-                      <SelectItem value="rejected">Rechazado</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <DialogFooter>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setEditDialogOpen(false)}
-                >
-                  Cancelar
-                </Button>
-                <Button type="submit" disabled={updateUserMutation.isPending}>
-                  {updateUserMutation.isPending ? "Guardando..." : "Guardar"}
-                </Button>
-              </DialogFooter>
-            </form>
-          )}
-        </DialogContent>
-      </Dialog>
+      {/* User Edit Sheet */}
+      <UserEditSheet
+        user={selectedUser}
+        open={editSheetOpen}
+        onOpenChange={setEditSheetOpen}
+        customColumns={customColumns}
+        onDelete={(user) => {
+          setDeleteDialogOpen(true);
+        }}
+      />
 
       {/* Delete Confirmation */}
       <ConfirmDialog
