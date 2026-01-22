@@ -367,72 +367,41 @@ export default function AdminUsers() {
   // Actions column
   const actionsColumn: ColumnDef<UserWithRole> = {
     id: "actions",
+    header: "Acciones",
     enableHiding: false,
     cell: ({ row }) => {
       const user = row.original;
       return (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-8 w-8 p-0 cursor-pointer">
-              <span className="sr-only">Abrir menú</span>
-              <MoreHorizontal className="h-4 w-4" />
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 px-2"
+            onClick={() => {
+              setSelectedUser(user);
+              setEditDialogOpen(true);
+            }}
+          >
+            <Edit className="h-4 w-4 mr-1" />
+            Editar
+          </Button>
+          {user.verification_status !== "verified" && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 px-2 border-green-600 text-green-600 hover:bg-green-600/10"
+              onClick={() =>
+                updateVerificationMutation.mutate({
+                  userId: user.id,
+                  status: "verified",
+                })
+              }
+            >
+              <UserCheck className="h-4 w-4 mr-1" />
+              Validar
             </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuLabel>Acciones</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onClick={() => {
-                setSelectedUser(user);
-                setEditDialogOpen(true);
-              }}
-            >
-              <Edit className="mr-2 h-4 w-4" />
-              Editar
-            </DropdownMenuItem>
-            {user.verification_status !== "verified" && (
-              <DropdownMenuItem
-                onClick={() =>
-                  updateVerificationMutation.mutate({
-                    userId: user.id,
-                    status: "verified",
-                  })
-                }
-              >
-                <UserCheck className="mr-2 h-4 w-4" />
-                Verificar
-              </DropdownMenuItem>
-            )}
-            {user.verification_status !== "rejected" && (
-              <DropdownMenuItem
-                onClick={() =>
-                  updateVerificationMutation.mutate({
-                    userId: user.id,
-                    status: "rejected",
-                  })
-                }
-              >
-                <UserX className="mr-2 h-4 w-4" />
-                Rechazar
-              </DropdownMenuItem>
-            )}
-            <DropdownMenuItem>
-              <Mail className="mr-2 h-4 w-4" />
-              Enviar Email
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              className="text-destructive"
-              onClick={() => {
-                setSelectedUser(user);
-                setDeleteDialogOpen(true);
-              }}
-            >
-              <Trash2 className="mr-2 h-4 w-4" />
-              Eliminar
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+          )}
+        </div>
       );
     },
   };
