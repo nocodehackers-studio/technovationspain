@@ -10,6 +10,8 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { LoadingPage } from "@/components/ui/loading-spinner";
 import { toast } from "sonner";
 import { Mail, ArrowLeft, Loader2, Info } from "lucide-react";
+import logoTechnovation from "@/assets/logo-technovation-girls.svg";
+import logoPowerToCode from "@/assets/logo-power-to-code.svg";
 
 export default function Index() {
   const { user, isLoading, role, needsOnboarding, isVerified } = useAuth();
@@ -72,13 +74,27 @@ export default function Index() {
 
   if (emailSent) {
     return (
-      <div className="flex min-h-screen items-center justify-center p-4 bg-background">
-        <Card className="w-full max-w-md">
+      <div className="flex min-h-screen items-center justify-center p-4 bg-muted">
+        <Card className="w-full max-w-md card-hover">
           <CardHeader className="text-center">
-            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-secondary">
-              <Mail className="h-7 w-7" />
+            {/* Logos */}
+            <div className="flex items-center justify-center gap-4 mb-6">
+              <img 
+                src={logoTechnovation} 
+                alt="Technovation Girls Madrid" 
+                className="h-12 w-auto"
+              />
+              <div className="h-8 w-px bg-border" />
+              <img 
+                src={logoPowerToCode} 
+                alt="Power to Code" 
+                className="h-10 w-auto"
+              />
             </div>
-            <CardTitle className="text-xl">Revisa tu correo</CardTitle>
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-secondary/20">
+              <Mail className="h-7 w-7 text-secondary" />
+            </div>
+            <CardTitle className="text-xl font-display text-primary">Revisa tu correo</CardTitle>
             <CardDescription>
               Hemos enviado un enlace a <strong>{email}</strong>
             </CardDescription>
@@ -108,18 +124,28 @@ export default function Index() {
     <div className="flex min-h-screen items-center justify-center p-4 bg-muted">
       <Card className="w-full max-w-md card-hover">
         <CardHeader className="text-center">
-          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-xl gradient-hero text-white font-display font-bold text-2xl shadow-lg">
-            T
+          {/* Logos */}
+          <div className="flex items-center justify-center gap-4 mb-4">
+            <img 
+              src={logoTechnovation} 
+              alt="Technovation Girls Madrid" 
+              className="h-12 w-auto"
+            />
+            <div className="h-8 w-px bg-border" />
+            <img 
+              src={logoPowerToCode} 
+              alt="Power to Code" 
+              className="h-10 w-auto"
+            />
           </div>
-          <CardTitle className="text-2xl font-display text-primary">Technovation España</CardTitle>
           <CardDescription className="text-base">
             Regístrate o inicia sesión para continuar
           </CardDescription>
         </CardHeader>
         <form onSubmit={handleSignUp}>
           <CardContent className="space-y-4">
-            <Alert className="border-muted">
-              <Info className="h-4 w-4" />
+            <Alert className="border-muted bg-accent/5">
+              <Info className="h-4 w-4 text-accent" />
               <AlertDescription className="text-sm">
                 <strong>Importante:</strong> Usa el mismo email con el que te registraste 
                 en Technovation Global para verificar tu cuenta automáticamente.

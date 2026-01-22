@@ -25,6 +25,8 @@ import {
 import { NavLink } from "@/components/NavLink";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
+import logoTechnovation from "@/assets/logo-technovation-girls.svg";
+import logoPowerToCode from "@/assets/logo-power-to-code.svg";
 
 const menuItems = [
   { title: "Dashboard", url: "/admin", icon: LayoutDashboard },
@@ -47,16 +49,26 @@ export function AdminSidebar() {
   return (
     <Sidebar className="border-r border-sidebar-border">
       <SidebarHeader className="border-b border-sidebar-border p-4">
-        <div className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground font-bold">
-            T
+        <div className="flex flex-col gap-3">
+          {/* Technovation Logo */}
+          <div className="flex items-center justify-center bg-white rounded-lg p-2">
+            <img 
+              src={logoTechnovation} 
+              alt="Technovation Girls Madrid" 
+              className="h-8 w-auto"
+            />
           </div>
-          <div className="flex flex-col">
-            <span className="text-sm font-semibold text-sidebar-foreground">
-              Technovation
-            </span>
+          {/* Power to Code Logo */}
+          <div className="flex items-center justify-center bg-white rounded-lg p-2">
+            <img 
+              src={logoPowerToCode} 
+              alt="Power to Code" 
+              className="h-7 w-auto"
+            />
+          </div>
+          <div className="text-center">
             <span className="text-xs text-sidebar-foreground/60">
-              Panel Admin
+              Panel de Administración
             </span>
           </div>
         </div>
