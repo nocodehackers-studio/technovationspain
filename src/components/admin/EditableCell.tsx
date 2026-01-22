@@ -60,7 +60,10 @@ export function EditableCell({ value, onSave, className }: EditableCellProps) {
         !value && "text-muted-foreground italic",
         className
       )}
-      onClick={() => setEditing(true)}
+      onClick={(e) => {
+        e.stopPropagation();
+        setEditing(true);
+      }}
       title="Clic para editar"
     >
       {value || "—"}

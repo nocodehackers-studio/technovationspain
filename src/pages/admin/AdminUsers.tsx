@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ColumnDef } from "@tanstack/react-table";
 import { supabase } from "@/integrations/supabase/client";
@@ -322,6 +322,20 @@ export default function AdminUsers() {
     },
   ];
 
+  // Stable callback for saving custom fields
+  const handleSaveCustomField = useCallback(
+    (userId: string, fieldKey: string, value: string, currentCustomFields: Record<string, unknown>) => {
+      updateCustomFieldMutation.mutate({
+        userId,
+        fieldKey,
+        value,
+        currentCustomFields,
+      });
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
+
   // Dynamic columns from custom fields
   const dynamicColumns: ColumnDef<UserWithRole>[] = useMemo(() => {
     return (customColumns || []).map((col) => ({
@@ -337,18 +351,18 @@ export default function AdminUsers() {
           <EditableCell
             value={value}
             onSave={(newValue) => {
-              updateCustomFieldMutation.mutate({
-                userId: row.original.id,
-                fieldKey: col.column_key,
-                value: newValue,
-                currentCustomFields: customFields,
-              });
+              handleSaveCustomField(
+                row.original.id,
+                col.column_key,
+                newValue,
+                customFields
+              );
             }}
           />
         );
       },
     }));
-  }, [customColumns, updateCustomFieldMutation]);
+  }, [customColumns, handleSaveCustomField]);
 
   // Actions column
   const actionsColumn: ColumnDef<UserWithRole> = {
