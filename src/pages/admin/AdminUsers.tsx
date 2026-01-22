@@ -392,7 +392,7 @@ export default function AdminUsers() {
 
   return (
     <AdminLayout title="Gestión de Usuarios">
-      <div className="space-y-4">
+      <div className="space-y-4 min-w-0 overflow-hidden">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold tracking-tight">Usuarios</h1>
