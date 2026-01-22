@@ -69,6 +69,7 @@ interface AirtableDataTableProps<TData, TValue> {
   loading?: boolean;
   hiddenColumns?: string[];
   onHiddenColumnsChange?: (columns: string[]) => void;
+  onRowClick?: (row: TData) => void;
 }
 
 export function AirtableDataTable<TData, TValue>({
@@ -81,6 +82,7 @@ export function AirtableDataTable<TData, TValue>({
   loading = false,
   hiddenColumns = [],
   onHiddenColumnsChange,
+  onRowClick,
 }: AirtableDataTableProps<TData, TValue>) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
@@ -307,6 +309,8 @@ export function AirtableDataTable<TData, TValue>({
                 <TableRow
                   key={row.id}
                   data-state={row.getIsSelected() && "selected"}
+                  onClick={() => onRowClick?.(row.original)}
+                  className={onRowClick ? "cursor-pointer hover:bg-muted/50" : ""}
                 >
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id}>
