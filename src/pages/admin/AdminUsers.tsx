@@ -10,14 +10,6 @@ import { ConfirmDialog } from "@/components/admin/ConfirmDialog";
 import { EditableCell } from "@/components/admin/EditableCell";
 import { Button } from "@/components/ui/button";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -35,7 +27,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { MoreHorizontal, Plus, UserCheck, UserX, Mail, Edit, Trash2 } from "lucide-react";
+import { Plus } from "lucide-react";
 import { Profile, AppRole, VerificationStatus, TableCustomColumn } from "@/types/database";
 
 type UserWithRole = Profile & { role?: AppRole };
@@ -240,19 +232,6 @@ export default function AdminUsers() {
     },
   });
 
-  // Stable handlers for actions
-  const handleEditUser = useCallback((user: UserWithRole) => {
-    setSelectedUser(user);
-    setEditDialogOpen(true);
-  }, []);
-
-  const handleValidateUser = useCallback((userId: string) => {
-    updateVerificationMutation.mutate({
-      userId,
-      status: "verified",
-    });
-  }, [updateVerificationMutation]);
-
   // Static columns - memoized to prevent re-renders
   const staticColumns: ColumnDef<UserWithRole>[] = useMemo(() => [
     {
@@ -377,44 +356,10 @@ export default function AdminUsers() {
     }));
   }, [customColumns, handleSaveCustomField]);
 
-  // Actions column - memoized with stable handlers
-  const actionsColumn: ColumnDef<UserWithRole> = useMemo(() => ({
-    id: "actions",
-    header: "Acciones",
-    enableHiding: false,
-    cell: ({ row }) => {
-      const user = row.original;
-      return (
-        <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 px-2"
-            onClick={() => handleEditUser(user)}
-          >
-            <Edit className="h-4 w-4 mr-1" />
-            Editar
-          </Button>
-          {user.verification_status !== "verified" && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 px-2 border-green-600 text-green-600 hover:bg-green-600/10"
-              onClick={() => handleValidateUser(user.id)}
-            >
-              <UserCheck className="h-4 w-4 mr-1" />
-              Validar
-            </Button>
-          )}
-        </div>
-      );
-    },
-  }), [handleEditUser, handleValidateUser]);
-
   // Combine all columns
   const columns = useMemo(
-    () => [...staticColumns, ...dynamicColumns, actionsColumn],
-    [staticColumns, dynamicColumns, actionsColumn]
+    () => [...staticColumns, ...dynamicColumns],
+    [staticColumns, dynamicColumns]
   );
 
   // Filterable columns config
