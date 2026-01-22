@@ -25,8 +25,10 @@ import {
 import { NavLink } from "@/components/NavLink";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
-import logoTechnovation from "@/assets/logo-technovation-girls.svg";
-import logoPowerToCode from "@/assets/logo-power-to-code.svg";
+
+// Logos from Supabase Storage
+const LOGO_TECHNOVATION = "https://orvkqnbshkxzyhqpjsdw.supabase.co/storage/v1/object/public/Assets/LOGO_Technovation_Girls_Transparente.png";
+const LOGO_POWER_TO_CODE = "https://orvkqnbshkxzyhqpjsdw.supabase.co/storage/v1/object/public/Assets/Logo%20transparente%20PowerToCode.png";
 
 const menuItems = [
   { title: "Dashboard", url: "/admin", icon: LayoutDashboard },
@@ -53,17 +55,17 @@ export function AdminSidebar() {
           {/* Technovation Logo */}
           <div className="flex items-center justify-center bg-white rounded-lg p-2">
             <img 
-              src={logoTechnovation} 
+              src={LOGO_TECHNOVATION} 
               alt="Technovation Girls Madrid" 
-              className="h-8 w-auto"
+              className="h-10 w-auto"
             />
           </div>
           {/* Power to Code Logo */}
           <div className="flex items-center justify-center bg-white rounded-lg p-2">
             <img 
-              src={logoPowerToCode} 
+              src={LOGO_POWER_TO_CODE} 
               alt="Power to Code" 
-              className="h-7 w-auto"
+              className="h-9 w-auto"
             />
           </div>
           <div className="text-center">
