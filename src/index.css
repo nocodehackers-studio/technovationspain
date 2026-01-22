@@ -2,136 +2,127 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Technovation Girls Brand Design System
-   Official brand colors and typography
+/* Technovation España Design System
+   Dark/Black elegant theme with ShadCN components
    All colors MUST be HSL.
-   
-   Brand Colors (HEX -> HSL):
-   - Deep Purple #1D1349 -> 252 60% 18%
-   - Blue #0076CF -> 206 100% 41%
-   - Green #43B02A -> 108 62% 43%
-   - Pink #D0006F -> 329 100% 41%
-   - Yellow #FFB81C -> 41 100% 55%
-   - Orange #FF7500 -> 28 100% 50%
-   - Light Blue #5BC2E7 -> 197 74% 63%
 */
 
 @layer base {
   :root {
-    /* Light mode - Technovation Girls palette */
+    /* Light mode - Clean white with dark accents */
     --background: 0 0% 100%;
-    --foreground: 0 0% 0%;
+    --foreground: 0 0% 3.9%;
 
     --card: 0 0% 100%;
-    --card-foreground: 0 0% 0%;
+    --card-foreground: 0 0% 3.9%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 0%;
+    --popover-foreground: 0 0% 3.9%;
 
-    /* Primary: Deep Purple #1D1349 */
-    --primary: 252 60% 18%;
-    --primary-foreground: 0 0% 100%;
+    /* Primary: Deep Black */
+    --primary: 0 0% 9%;
+    --primary-foreground: 0 0% 98%;
 
-    /* Secondary: Green #43B02A */
-    --secondary: 108 62% 43%;
-    --secondary-foreground: 0 0% 100%;
+    /* Secondary: Soft Gray */
+    --secondary: 0 0% 96.1%;
+    --secondary-foreground: 0 0% 9%;
 
-    /* Muted: Light gray */
-    --muted: 0 0% 96%;
-    --muted-foreground: 0 0% 40%;
+    /* Muted: Light Gray */
+    --muted: 0 0% 96.1%;
+    --muted-foreground: 0 0% 45.1%;
 
-    /* Accent: Pink #D0006F */
-    --accent: 329 100% 41%;
-    --accent-foreground: 0 0% 100%;
+    /* Accent: Subtle warm tone */
+    --accent: 0 0% 96.1%;
+    --accent-foreground: 0 0% 9%;
 
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 0 0% 100%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
 
-    /* Success: Green #43B02A */
-    --success: 108 62% 43%;
-    --success-foreground: 0 0% 100%;
+    /* Success: Muted Green */
+    --success: 142 76% 36%;
+    --success-foreground: 0 0% 98%;
 
-    /* Warning: Yellow #FFB81C */
-    --warning: 41 100% 55%;
-    --warning-foreground: 0 0% 0%;
+    /* Warning: Muted Amber */
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 9%;
 
-    /* Info: Blue #0076CF */
-    --info: 206 100% 41%;
-    --info-foreground: 0 0% 100%;
+    /* Info: Muted Blue */
+    --info: 221 83% 53%;
+    --info-foreground: 0 0% 98%;
 
-    --border: 0 0% 90%;
-    --input: 0 0% 90%;
-    --ring: 252 60% 18%;
+    --border: 0 0% 89.8%;
+    --input: 0 0% 89.8%;
+    --ring: 0 0% 3.9%;
 
-    --radius: 5px;
+    --radius: 0.5rem;
 
-    /* Sidebar - Deep Purple theme */
-    --sidebar-background: 252 60% 18%;
-    --sidebar-foreground: 0 0% 100%;
-    --sidebar-primary: 0 0% 100%;
-    --sidebar-primary-foreground: 252 60% 18%;
-    --sidebar-accent: 252 60% 25%;
-    --sidebar-accent-foreground: 0 0% 100%;
-    --sidebar-border: 252 60% 25%;
-    --sidebar-ring: 0 0% 100%;
+    /* Sidebar - Dark theme */
+    --sidebar-background: 0 0% 3.9%;
+    --sidebar-foreground: 0 0% 98%;
+    --sidebar-primary: 0 0% 98%;
+    --sidebar-primary-foreground: 0 0% 9%;
+    --sidebar-accent: 0 0% 14.9%;
+    --sidebar-accent-foreground: 0 0% 98%;
+    --sidebar-border: 0 0% 14.9%;
+    --sidebar-ring: 0 0% 98%;
 
-    /* Category colors - using brand accents */
-    --category-beginner: 41 100% 55%;
-    --category-junior: 329 100% 41%;
-    --category-senior: 206 100% 41%;
+    /* Category colors */
+    --category-beginner: 38 92% 50%;
+    --category-junior: 262 83% 58%;
+    --category-senior: 221 83% 53%;
   }
 
   .dark {
-    /* Dark mode - Deep Purple based */
-    --background: 252 60% 8%;
+    /* Dark mode - Pure black experience */
+    --background: 0 0% 3.9%;
     --foreground: 0 0% 98%;
 
-    --card: 252 60% 12%;
+    --card: 0 0% 3.9%;
     --card-foreground: 0 0% 98%;
 
-    --popover: 252 60% 12%;
+    --popover: 0 0% 3.9%;
     --popover-foreground: 0 0% 98%;
 
     --primary: 0 0% 98%;
-    --primary-foreground: 252 60% 18%;
+    --primary-foreground: 0 0% 9%;
 
-    --secondary: 108 62% 43%;
-    --secondary-foreground: 0 0% 100%;
+    --secondary: 0 0% 14.9%;
+    --secondary-foreground: 0 0% 98%;
 
-    --muted: 252 30% 20%;
-    --muted-foreground: 0 0% 65%;
+    --muted: 0 0% 14.9%;
+    --muted-foreground: 0 0% 63.9%;
 
-    --accent: 329 100% 41%;
-    --accent-foreground: 0 0% 100%;
+    --accent: 0 0% 14.9%;
+    --accent-foreground: 0 0% 98%;
 
-    --destructive: 0 62% 30%;
+    --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 0 0% 98%;
 
-    --success: 108 62% 43%;
-    --success-foreground: 0 0% 100%;
+    --success: 142 70% 45%;
+    --success-foreground: 0 0% 98%;
 
-    --warning: 41 100% 55%;
-    --warning-foreground: 0 0% 0%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 9%;
 
-    --info: 206 100% 50%;
-    --info-foreground: 0 0% 100%;
+    --info: 217 91% 60%;
+    --info-foreground: 0 0% 98%;
 
-    --border: 252 30% 25%;
-    --input: 252 30% 25%;
-    --ring: 0 0% 83%;
+    --border: 0 0% 14.9%;
+    --input: 0 0% 14.9%;
+    --ring: 0 0% 83.1%;
 
-    --sidebar-background: 252 60% 8%;
+    --sidebar-background: 0 0% 0%;
     --sidebar-foreground: 0 0% 98%;
     --sidebar-primary: 0 0% 98%;
-    --sidebar-primary-foreground: 252 60% 18%;
-    --sidebar-accent: 252 60% 15%;
+    --sidebar-primary-foreground: 0 0% 9%;
+    --sidebar-accent: 0 0% 9%;
     --sidebar-accent-foreground: 0 0% 98%;
-    --sidebar-border: 252 30% 25%;
+    --sidebar-border: 0 0% 14.9%;
     --sidebar-ring: 0 0% 98%;
 
-    --category-beginner: 41 100% 55%;
-    --category-junior: 329 100% 41%;
-    --category-senior: 206 100% 41%;
+    --category-beginner: 38 92% 50%;
+    --category-junior: 262 83% 58%;
+    --category-senior: 221 83% 53%;
   }
 }
 
@@ -141,65 +132,22 @@
   }
 
   body {
-    @apply bg-background text-foreground antialiased font-body;
-    font-size: 18px;
-    line-height: 30px;
-  }
-
-  h1 {
-    @apply font-heading font-black tracking-tight;
-    color: hsl(252 60% 18%);
-    font-size: clamp(2.5rem, 5vw, 4.6875rem);
-    line-height: 1;
-  }
-
-  h2 {
-    @apply font-body font-bold tracking-tight;
-    color: hsl(252 60% 18%);
-    font-size: 2rem;
-    line-height: 2.625rem;
-  }
-
-  h3 {
-    @apply font-body font-normal;
-    color: hsl(0 0% 0%);
-    font-size: 1.5rem;
-    line-height: 2.375rem;
-  }
-
-  h4 {
-    @apply font-body font-bold;
-    color: hsl(0 0% 0%);
-    font-size: 1.125rem;
-    line-height: 1.625rem;
-  }
-
-  .dark h1,
-  .dark h2 {
-    color: hsl(0 0% 98%);
-  }
-
-  .dark h3,
-  .dark h4 {
-    color: hsl(0 0% 90%);
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
   }
 }
 
 @layer utilities {
-  .gradient-brand {
-    background: linear-gradient(135deg, hsl(252 60% 18%) 0%, hsl(206 100% 41%) 100%);
+  .gradient-dark {
+    background: linear-gradient(135deg, hsl(0 0% 0%) 0%, hsl(0 0% 9%) 100%);
   }
   
-  .gradient-success {
-    background: linear-gradient(135deg, hsl(108 62% 43%) 0%, hsl(197 74% 63%) 100%);
+  .gradient-subtle {
+    background: linear-gradient(135deg, hsl(0 0% 96%) 0%, hsl(0 0% 100%) 100%);
   }
 
-  .gradient-accent {
-    background: linear-gradient(135deg, hsl(329 100% 41%) 0%, hsl(41 100% 55%) 100%);
-  }
-
-  .text-gradient-brand {
-    background: linear-gradient(135deg, hsl(252 60% 18%) 0%, hsl(329 100% 41%) 100%);
+  .text-gradient {
+    background: linear-gradient(135deg, hsl(0 0% 20%) 0%, hsl(0 0% 40%) 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
@@ -224,11 +172,11 @@
   }
 }
 
-/* Custom scrollbar - Brand themed */
+/* Custom scrollbar - Minimal dark */
 @layer utilities {
   .scrollbar-thin {
     scrollbar-width: thin;
-    scrollbar-color: hsl(252 60% 30%) transparent;
+    scrollbar-color: hsl(0 0% 30%) transparent;
   }
 
   .scrollbar-thin::-webkit-scrollbar {
@@ -241,12 +189,12 @@
   }
 
   .scrollbar-thin::-webkit-scrollbar-thumb {
-    background-color: hsl(252 60% 30%);
+    background-color: hsl(0 0% 30%);
     border-radius: 3px;
   }
 
   .scrollbar-thin::-webkit-scrollbar-thumb:hover {
-    background-color: hsl(252 60% 40%);
+    background-color: hsl(0 0% 40%);
   }
 }
 
@@ -257,6 +205,6 @@
   }
   
   .card-interactive {
-    @apply transition-all duration-200 cursor-pointer hover:bg-accent/10;
+    @apply transition-all duration-200 cursor-pointer hover:bg-accent/50;
   }
 }

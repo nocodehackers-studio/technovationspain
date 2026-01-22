@@ -13,12 +13,6 @@ export default {
       },
     },
     extend: {
-      fontFamily: {
-        sans: ['Poppins', 'system-ui', 'sans-serif'],
-        display: ['Rubik', 'system-ui', 'sans-serif'],
-        heading: ['Rubik', 'system-ui', 'sans-serif'],
-        body: ['Poppins', 'system-ui', 'sans-serif'],
-      },
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
@@ -80,21 +74,11 @@ export default {
           junior: "hsl(var(--category-junior))",
           senior: "hsl(var(--category-senior))",
         },
-        // Technovation brand colors for direct use
-        brand: {
-          purple: "#1D1349",
-          blue: "#0076CF",
-          green: "#43B02A",
-          pink: "#D0006F",
-          yellow: "#FFB81C",
-          orange: "#FF7500",
-          lightblue: "#5BC2E7",
-        },
       },
       borderRadius: {
-        lg: "5px",
-        md: "5px",
-        sm: "3px",
+        lg: "var(--radius)",
+        md: "calc(var(--radius) - 2px)",
+        sm: "calc(var(--radius) - 4px)",
       },
       keyframes: {
         "accordion-down": {
@@ -124,6 +108,10 @@ export default {
         "fade-in": "fade-in 0.3s ease-out",
         "slide-in-right": "slide-in-right 0.3s ease-out",
         "scale-in": "scale-in 0.2s ease-out",
+      },
+      fontFamily: {
+        sans: ['Inter', 'system-ui', 'sans-serif'],
+        display: ['Inter', 'system-ui', 'sans-serif'],
       },
     },
   },
