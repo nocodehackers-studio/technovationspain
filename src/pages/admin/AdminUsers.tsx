@@ -18,10 +18,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { Plus } from "lucide-react";
+import { Plus, MoreVertical, Trash2 } from "lucide-react";
 import { Profile, AppRole, TableCustomColumn } from "@/types/database";
 
 type UserWithRole = Profile & { role?: AppRole };
@@ -167,6 +173,25 @@ export default function AdminUsers() {
     },
   });
 
+  // Delete custom column mutation
+  const deleteColumnMutation = useMutation({
+    mutationFn: async (columnId: string) => {
+      const { error } = await supabase
+        .from("table_custom_columns")
+        .delete()
+        .eq("id", columnId);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["table-custom-columns", "profiles"] });
+      toast.success("Campo eliminado correctamente");
+    },
+    onError: (error) => {
+      toast.error(`Error al eliminar campo: ${error.message}`);
+    },
+  });
+
   // Static columns - memoized to prevent re-renders
   const staticColumns: ColumnDef<UserWithRole>[] = useMemo(() => [
     {
@@ -263,12 +288,49 @@ export default function AdminUsers() {
     []
   );
 
+  // Stable callback for deleting custom columns
+  const handleDeleteColumn = useCallback(
+    (columnId: string) => {
+      deleteColumnMutation.mutate(columnId);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
+
   // Dynamic columns from custom fields
   const dynamicColumns: ColumnDef<UserWithRole>[] = useMemo(() => {
     return (customColumns || []).map((col) => ({
       id: `custom_${col.column_key}`,
       accessorKey: `custom_fields.${col.column_key}`,
-      header: col.column_label,
+      header: () => (
+        <div className="flex items-center justify-between gap-2">
+          <span>{col.column_label}</span>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 opacity-0 group-hover:opacity-100 hover:opacity-100 focus:opacity-100"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <MoreVertical className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                className="text-destructive focus:text-destructive"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleDeleteColumn(col.id);
+                }}
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Eliminar campo
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      ),
       enableHiding: true,
       cell: ({ row }) => {
         const customFields = (row.original.custom_fields || {}) as Record<string, unknown>;
@@ -289,7 +351,7 @@ export default function AdminUsers() {
         );
       },
     }));
-  }, [customColumns, handleSaveCustomField]);
+  }, [customColumns, handleSaveCustomField, handleDeleteColumn]);
 
   // Combine all columns
   const columns = useMemo(
