@@ -10,8 +10,10 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { LoadingPage } from "@/components/ui/loading-spinner";
 import { toast } from "sonner";
 import { Mail, ArrowLeft, Loader2, Info } from "lucide-react";
-import logoTechnovation from "@/assets/logo-technovation-girls.svg";
-import logoPowerToCode from "@/assets/logo-power-to-code.svg";
+
+// Logos from Supabase Storage
+const LOGO_TECHNOVATION = "https://orvkqnbshkxzyhqpjsdw.supabase.co/storage/v1/object/public/Assets/LOGO_Technovation_Girls_Transparente.png";
+const LOGO_POWER_TO_CODE = "https://orvkqnbshkxzyhqpjsdw.supabase.co/storage/v1/object/public/Assets/Logo%20transparente%20PowerToCode.png";
 
 export default function Index() {
   const { user, isLoading, role, needsOnboarding, isVerified } = useAuth();
@@ -78,17 +80,17 @@ export default function Index() {
         <Card className="w-full max-w-md card-hover">
           <CardHeader className="text-center">
             {/* Logos */}
-            <div className="flex items-center justify-center gap-4 mb-6">
+            <div className="flex items-center justify-center gap-6 mb-6">
               <img 
-                src={logoTechnovation} 
+                src={LOGO_TECHNOVATION} 
                 alt="Technovation Girls Madrid" 
-                className="h-12 w-auto"
+                className="h-14 w-auto"
               />
-              <div className="h-8 w-px bg-border" />
+              <div className="h-10 w-px bg-border" />
               <img 
-                src={logoPowerToCode} 
+                src={LOGO_POWER_TO_CODE} 
                 alt="Power to Code" 
-                className="h-10 w-auto"
+                className="h-12 w-auto"
               />
             </div>
             <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-secondary/20">
@@ -125,17 +127,17 @@ export default function Index() {
       <Card className="w-full max-w-md card-hover">
         <CardHeader className="text-center">
           {/* Logos */}
-          <div className="flex items-center justify-center gap-4 mb-4">
+          <div className="flex items-center justify-center gap-6 mb-4">
             <img 
-              src={logoTechnovation} 
+              src={LOGO_TECHNOVATION} 
               alt="Technovation Girls Madrid" 
-              className="h-12 w-auto"
+              className="h-14 w-auto"
             />
-            <div className="h-8 w-px bg-border" />
+            <div className="h-10 w-px bg-border" />
             <img 
-              src={logoPowerToCode} 
+              src={LOGO_POWER_TO_CODE} 
               alt="Power to Code" 
-              className="h-10 w-auto"
+              className="h-12 w-auto"
             />
           </div>
           <CardDescription className="text-base">
