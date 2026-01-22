@@ -74,11 +74,21 @@ export default {
           junior: "hsl(var(--category-junior))",
           senior: "hsl(var(--category-senior))",
         },
+        brand: {
+          purple: "hsl(var(--brand-purple))",
+          blue: "hsl(var(--brand-blue))",
+          green: "hsl(var(--brand-green))",
+          pink: "hsl(var(--brand-pink))",
+          orange: "hsl(var(--brand-orange))",
+          yellow: "hsl(var(--brand-yellow))",
+          "light-blue": "hsl(var(--brand-light-blue))",
+        },
       },
       borderRadius: {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
+        "2xl": "1rem",
       },
       keyframes: {
         "accordion-down": {
@@ -110,8 +120,9 @@ export default {
         "scale-in": "scale-in 0.2s ease-out",
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
-        display: ['Inter', 'system-ui', 'sans-serif'],
+        sans: ['Poppins', 'system-ui', 'sans-serif'],
+        display: ['Rubik', 'system-ui', 'sans-serif'],
+        heading: ['Rubik', 'system-ui', 'sans-serif'],
       },
     },
   },

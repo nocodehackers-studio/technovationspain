@@ -25,13 +25,13 @@ export default function EventsListPage() {
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
-      <div className="bg-gradient-to-r from-primary to-primary/80 text-primary-foreground py-16 px-4">
+      <div className="gradient-hero text-white py-16 px-4">
         <div className="max-w-6xl mx-auto text-center">
           <div className="flex justify-center mb-4">
             <Calendar className="h-12 w-12" />
           </div>
-          <h1 className="text-4xl font-bold mb-4">Eventos Technovation</h1>
-          <p className="text-lg opacity-90 max-w-2xl mx-auto">
+          <h1 className="text-4xl md:text-5xl font-display mb-4">Eventos Technovation</h1>
+          <p className="text-lg opacity-95 max-w-2xl mx-auto">
             Descubre los próximos eventos de Technovation Girls España. 
             Talleres, encuentros intermedios y finales regionales.
           </p>

@@ -105,14 +105,14 @@ export default function Index() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center p-4 bg-background">
-      <Card className="w-full max-w-md">
+    <div className="flex min-h-screen items-center justify-center p-4 bg-muted">
+      <Card className="w-full max-w-md card-hover">
         <CardHeader className="text-center">
-          <div className="mx-auto mb-4 flex h-10 w-10 items-center justify-center rounded-md bg-primary text-primary-foreground font-bold">
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-xl gradient-hero text-white font-display font-bold text-2xl shadow-lg">
             T
           </div>
-          <CardTitle className="text-xl">Technovation España</CardTitle>
-          <CardDescription>
+          <CardTitle className="text-2xl font-display text-primary">Technovation España</CardTitle>
+          <CardDescription className="text-base">
             Regístrate o inicia sesión para continuar
           </CardDescription>
         </CardHeader>
