@@ -240,8 +240,21 @@ export default function AdminUsers() {
     },
   });
 
-  // Static columns
-  const staticColumns: ColumnDef<UserWithRole>[] = [
+  // Stable handlers for actions
+  const handleEditUser = useCallback((user: UserWithRole) => {
+    setSelectedUser(user);
+    setEditDialogOpen(true);
+  }, []);
+
+  const handleValidateUser = useCallback((userId: string) => {
+    updateVerificationMutation.mutate({
+      userId,
+      status: "verified",
+    });
+  }, [updateVerificationMutation]);
+
+  // Static columns - memoized to prevent re-renders
+  const staticColumns: ColumnDef<UserWithRole>[] = useMemo(() => [
     {
       id: "avatar",
       header: "",
@@ -320,7 +333,7 @@ export default function AdminUsers() {
         </span>
       ),
     },
-  ];
+  ], []);
 
   // Stable callback for saving custom fields
   const handleSaveCustomField = useCallback(
@@ -364,8 +377,8 @@ export default function AdminUsers() {
     }));
   }, [customColumns, handleSaveCustomField]);
 
-  // Actions column
-  const actionsColumn: ColumnDef<UserWithRole> = {
+  // Actions column - memoized with stable handlers
+  const actionsColumn: ColumnDef<UserWithRole> = useMemo(() => ({
     id: "actions",
     header: "Acciones",
     enableHiding: false,
@@ -377,10 +390,7 @@ export default function AdminUsers() {
             variant="ghost"
             size="sm"
             className="h-8 px-2"
-            onClick={() => {
-              setSelectedUser(user);
-              setEditDialogOpen(true);
-            }}
+            onClick={() => handleEditUser(user)}
           >
             <Edit className="h-4 w-4 mr-1" />
             Editar
@@ -390,12 +400,7 @@ export default function AdminUsers() {
               variant="outline"
               size="sm"
               className="h-8 px-2 border-green-600 text-green-600 hover:bg-green-600/10"
-              onClick={() =>
-                updateVerificationMutation.mutate({
-                  userId: user.id,
-                  status: "verified",
-                })
-              }
+              onClick={() => handleValidateUser(user.id)}
             >
               <UserCheck className="h-4 w-4 mr-1" />
               Validar
@@ -404,12 +409,12 @@ export default function AdminUsers() {
         </div>
       );
     },
-  };
+  }), [handleEditUser, handleValidateUser]);
 
   // Combine all columns
   const columns = useMemo(
     () => [...staticColumns, ...dynamicColumns, actionsColumn],
-    [staticColumns, dynamicColumns]
+    [staticColumns, dynamicColumns, actionsColumn]
   );
 
   // Filterable columns config
