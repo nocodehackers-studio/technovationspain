@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { MetricCard } from "@/components/admin/MetricCard";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Users, UserCheck, Clock, UsersRound, Calendar, TrendingUp } from "lucide-react";
+import { Users, UserCheck, Clock, UsersRound } from "lucide-react";
 import {
   ChartContainer,
   ChartTooltip,
@@ -21,13 +21,11 @@ export default function AdminDashboard() {
         { count: verifiedUsers },
         { count: pendingUsers },
         { count: totalTeams },
-        { count: upcomingEvents },
       ] = await Promise.all([
         supabase.from("profiles").select("*", { count: "exact", head: true }),
         supabase.from("profiles").select("*", { count: "exact", head: true }).eq("verification_status", "verified"),
         supabase.from("profiles").select("*", { count: "exact", head: true }).eq("verification_status", "pending"),
         supabase.from("teams").select("*", { count: "exact", head: true }),
-        supabase.from("events").select("*", { count: "exact", head: true }).gte("date", new Date().toISOString().split("T")[0]),
       ]);
 
       return {
@@ -35,8 +33,6 @@ export default function AdminDashboard() {
         verifiedUsers: verifiedUsers || 0,
         pendingUsers: pendingUsers || 0,
         totalTeams: totalTeams || 0,
-        upcomingEvents: upcomingEvents || 0,
-        registrationsThisWeek: 0, // TODO: Calculate from event_registrations
       };
     },
   });
@@ -124,7 +120,7 @@ export default function AdminDashboard() {
     <AdminLayout title="Dashboard">
       <div className="space-y-6">
         {/* Metrics Cards */}
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <MetricCard
             title="Total Usuarios"
             value={metrics?.totalUsers || 0}
@@ -148,19 +144,6 @@ export default function AdminDashboard() {
             value={metrics?.totalTeams || 0}
             icon={<UsersRound className="h-6 w-6" />}
             color="info"
-          />
-          <MetricCard
-            title="Eventos Próximos"
-            value={metrics?.upcomingEvents || 0}
-            icon={<Calendar className="h-6 w-6" />}
-            color="accent"
-          />
-          <MetricCard
-            title="Inscripciones/Semana"
-            value={metrics?.registrationsThisWeek || 0}
-            icon={<TrendingUp className="h-6 w-6" />}
-            trend={{ value: 12, direction: "up", period: "vs semana pasada" }}
-            color="primary"
           />
         </div>
 
