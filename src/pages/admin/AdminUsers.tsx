@@ -210,7 +210,9 @@ export default function AdminUsers() {
       },
     },
     {
-      accessorKey: "name",
+      id: "name",
+      accessorFn: (row) => 
+        `${row.first_name || ""} ${row.last_name || ""} ${row.email || ""} ${row.tg_id || ""} ${row.phone || ""}`.toLowerCase(),
       header: "Nombre",
       enableHiding: true,
       cell: ({ row }) => (
