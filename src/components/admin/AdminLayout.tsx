@@ -38,8 +38,13 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
         
         <div className="flex flex-1 flex-col min-w-0">
           {/* Header */}
-          <header className="sticky top-0 z-40 flex h-14 items-center gap-4 border-b bg-background px-4 lg:px-6">
+          <header className="sticky top-0 z-40 flex h-14 items-center gap-2 sm:gap-4 border-b bg-background px-3 sm:px-4 lg:px-6">
             <SidebarTrigger className="lg:hidden" />
+            
+            {/* Mobile title */}
+            <h1 className="text-lg font-semibold truncate md:hidden">
+              {title || breadcrumbs[breadcrumbs.length - 1]?.label}
+            </h1>
             
             <Breadcrumb className="hidden md:flex">
               <BreadcrumbList>

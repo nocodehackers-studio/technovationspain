@@ -157,119 +157,125 @@ export function AirtableDataTable<TData, TValue>({
   return (
     <div className="space-y-4">
       {/* Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-col gap-3 sm:gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           {/* Search */}
-          <div className="relative">
+          <div className="relative w-full sm:w-64">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder={searchPlaceholder}
               value={globalFilter ?? ""}
               onChange={(e) => setGlobalFilter(e.target.value)}
-              className="w-64 pl-9"
+              className="w-full pl-9"
             />
           </div>
+          
+          {/* Action buttons - right side */}
+          <div className="flex items-center gap-2">
+            {/* Column Visibility Toggle */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <SlidersHorizontal className="h-4 w-4 sm:mr-2" />
+                  <span className="hidden sm:inline">Columnas</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuLabel>Mostrar columnas</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {table
+                  .getAllLeafColumns()
+                  .filter((column) => column.getCanHide())
+                  .map((column) => {
+                    const header = column.columnDef.header;
+                    const label =
+                      typeof header === "string"
+                        ? header
+                        : column.id === "actions"
+                        ? "Acciones"
+                        : column.id;
+                    return (
+                      <DropdownMenuCheckboxItem
+                        key={column.id}
+                        checked={column.getIsVisible()}
+                        onCheckedChange={(value) =>
+                          column.toggleVisibility(!!value)
+                        }
+                      >
+                        {label}
+                      </DropdownMenuCheckboxItem>
+                    );
+                  })}
+              </DropdownMenuContent>
+            </DropdownMenu>
 
-          {/* Column Filters */}
-          {filterableColumns.map((filter) => (
-            <Select
-              key={filter.key}
-              value={activeFilters[filter.key] || "all"}
-              onValueChange={(value) => handleFilterChange(filter.key, value)}
-            >
-              <SelectTrigger className="w-[160px]">
-                <SelectValue placeholder={filter.label} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos</SelectItem>
-                {filter.options.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ))}
-
-          {/* Active Filter Tags */}
-          {Object.entries(activeFilters).map(([key, value]) => {
-            const filterConfig = filterableColumns.find((f) => f.key === key);
-            const optionLabel = filterConfig?.options.find(
-              (o) => o.value === value
-            )?.label;
-            return (
-              <div
-                key={key}
-                className="flex items-center gap-1 rounded-full bg-primary/10 px-3 py-1 text-sm"
-              >
-                <span>
-                  {filterConfig?.label}: {optionLabel}
-                </span>
-                <button
-                  onClick={() => clearFilter(key)}
-                  className="ml-1 hover:text-destructive"
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="flex items-center gap-2">
-          {/* Column Visibility Toggle */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm">
-                <SlidersHorizontal className="mr-2 h-4 w-4" />
-                Columnas
+            {/* Add Column Button */}
+            {onAddColumn && (
+              <Button variant="outline" size="sm" onClick={onAddColumn}>
+                <Plus className="h-4 w-4 sm:mr-2" />
+                <span className="hidden sm:inline">Campo</span>
               </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuLabel>Mostrar columnas</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              {table
-                .getAllLeafColumns()
-                .filter((column) => column.getCanHide())
-                .map((column) => {
-                  const header = column.columnDef.header;
-                  const label =
-                    typeof header === "string"
-                      ? header
-                      : column.id === "actions"
-                      ? "Acciones"
-                      : column.id;
-                  return (
-                    <DropdownMenuCheckboxItem
-                      key={column.id}
-                      checked={column.getIsVisible()}
-                      onCheckedChange={(value) =>
-                        column.toggleVisibility(!!value)
-                      }
-                    >
-                      {label}
-                    </DropdownMenuCheckboxItem>
-                  );
-                })}
-            </DropdownMenuContent>
-          </DropdownMenu>
+            )}
 
-          {/* Add Column Button */}
-          {onAddColumn && (
-            <Button variant="outline" size="sm" onClick={onAddColumn}>
-              <Plus className="mr-2 h-4 w-4" />
-              Campo
-            </Button>
-          )}
-
-          {/* Export Button */}
-          {onExport && (
-            <Button variant="outline" size="sm" onClick={onExport}>
-              <Download className="mr-2 h-4 w-4" />
-              Exportar
-            </Button>
-          )}
+            {/* Export Button */}
+            {onExport && (
+              <Button variant="outline" size="sm" onClick={onExport}>
+                <Download className="h-4 w-4 sm:mr-2" />
+                <span className="hidden sm:inline">Exportar</span>
+              </Button>
+            )}
+          </div>
         </div>
+
+        {/* Filters Row */}
+        {filterableColumns.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Column Filters */}
+            {filterableColumns.map((filter) => (
+              <Select
+                key={filter.key}
+                value={activeFilters[filter.key] || "all"}
+                onValueChange={(value) => handleFilterChange(filter.key, value)}
+              >
+                <SelectTrigger className="w-full sm:w-[140px]">
+                  <SelectValue placeholder={filter.label} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos</SelectItem>
+                  {filter.options.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ))}
+
+            {/* Active Filter Tags */}
+            {Object.entries(activeFilters).map(([key, value]) => {
+              const filterConfig = filterableColumns.find((f) => f.key === key);
+              const optionLabel = filterConfig?.options.find(
+                (o) => o.value === value
+              )?.label;
+              return (
+                <div
+                  key={key}
+                  className="flex items-center gap-1 rounded-full bg-primary/10 px-3 py-1 text-xs sm:text-sm"
+                >
+                  <span className="truncate max-w-[120px] sm:max-w-none">
+                    {filterConfig?.label}: {optionLabel}
+                  </span>
+                  <button
+                    onClick={() => clearFilter(key)}
+                    className="ml-1 hover:text-destructive"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Table with horizontal scroll */}
@@ -339,17 +345,17 @@ export function AirtableDataTable<TData, TValue>({
       </div>
 
       {/* Pagination */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="hidden sm:flex items-center gap-2 text-sm text-muted-foreground">
           <span>
             {table.getFilteredSelectedRowModel().rows.length} de{" "}
             {table.getFilteredRowModel().rows.length} fila(s) seleccionada(s).
           </span>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2 sm:gap-4">
           <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">
+            <span className="hidden sm:inline text-sm text-muted-foreground">
               Filas por página
             </span>
             <Select
@@ -374,9 +380,8 @@ export function AirtableDataTable<TData, TValue>({
           </div>
 
           <div className="flex items-center gap-1">
-            <span className="text-sm text-muted-foreground">
-              Página {table.getState().pagination.pageIndex + 1} de{" "}
-              {table.getPageCount()}
+            <span className="text-xs sm:text-sm text-muted-foreground">
+              {table.getState().pagination.pageIndex + 1} / {table.getPageCount()}
             </span>
           </div>
 

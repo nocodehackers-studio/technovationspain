@@ -46,19 +46,21 @@ export function MetricCard({
       )}
       onClick={onClick}
     >
-      <CardContent className="flex items-center gap-4 p-6">
+      <CardContent className="flex items-center gap-3 sm:gap-4 p-4 sm:p-6">
         <div
           className={cn(
-            "flex h-12 w-12 shrink-0 items-center justify-center rounded-lg",
+            "flex h-10 w-10 sm:h-12 sm:w-12 shrink-0 items-center justify-center rounded-lg",
             colorClasses[color]
           )}
         >
-          {icon}
+          <div className="[&>svg]:h-5 [&>svg]:w-5 sm:[&>svg]:h-6 sm:[&>svg]:w-6">
+            {icon}
+          </div>
         </div>
         
-        <div className="flex flex-col gap-1">
-          <span className="text-2xl font-bold tracking-tight">{value}</span>
-          <span className="text-sm text-muted-foreground">{title}</span>
+        <div className="flex flex-col gap-0.5 sm:gap-1 min-w-0">
+          <span className="text-xl sm:text-2xl font-bold tracking-tight">{value}</span>
+          <span className="text-xs sm:text-sm text-muted-foreground truncate">{title}</span>
           
           {trend && (
             <div className={cn("flex items-center gap-1 text-xs", trendColors[trend.direction])}>

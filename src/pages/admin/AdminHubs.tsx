@@ -253,16 +253,17 @@ export default function AdminHubs() {
   return (
     <AdminLayout title="Gestión de Hubs">
       <div className="space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">Hubs</h1>
-            <p className="text-muted-foreground">
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Hubs</h1>
+            <p className="text-sm text-muted-foreground">
               Gestiona los hubs regionales
             </p>
           </div>
-          <Button onClick={() => setCreateDialogOpen(true)}>
-            <Plus className="mr-2 h-4 w-4" />
-            Crear Hub
+          <Button onClick={() => setCreateDialogOpen(true)} className="w-full sm:w-auto">
+            <Plus className="h-4 w-4 sm:mr-2" />
+            <span className="hidden sm:inline">Crear Hub</span>
+            <span className="sm:hidden">Crear</span>
           </Button>
         </div>
 

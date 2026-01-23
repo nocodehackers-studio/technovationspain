@@ -395,16 +395,17 @@ export default function AdminUsers() {
   return (
     <AdminLayout title="Gestión de Usuarios">
       <div className="space-y-4 min-w-0 overflow-hidden">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">Usuarios</h1>
-            <p className="text-muted-foreground">
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Usuarios</h1>
+            <p className="text-sm text-muted-foreground">
               Gestiona los usuarios de la plataforma
             </p>
           </div>
-          <Button onClick={() => setCreateDialogOpen(true)}>
-            <Plus className="mr-2 h-4 w-4" />
-            Crear Usuario
+          <Button onClick={() => setCreateDialogOpen(true)} className="w-full sm:w-auto">
+            <Plus className="h-4 w-4 sm:mr-2" />
+            <span className="hidden sm:inline">Crear Usuario</span>
+            <span className="sm:hidden">Crear</span>
           </Button>
         </div>
 
