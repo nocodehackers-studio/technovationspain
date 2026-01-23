@@ -237,16 +237,17 @@ export default function AdminEvents() {
   return (
     <AdminLayout title="Gestión de Eventos">
       <div className="space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">Eventos</h1>
-            <p className="text-muted-foreground">
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Eventos</h1>
+            <p className="text-sm text-muted-foreground">
               Gestiona los eventos de Technovation España
             </p>
           </div>
-          <Button onClick={() => navigate("/admin/events/new")}>
-            <Plus className="mr-2 h-4 w-4" />
-            Crear Evento
+          <Button onClick={() => navigate("/admin/events/new")} className="w-full sm:w-auto">
+            <Plus className="h-4 w-4 sm:mr-2" />
+            <span className="hidden sm:inline">Crear Evento</span>
+            <span className="sm:hidden">Crear</span>
           </Button>
         </div>
 

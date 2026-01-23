@@ -73,8 +73,8 @@ export function DataTable<TData, TValue>({
   return (
     <div className="space-y-4">
       {/* Toolbar */}
-      <div className="flex items-center justify-between gap-4">
-        <div className="relative flex-1 max-w-sm">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="relative w-full sm:max-w-sm">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder={searchPlaceholder}
@@ -87,8 +87,8 @@ export function DataTable<TData, TValue>({
         <div className="flex items-center gap-2">
           {onExport && (
             <Button variant="outline" size="sm" onClick={onExport}>
-              <Download className="mr-2 h-4 w-4" />
-              Exportar
+              <Download className="h-4 w-4 sm:mr-2" />
+              <span className="hidden sm:inline">Exportar</span>
             </Button>
           )}
         </div>
@@ -154,17 +154,17 @@ export function DataTable<TData, TValue>({
       </div>
 
       {/* Pagination */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="hidden sm:flex items-center gap-2 text-sm text-muted-foreground">
           <span>
             {table.getFilteredSelectedRowModel().rows.length} de{" "}
             {table.getFilteredRowModel().rows.length} fila(s) seleccionada(s).
           </span>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2 sm:gap-4">
           <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">Filas por página</span>
+            <span className="hidden sm:inline text-sm text-muted-foreground">Filas por página</span>
             <Select
               value={`${table.getState().pagination.pageSize}`}
               onValueChange={(value) => {
@@ -185,9 +185,8 @@ export function DataTable<TData, TValue>({
           </div>
 
           <div className="flex items-center gap-1">
-            <span className="text-sm text-muted-foreground">
-              Página {table.getState().pagination.pageIndex + 1} de{" "}
-              {table.getPageCount()}
+            <span className="text-xs sm:text-sm text-muted-foreground">
+              {table.getState().pagination.pageIndex + 1} / {table.getPageCount()}
             </span>
           </div>
 

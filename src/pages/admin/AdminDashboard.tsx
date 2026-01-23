@@ -156,18 +156,20 @@ export default function AdminDashboard() {
               <CardDescription>Usuarios activos por tipo de rol</CardDescription>
             </CardHeader>
             <CardContent>
-              <ChartContainer config={chartConfig} className="h-[300px]">
+              <ChartContainer config={chartConfig} className="h-[200px] sm:h-[300px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie
                       data={roleDistribution || []}
                       cx="50%"
                       cy="50%"
-                      innerRadius={60}
-                      outerRadius={100}
+                      innerRadius={40}
+                      outerRadius={70}
                       paddingAngle={2}
                       dataKey="value"
                       label={({ name, value }) => `${name}: ${value}`}
+                      labelLine={false}
+                      className="[&_.recharts-pie-label-text]:hidden sm:[&_.recharts-pie-label-text]:block"
                     >
                       {roleDistribution?.map((entry, index) => (
                         <Cell key={`cell-${index}`} fill={entry.color} />
@@ -187,11 +189,11 @@ export default function AdminDashboard() {
               <CardDescription>Distribución de estados de verificación</CardDescription>
             </CardHeader>
             <CardContent>
-              <ChartContainer config={chartConfig} className="h-[300px]">
+              <ChartContainer config={chartConfig} className="h-[200px] sm:h-[300px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={verificationDistribution || []} layout="vertical">
                     <XAxis type="number" />
-                    <YAxis dataKey="name" type="category" width={100} />
+                    <YAxis dataKey="name" type="category" width={80} tick={{ fontSize: 12 }} />
                     <ChartTooltip content={<ChartTooltipContent />} />
                     <Bar dataKey="value" radius={[0, 4, 4, 0]} />
                   </BarChart>
@@ -209,24 +211,23 @@ export default function AdminDashboard() {
           </CardHeader>
           <CardContent>
             {upcomingEventsList && upcomingEventsList.length > 0 ? (
-              <div className="space-y-4">
+              <div className="space-y-3 sm:space-y-4">
                 {upcomingEventsList.map((event) => (
                   <div
                     key={event.id}
-                    className="flex items-center justify-between rounded-lg border p-4"
+                    className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 rounded-lg border p-3 sm:p-4"
                   >
-                    <div className="flex flex-col gap-1">
-                      <span className="font-medium">{event.name}</span>
-                      <span className="text-sm text-muted-foreground">
-                        {event.location} • {new Date(event.date).toLocaleDateString("es-ES", {
-                          weekday: "long",
-                          year: "numeric",
-                          month: "long",
+                    <div className="flex flex-col gap-0.5 sm:gap-1 min-w-0">
+                      <span className="font-medium truncate">{event.name}</span>
+                      <span className="text-xs sm:text-sm text-muted-foreground truncate">
+                        {event.location_name || event.location} • {new Date(event.date).toLocaleDateString("es-ES", {
+                          weekday: "short",
                           day: "numeric",
+                          month: "short",
                         })}
                       </span>
                     </div>
-                    <div className="flex flex-col items-end gap-1">
+                    <div className="flex sm:flex-col items-center sm:items-end gap-2 sm:gap-1">
                       <span className="text-sm font-medium">
                         {event.current_registrations || 0} / {event.max_capacity || "∞"}
                       </span>
@@ -236,7 +237,7 @@ export default function AdminDashboard() {
                 ))}
               </div>
             ) : (
-              <div className="flex h-32 items-center justify-center text-muted-foreground">
+              <div className="flex h-24 sm:h-32 items-center justify-center text-muted-foreground text-sm">
                 No hay eventos próximos programados
               </div>
             )}

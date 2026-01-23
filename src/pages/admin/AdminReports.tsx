@@ -177,25 +177,25 @@ export default function AdminReports() {
     <AdminLayout title="Reportes">
       <div className="space-y-6">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Reportes y Analytics</h1>
-          <p className="text-muted-foreground">
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Reportes y Analytics</h1>
+          <p className="text-sm text-muted-foreground">
             Visualiza estadísticas y exporta datos de la plataforma
           </p>
         </div>
 
         <Tabs defaultValue="users" className="space-y-4">
-          <TabsList>
+          <TabsList className="w-full overflow-x-auto justify-start sm:justify-center">
             <TabsTrigger value="users" className="gap-2">
               <Users className="h-4 w-4" />
-              Usuarios
+              <span className="hidden sm:inline">Usuarios</span>
             </TabsTrigger>
             <TabsTrigger value="events" className="gap-2">
               <Calendar className="h-4 w-4" />
-              Eventos
+              <span className="hidden sm:inline">Eventos</span>
             </TabsTrigger>
             <TabsTrigger value="activity" className="gap-2">
               <FileText className="h-4 w-4" />
-              Actividad
+              <span className="hidden sm:inline">Actividad</span>
             </TabsTrigger>
           </TabsList>
 
@@ -204,6 +204,7 @@ export default function AdminReports() {
             <div className="flex justify-end">
               <Button
                 variant="outline"
+                size="sm"
                 onClick={() =>
                   exportToCSV(
                     userStats?.roleDistribution || [],
@@ -211,20 +212,20 @@ export default function AdminReports() {
                   )
                 }
               >
-                <Download className="mr-2 h-4 w-4" />
-                Exportar
+                <Download className="h-4 w-4 sm:mr-2" />
+                <span className="hidden sm:inline">Exportar</span>
               </Button>
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
               {/* Role Distribution */}
               <Card>
-                <CardHeader>
-                  <CardTitle>Distribución por Rol</CardTitle>
-                  <CardDescription>Usuarios activos por tipo</CardDescription>
+                <CardHeader className="pb-2 sm:pb-6">
+                  <CardTitle className="text-base sm:text-lg">Distribución por Rol</CardTitle>
+                  <CardDescription className="text-xs sm:text-sm">Usuarios activos por tipo</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <ChartContainer config={chartConfig} className="h-[300px]">
+                  <ChartContainer config={chartConfig} className="h-[200px] sm:h-[300px]">
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
                         <Pie
@@ -249,16 +250,16 @@ export default function AdminReports() {
 
               {/* Verification Status */}
               <Card>
-                <CardHeader>
-                  <CardTitle>Estado de Verificación</CardTitle>
-                  <CardDescription>Distribución de estados</CardDescription>
+                <CardHeader className="pb-2 sm:pb-6">
+                  <CardTitle className="text-base sm:text-lg">Estado de Verificación</CardTitle>
+                  <CardDescription className="text-xs sm:text-sm">Distribución de estados</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <ChartContainer config={chartConfig} className="h-[300px]">
+                  <ChartContainer config={chartConfig} className="h-[200px] sm:h-[300px]">
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart data={userStats?.verificationDistribution || []} layout="vertical">
                         <XAxis type="number" />
-                        <YAxis dataKey="name" type="category" width={100} />
+                        <YAxis dataKey="name" type="category" width={80} tick={{ fontSize: 12 }} />
                         <ChartTooltip content={<ChartTooltipContent />} />
                         <Bar dataKey="value" fill="hsl(270, 80%, 55%)" radius={[0, 4, 4, 0]} />
                       </BarChart>
@@ -269,12 +270,12 @@ export default function AdminReports() {
 
               {/* Weekly Registrations */}
               <Card className="md:col-span-2">
-                <CardHeader>
-                  <CardTitle>Registros Semanales</CardTitle>
-                  <CardDescription>Nuevos usuarios en las últimas 8 semanas</CardDescription>
+                <CardHeader className="pb-2 sm:pb-6">
+                  <CardTitle className="text-base sm:text-lg">Registros Semanales</CardTitle>
+                  <CardDescription className="text-xs sm:text-sm">Nuevos usuarios en las últimas 8 semanas</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <ChartContainer config={chartConfig} className="h-[300px]">
+                  <ChartContainer config={chartConfig} className="h-[200px] sm:h-[300px]">
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart data={userStats?.weeklyRegistrations || []}>
                         <CartesianGrid strokeDasharray="3 3" />
@@ -298,9 +299,9 @@ export default function AdminReports() {
 
           {/* Events Tab */}
           <TabsContent value="events" className="space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <Select value={selectedEventId} onValueChange={setSelectedEventId}>
-                <SelectTrigger className="w-[300px]">
+                <SelectTrigger className="w-full sm:w-[300px]">
                   <SelectValue placeholder="Seleccionar evento" />
                 </SelectTrigger>
                 <SelectContent>
@@ -313,47 +314,47 @@ export default function AdminReports() {
               </Select>
 
               {selectedEventId && (
-                <Button variant="outline" onClick={() => toast.info("Exportación en desarrollo")}>
-                  <Download className="mr-2 h-4 w-4" />
-                  Exportar Lista de Asistencia
+                <Button variant="outline" size="sm" onClick={() => toast.info("Exportación en desarrollo")}>
+                  <Download className="h-4 w-4 sm:mr-2" />
+                  <span className="hidden sm:inline">Exportar Lista</span>
                 </Button>
               )}
             </div>
 
             {selectedEventId && eventStats ? (
-              <div className="grid gap-4 md:grid-cols-4">
+              <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
                 <Card>
-                  <CardContent className="pt-6">
-                    <div className="text-2xl font-bold">{eventStats.totalRegistrations}</div>
-                    <p className="text-sm text-muted-foreground">Total Registrados</p>
+                  <CardContent className="pt-4 sm:pt-6">
+                    <div className="text-xl sm:text-2xl font-bold">{eventStats.totalRegistrations}</div>
+                    <p className="text-xs sm:text-sm text-muted-foreground">Total Registrados</p>
                   </CardContent>
                 </Card>
                 <Card>
-                  <CardContent className="pt-6">
-                    <div className="text-2xl font-bold">{eventStats.checkedIn}</div>
-                    <p className="text-sm text-muted-foreground">Check-in Realizados</p>
+                  <CardContent className="pt-4 sm:pt-6">
+                    <div className="text-xl sm:text-2xl font-bold">{eventStats.checkedIn}</div>
+                    <p className="text-xs sm:text-sm text-muted-foreground">Check-in</p>
                   </CardContent>
                 </Card>
                 <Card>
-                  <CardContent className="pt-6">
-                    <div className="text-2xl font-bold">
+                  <CardContent className="pt-4 sm:pt-6">
+                    <div className="text-xl sm:text-2xl font-bold">
                       {eventStats.totalRegistrations > 0
                         ? Math.round((eventStats.checkedIn / eventStats.totalRegistrations) * 100)
                         : 0}%
                     </div>
-                    <p className="text-sm text-muted-foreground">Tasa de Asistencia</p>
+                    <p className="text-xs sm:text-sm text-muted-foreground">Asistencia</p>
                   </CardContent>
                 </Card>
                 <Card>
-                  <CardContent className="pt-6">
-                    <div className="text-2xl font-bold">{eventStats.companions}</div>
-                    <p className="text-sm text-muted-foreground">Acompañantes</p>
+                  <CardContent className="pt-4 sm:pt-6">
+                    <div className="text-xl sm:text-2xl font-bold">{eventStats.companions}</div>
+                    <p className="text-xs sm:text-sm text-muted-foreground">Acompañantes</p>
                   </CardContent>
                 </Card>
               </div>
             ) : (
               <Card>
-                <CardContent className="flex h-40 items-center justify-center text-muted-foreground">
+                <CardContent className="flex h-32 sm:h-40 items-center justify-center text-muted-foreground text-sm">
                   Selecciona un evento para ver las estadísticas
                 </CardContent>
               </Card>

@@ -425,12 +425,12 @@ export default function AdminImportCSV() {
     <AdminLayout title="Importar Estudiantes">
       <div className="max-w-4xl mx-auto space-y-6">
         {/* Progress Steps */}
-        <div className="flex items-center justify-center gap-4">
+        <div className="flex items-center justify-center gap-2 sm:gap-4">
           {["upload", "preview", "processing", "results"].map((s, i) => (
-            <div key={s} className="flex items-center gap-2">
+            <div key={s} className="flex items-center gap-1 sm:gap-2">
               <div
                 className={cn(
-                  "flex h-8 w-8 items-center justify-center rounded-full text-sm font-medium",
+                  "flex h-6 w-6 sm:h-8 sm:w-8 items-center justify-center rounded-full text-xs sm:text-sm font-medium",
                   step === s
                     ? "bg-primary text-primary-foreground"
                     : ["upload", "preview", "processing", "results"].indexOf(step) > i
@@ -440,7 +440,7 @@ export default function AdminImportCSV() {
               >
                 {i + 1}
               </div>
-              {i < 3 && <div className="h-0.5 w-8 bg-muted" />}
+              {i < 3 && <div className="h-0.5 w-4 sm:w-8 bg-muted" />}
             </div>
           ))}
         </div>
@@ -448,25 +448,25 @@ export default function AdminImportCSV() {
         {/* Step 1: Upload */}
         {step === "upload" && (
           <Card>
-            <CardHeader>
-              <CardTitle>Importar Estudiantes de Technovation</CardTitle>
-              <CardDescription>
+            <CardHeader className="pb-2 sm:pb-6">
+              <CardTitle className="text-lg sm:text-xl">Importar Estudiantes de Technovation</CardTitle>
+              <CardDescription className="text-xs sm:text-sm">
                 Sube el CSV exportado desde Technovation Global. Los estudiantes nuevos se añadirán a la whitelist 
                 y podrán acceder automáticamente cuando se registren con su email.
               </CardDescription>
             </CardHeader>
             <CardContent>
               <div
-                className="border-2 border-dashed rounded-lg p-12 text-center hover:border-primary/50 transition-colors cursor-pointer"
+                className="border-2 border-dashed rounded-lg p-6 sm:p-12 text-center hover:border-primary/50 transition-colors cursor-pointer"
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={handleDrop}
                 onClick={() => document.getElementById("csv-upload")?.click()}
               >
-                <Upload className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-                <p className="text-lg font-medium mb-2">
+                <Upload className="mx-auto h-8 w-8 sm:h-12 sm:w-12 text-muted-foreground mb-3 sm:mb-4" />
+                <p className="text-base sm:text-lg font-medium mb-2">
                   Arrastra y suelta tu archivo CSV aquí
                 </p>
-                <p className="text-sm text-muted-foreground mb-4">
+                <p className="text-xs sm:text-sm text-muted-foreground mb-3 sm:mb-4">
                   o haz clic para seleccionar un archivo
                 </p>
                 <p className="text-xs text-muted-foreground">
