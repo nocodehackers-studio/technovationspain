@@ -90,6 +90,18 @@ export default function AdminEventEditor() {
     enabled: isEditing,
   });
 
+  // Helper to format ISO timestamp to datetime-local format
+  const formatDateTimeLocal = (isoString: string | null): string => {
+    if (!isoString) return "";
+    try {
+      const date = new Date(isoString);
+      if (isNaN(date.getTime())) return "";
+      return date.toISOString().slice(0, 16); // "YYYY-MM-DDTHH:mm"
+    } catch {
+      return "";
+    }
+  };
+
   // Populate form when event loads
   useEffect(() => {
     if (event) {
@@ -104,8 +116,8 @@ export default function AdminEventEditor() {
         location_name: event.location_name || "",
         location_address: event.location_address || "",
         location_city: event.location_city || "",
-        registration_open_date: event.registration_open_date || "",
-        registration_close_date: event.registration_close_date || "",
+        registration_open_date: formatDateTimeLocal(event.registration_open_date),
+        registration_close_date: formatDateTimeLocal(event.registration_close_date),
         max_capacity: event.max_capacity || null,
         status: (event.status as "draft" | "published") || "draft",
       });
@@ -209,6 +221,24 @@ export default function AdminEventEditor() {
       toast.error("La fecha del evento es obligatoria");
       setActiveTab("location");
       return;
+    }
+
+    // Validar que hora inicio < hora fin
+    if (formData.start_time && formData.end_time) {
+      if (formData.start_time >= formData.end_time) {
+        toast.error("La hora de inicio debe ser anterior a la hora de fin");
+        setActiveTab("location");
+        return;
+      }
+    }
+
+    // Validar fechas de registro
+    if (formData.registration_open_date && formData.registration_close_date) {
+      if (formData.registration_open_date >= formData.registration_close_date) {
+        toast.error("La fecha de apertura de registro debe ser anterior al cierre");
+        setActiveTab("location");
+        return;
+      }
     }
 
     if (isEditing) {

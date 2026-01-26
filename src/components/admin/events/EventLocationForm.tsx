@@ -120,7 +120,7 @@ export function EventLocationForm({
               <Label htmlFor="registration_open_date">Apertura de registro</Label>
               <Input
                 id="registration_open_date"
-                type="date"
+                type="datetime-local"
                 value={registrationOpenDate}
                 onChange={(e) => onUpdate("registration_open_date", e.target.value)}
               />
@@ -129,7 +129,7 @@ export function EventLocationForm({
               <Label htmlFor="registration_close_date">Cierre de registro</Label>
               <Input
                 id="registration_close_date"
-                type="date"
+                type="datetime-local"
                 value={registrationCloseDate}
                 onChange={(e) => onUpdate("registration_close_date", e.target.value)}
               />

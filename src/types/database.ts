@@ -7,7 +7,7 @@ export type VerificationStatus = 'pending' | 'verified' | 'rejected' | 'manual_r
 
 export type TeamCategory = 'beginner' | 'junior' | 'senior';
 
-export type EventType = 'intermediate' | 'regional_final';
+export type EventType = 'intermediate' | 'regional_final' | 'workshop';
 
 export type RegistrationStatus = 'confirmed' | 'cancelled' | 'checked_in';
 
