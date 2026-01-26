@@ -6,13 +6,14 @@ import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { ArrowLeft, Save, Info, MapPin, Ticket, Calendar, Eye, Mail } from "lucide-react";
+import { ArrowLeft, Save, Info, MapPin, Ticket, Calendar, Eye, Mail, BarChart3 } from "lucide-react";
 import { EventBasicInfoForm } from "@/components/admin/events/EventBasicInfoForm";
 import { EventLocationForm } from "@/components/admin/events/EventLocationForm";
 import { TicketTypeManager } from "@/components/admin/events/TicketTypeManager";
 import { AgendaManager } from "@/components/admin/events/AgendaManager";
 import { EventPublishSection } from "@/components/admin/events/EventPublishSection";
 import { EventEmailManager } from "@/components/admin/events/EventEmailManager";
+import { EventStatsView } from "@/components/admin/events/EventStatsView";
 import { Event, EventType } from "@/types/database";
 
 interface EventFormData {
@@ -304,7 +305,7 @@ export default function AdminEventEditor() {
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-6">
+          <TabsList className="grid w-full grid-cols-7">
             <TabsTrigger value="basic" className="gap-2">
               <Info className="h-4 w-4" />
               <span className="hidden sm:inline">Información</span>
@@ -324,6 +325,10 @@ export default function AdminEventEditor() {
             <TabsTrigger value="emails" className="gap-2" disabled={!isEditing}>
               <Mail className="h-4 w-4" />
               <span className="hidden sm:inline">Emails</span>
+            </TabsTrigger>
+            <TabsTrigger value="stats" className="gap-2" disabled={!isEditing}>
+              <BarChart3 className="h-4 w-4" />
+              <span className="hidden sm:inline">Estadísticas</span>
             </TabsTrigger>
             <TabsTrigger value="publish" className="gap-2" disabled={!isEditing}>
               <Eye className="h-4 w-4" />
@@ -367,6 +372,10 @@ export default function AdminEventEditor() {
 
             <TabsContent value="emails">
               {eventId && <EventEmailManager eventId={eventId} />}
+            </TabsContent>
+
+            <TabsContent value="stats">
+              {eventId && <EventStatsView eventId={eventId} />}
             </TabsContent>
 
             <TabsContent value="publish">
