@@ -1,75 +1,76 @@
 
-# Plan: Corregir Generación de QR en Edge Function
 
-## Problema
+# Plan: Corregir Sistema de Cancelación de Entradas
 
-Los logs muestran que la función falla al generar el QR:
+## Resumen
+
+Implementar la Opción A para permitir re-inscripción después de cancelar una entrada, eliminando la constraint de base de datos que lo impide y filtrando las entradas canceladas del dashboard.
+
+## Cambios
+
+### 1. Migración SQL: Eliminar Constraint Única
+
+Crear migración para eliminar la constraint `event_registrations_event_id_user_id_key`:
+
+```sql
+-- Eliminar la constraint que impide re-inscripción tras cancelar
+ALTER TABLE public.event_registrations 
+DROP CONSTRAINT IF EXISTS event_registrations_event_id_user_id_key;
+
+-- Crear índice parcial para optimizar búsquedas de registros activos
+CREATE INDEX IF NOT EXISTS idx_event_registrations_active 
+ON public.event_registrations (event_id, user_id) 
+WHERE registration_status != 'cancelled';
 ```
-INFO: Generating QR code...
-ERROR: You need to specify a canvas element
-```
 
-La librería `qrcode` importada desde `esm.sh` intenta usar Canvas del navegador, que no existe en Deno.
+### 2. Dashboard: Filtrar Entradas Canceladas
 
-## Cambios a Realizar
+**Archivo:** `src/pages/ParticipantDashboard.tsx`
 
-### supabase/functions/send-registration-confirmation/index.ts
+Añadir filtro `.neq('registration_status', 'cancelled')` a las queries de registros:
 
-**Cambio 1 - Línea 3 (Importación):**
 ```typescript
-// ANTES:
-import QRCode from "https://esm.sh/qrcode@1.5.3";
+// Query principal (líneas 53-62)
+const { data: mainRegistrations, error: mainError } = await supabase
+  .from('event_registrations')
+  .select(`
+    *,
+    event:events(*),
+    ticket_type:event_ticket_types(*)
+  `)
+  .eq('user_id', user.id)
+  .eq('is_companion', false)
+  .neq('registration_status', 'cancelled')  // ← Nuevo filtro
+  .order('created_at', { ascending: false });
 
-// DESPUÉS:
-import QRCode from "npm:qrcode@1.5.3";
+// Query de acompañantes (líneas 69-78)
+const { data: companionRegistrations, error: compError } = await supabase
+  .from('event_registrations')
+  .select(`
+    *,
+    event:events(*),
+    ticket_type:event_ticket_types(*)
+  `)
+  .in('companion_of_registration_id', mainIds)
+  .eq('is_companion', true)
+  .neq('registration_status', 'cancelled')  // ← Nuevo filtro
+  .order('created_at', { ascending: false });
 ```
 
-**Cambio 2 - Líneas 50-66 (Función generateQRCode):**
-```typescript
-// ANTES:
-async function generateQRCode(url: string): Promise<Uint8Array> {
-  const dataUrl = await QRCode.toDataURL(url, {
-    width: 300,
-    margin: 2,
-    errorCorrectionLevel: "H",
-  });
-  
-  const base64Data = dataUrl.split(",")[1];
-  const binaryString = atob(base64Data);
-  const bytes = new Uint8Array(binaryString.length);
-  for (let i = 0; i < binaryString.length; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-  return bytes;
-}
+## Flujo Final
 
-// DESPUÉS:
-async function generateQRCode(url: string): Promise<Uint8Array> {
-  // Usar toBuffer que funciona en Node/Deno sin Canvas del navegador
-  const buffer = await QRCode.toBuffer(url, {
-    width: 300,
-    margin: 2,
-    errorCorrectionLevel: "H",
-    type: "png",
-  });
-  
-  return new Uint8Array(buffer);
-}
+```text
+1. Usuario tiene entrada confirmada
+2. Usuario cancela entrada → Estado = "cancelled"
+3. Dashboard oculta la entrada cancelada
+4. Usuario puede registrarse de nuevo → Se crea nuevo registro sin errores
+5. Los contadores de capacidad reflejan correctamente las plazas disponibles
 ```
 
-## Por Qué Funciona
+## Archivos a Modificar
 
-| Aspecto | esm.sh | npm: |
-|---------|--------|------|
-| Entorno | Navegador | Node.js/Deno |
-| Canvas | Requiere DOM | Usa node-canvas nativo |
-| toBuffer() | No disponible | Genera PNG directamente |
+| Archivo | Cambio |
+|---------|--------|
+| Nueva migración SQL | Eliminar constraint única + crear índice parcial |
+| `src/pages/ParticipantDashboard.tsx` | Añadir `.neq('registration_status', 'cancelled')` a las 2 queries |
 
-## Resultado Esperado
-
-Después del despliegue, los logs mostrarán:
-1. "Generating QR code..."
-2. "QR image URL: https://..."
-3. "Email sent successfully"
-
-Y el email llegará con el código QR visible.
