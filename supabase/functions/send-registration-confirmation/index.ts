@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import QRCode from "https://esm.sh/qrcode@1.5.3";
+import { qrcode } from "https://deno.land/x/qrcode@v2.0.0/mod.ts";
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 
@@ -47,13 +47,11 @@ function replaceVariables(
   return result;
 }
 
-// Generate QR code as PNG buffer
+// Generate QR code as PNG using Deno-native library
 async function generateQRCode(url: string): Promise<Uint8Array> {
-  const dataUrl = await QRCode.toDataURL(url, {
-    width: 300,
-    margin: 2,
-    errorCorrectionLevel: "H",
-  });
+  // qrcode() returns a QRCode object, toString() gives the base64 data URL
+  const qrResult = await qrcode(url);
+  const dataUrl = qrResult.toString();
   
   // Convert data URL to buffer
   const base64Data = dataUrl.split(",")[1];
