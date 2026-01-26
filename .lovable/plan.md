@@ -1,169 +1,184 @@
 
-# Plan: Incluir QR de Acompañantes en Email de Confirmación
+# Plan: Vista de Métricas e Inscripciones del Evento
 
 ## Resumen
 
-Modificar la Edge Function `send-registration-confirmation` para que, si el registro tiene acompañantes, incluya sus códigos QR en el email de confirmación.
+Añadir una nueva pestaña "Estadísticas" al editor de eventos (`AdminEventEditor`) que muestre:
+1. **Tarjetas de métricas clave**: Participantes, Acompañantes, Mentores/Jueces, Entradas restantes
+2. **Tabla de inscripciones**: Listado completo con indicador de acompañantes (+1, +2)
 
-## Análisis de Datos
+## Arquitectura de Datos
 
-Los acompañantes se almacenan en la tabla `companions`:
-- `event_registration_id` → ID del registro principal
-- `first_name`, `last_name` → Nombre del acompañante
-- `relationship` → Relación (mother, father, guardian, etc.)
-- `qr_code` → Código QR único ya generado (ej: `TGM-2026-RJT50XB5`)
+### Estructura actual de inscripciones:
+- **`event_registrations`**: Contiene los registros principales (participantes, mentores, jueces)
+  - `is_companion: false` para registros principales
+  - `ticket_type_id` referencia a `event_ticket_types`
+- **`companions`**: Tabla separada con acompañantes
+  - `event_registration_id` referencia al registro principal
+  - Contiene `first_name`, `last_name`, `relationship`
+- **`event_ticket_types`**: Define tipos de entrada con `allowed_roles` (participant, mentor, judge)
 
-## Cambios en la Edge Function
+### Cálculo de métricas:
+- **Participantes**: Registros donde `ticket_type.allowed_roles` incluye `participant`
+- **Mentores**: Registros donde `ticket_type.allowed_roles` incluye `mentor`
+- **Acompañantes**: Conteo de la tabla `companions` del evento
+- **Entradas restantes**: `max_capacity - current_registrations` del evento
 
-### Archivo: `supabase/functions/send-registration-confirmation/index.ts`
+## Cambios a Implementar
 
-#### 1. Añadir Query de Acompañantes (después de línea ~148)
-
-```typescript
-// Fetch companions for this registration
-const { data: companions } = await supabase
-  .from("companions")
-  .select("*")
-  .eq("event_registration_id", registrationId)
-  .order("created_at");
-
-console.log("Found companions:", companions?.length || 0);
-```
-
-#### 2. Generar QRs de Acompañantes (después de línea ~223)
+### 1. Nuevo componente: `src/components/admin/events/EventStatsView.tsx`
 
 ```typescript
-// Generate and upload companion QR codes
-interface CompanionWithQR {
-  first_name: string;
-  last_name: string;
-  relationship: string;
-  qr_code: string;
-  qr_image_url: string;
+// Props
+interface EventStatsViewProps {
+  eventId: string;
 }
 
-const companionQRs: CompanionWithQR[] = [];
+// Queries necesarias
+const { data: event } = useQuery({...}); // Para max_capacity y current_registrations
+const { data: registrations } = useQuery({...}); // event_registrations con ticket_type
+const { data: companions } = useQuery({...}); // companions del evento
 
-if (companions && companions.length > 0) {
-  console.log("Generating companion QR codes...");
-  
-  for (const companion of companions) {
-    const companionValidateUrl = `https://technovationspain.lovable.app/validate/${companion.qr_code}`;
-    const companionQrBuffer = await generateQRCode(companionValidateUrl);
-    const companionQrFileName = `qr-codes/${companion.qr_code}.png`;
-    
-    await supabase.storage
-      .from("Assets")
-      .upload(companionQrFileName, companionQrBuffer, {
-        contentType: "image/png",
-        upsert: true,
-      });
-    
-    const { data: companionUrlData } = supabase.storage
-      .from("Assets")
-      .getPublicUrl(companionQrFileName);
-    
-    companionQRs.push({
-      first_name: companion.first_name,
-      last_name: companion.last_name,
-      relationship: companion.relationship || "",
-      qr_code: companion.qr_code,
-      qr_image_url: companionUrlData?.publicUrl || "",
-    });
-  }
-  
-  console.log("Generated", companionQRs.length, "companion QR codes");
-}
+// Cálculo de métricas
+const participantsCount = registrations.filter(r => 
+  r.ticket_type?.allowed_roles?.includes('participant')
+).length;
+
+const mentorsCount = registrations.filter(r => 
+  r.ticket_type?.allowed_roles?.includes('mentor')
+).length;
+
+const judgesCount = registrations.filter(r => 
+  r.ticket_type?.allowed_roles?.includes('judge')
+).length;
+
+const companionsCount = companions?.length || 0;
+
+const remainingTickets = (event?.max_capacity || 0) - (event?.current_registrations || 0);
 ```
 
-#### 3. Generar HTML de Sección Acompañantes
-
-```typescript
-// Relationship labels
-const relationshipLabels: Record<string, string> = {
-  mother: "Madre",
-  father: "Padre",
-  guardian: "Tutor/a legal",
-  grandparent: "Abuelo/a",
-  sibling: "Hermano/a mayor",
-  other: "Otro familiar",
-};
-
-// Generate companions HTML section
-let companionsHtml = "";
-if (companionQRs.length > 0) {
-  const companionCards = companionQRs.map((c) => `
-    <div style="display: inline-block; width: 48%; min-width: 200px; vertical-align: top; margin: 10px 1%; text-align: center; background-color: #f9fafb; border-radius: 8px; padding: 20px;">
-      <p style="color: #6b7280; font-size: 12px; margin: 0 0 5px 0; text-transform: uppercase;">Acompañante</p>
-      <p style="font-weight: 600; color: #1f2937; margin: 0 0 5px 0;">${c.first_name} ${c.last_name}</p>
-      <p style="color: #6b7280; font-size: 13px; margin: 0 0 15px 0;">${relationshipLabels[c.relationship] || c.relationship}</p>
-      <img src="${c.qr_image_url}" alt="QR ${c.first_name}" style="width: 140px; height: 140px; display: block; margin: 0 auto;" />
-      <p style="color: #7c3aed; font-size: 12px; font-family: monospace; margin: 10px 0 0 0;">${c.qr_code}</p>
-    </div>
-  `).join("");
-
-  companionsHtml = `
-    <!-- Companion QR Codes Section -->
-    <div style="margin-top: 30px; padding-top: 30px; border-top: 1px solid #e5e7eb;">
-      <h3 style="color: #1f2937; font-size: 18px; text-align: center; margin: 0 0 20px 0;">
-        🎫 Entradas de Acompañantes (${companionQRs.length})
-      </h3>
-      <div style="text-align: center;">
-        ${companionCards}
-      </div>
-    </div>
-  `;
-}
-```
-
-#### 4. Insertar en el Email HTML (antes del Important Note)
-
-Añadir `${companionsHtml}` después de la sección del QR principal y antes del "Important Note".
-
-#### 5. Actualizar Mensaje de Importante
-
-Si hay acompañantes, el mensaje debe indicar que cada persona necesita su propio QR:
-
-```typescript
-const importantNote = companionQRs.length > 0
-  ? `<strong>⚠️ Importante:</strong> Cada persona debe presentar su propio código QR en la entrada del evento. Los acompañantes también necesitan mostrar sus entradas individuales.`
-  : `<strong>⚠️ Importante:</strong> Presenta el código QR de tu entrada en la entrada del evento para acceder. Puedes mostrarlo desde tu móvil o imprimirlo.`;
-```
-
-## Resultado Final del Email
+### 2. Estructura del componente
 
 ```text
-┌─────────────────────────────────────────┐
-│  ¡Inscripción confirmada!               │
-│  Technovation Girls España              │
-├─────────────────────────────────────────┤
-│                                         │
-│  Hola {nombre}, ...                     │
-│                                         │
-│  ┌─────────────────────┐                │
-│  │ Tu código QR:       │                │
-│  │    [QR Principal]   │                │
-│  │  TGM-2026-XXXXXX    │                │
-│  └─────────────────────┘                │
-│                                         │
-│  [Ver mi entrada]                       │
-│                                         │
-│  ── Entradas de Acompañantes (2) ──     │
-│                                         │
-│  ┌─────────┐ ┌─────────┐                │
-│  │ Padre   │ │ Madre   │                │
-│  │ [QR 1]  │ │ [QR 2]  │                │
-│  │ TGM-XXX │ │ TGM-XXX │                │
-│  └─────────┘ └─────────┘                │
-│                                         │
-│  ⚠️ Importante: Cada persona debe       │
-│  presentar su propio QR...              │
-│                                         │
-└─────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│  Estadísticas del Evento                                        │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌────────────┐│
+│  │   👧 42     │ │   👨‍👩 28   │ │   🎓 12    │ │   🎫 417   ││
+│  │ Participan. │ │ Acompañant. │ │  Mentores   │ │  Restantes ││
+│  └─────────────┘ └─────────────┘ └─────────────┘ └────────────┘│
+│                                                                 │
+│  Listado de Inscripciones                    [🔍 Buscar...   ] │
+│  ──────────────────────────────────────────────────────────────│
+│  │ Nombre        │ Tipo Entrada │ Acomp. │ Estado  │ Fecha    ││
+│  ├───────────────┼──────────────┼────────┼─────────┼──────────┤│
+│  │ Lucía Martín. │ Participante │  +2    │ ✓ Conf. │ 26/01/26 ││
+│  │ Elena Rodríg. │ Participante │  +1    │ ✓ Conf. │ 26/01/26 ││
+│  │ Carlos Pérez  │ Mentor       │   -    │ ✓ Conf. │ 25/01/26 ││
+│  │ Paula Fernán. │ Participante │  +1    │ ✓ Conf. │ 26/01/26 ││
+│  └───────────────┴──────────────┴────────┴─────────┴──────────┘│
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-## Archivos a Modificar
+### 3. Modificar `AdminEventEditor.tsx`
 
-| Archivo | Cambios |
-|---------|---------|
-| `supabase/functions/send-registration-confirmation/index.ts` | Consultar acompañantes, generar sus QRs, añadir sección al email |
+Añadir nueva pestaña después de "Emails":
+
+```typescript
+// Importar
+import { EventStatsView } from "@/components/admin/events/EventStatsView";
+import { BarChart3 } from "lucide-react";
+
+// En TabsList (ahora 7 tabs)
+<TabsTrigger value="stats" className="gap-2" disabled={!isEditing}>
+  <BarChart3 className="h-4 w-4" />
+  <span className="hidden sm:inline">Estadísticas</span>
+</TabsTrigger>
+
+// TabsContent
+<TabsContent value="stats">
+  {eventId && <EventStatsView eventId={eventId} />}
+</TabsContent>
+```
+
+### 4. Columnas de la tabla de inscripciones
+
+| Columna | Descripción |
+|---------|-------------|
+| **Nombre** | `first_name` + `last_name` del registro |
+| **Tipo Entrada** | Nombre del `ticket_type` (Participante, Mentor, etc.) |
+| **Acompañantes** | Badge con +1, +2 o "-" según count de companions |
+| **Estado** | Badge: Confirmada/Cancelada/Check-in |
+| **Check-in** | Hora de check-in si aplica |
+| **Fecha registro** | Fecha de creación |
+
+### 5. Query de datos con conteo de acompañantes
+
+```typescript
+// Query principal de registros
+const { data: registrations } = useQuery({
+  queryKey: ["event-registrations-stats", eventId],
+  queryFn: async () => {
+    const { data: regs } = await supabase
+      .from("event_registrations")
+      .select(`
+        id, first_name, last_name, email, registration_status,
+        checked_in_at, created_at, registration_number,
+        ticket_type:event_ticket_types(id, name, allowed_roles)
+      `)
+      .eq("event_id", eventId)
+      .eq("is_companion", false)
+      .neq("registration_status", "cancelled")
+      .order("created_at", { ascending: false });
+
+    // Obtener conteo de acompañantes por registro
+    const { data: companions } = await supabase
+      .from("companions")
+      .select("event_registration_id")
+      .in("event_registration_id", regs?.map(r => r.id) || []);
+
+    // Mapear conteo a cada registro
+    const companionCounts = companions?.reduce((acc, c) => {
+      acc[c.event_registration_id] = (acc[c.event_registration_id] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+
+    return regs?.map(r => ({
+      ...r,
+      companions_count: companionCounts?.[r.id] || 0
+    }));
+  }
+});
+```
+
+### 6. Funcionalidad de exportación
+
+Botón "Exportar CSV" que incluya:
+- Nombre, Email, Teléfono
+- Tipo de entrada
+- Número de acompañantes
+- Estado de registro
+- Check-in (sí/no y hora)
+
+## Archivos a Crear/Modificar
+
+| Archivo | Acción | Descripción |
+|---------|--------|-------------|
+| `src/components/admin/events/EventStatsView.tsx` | **Crear** | Nuevo componente con métricas y tabla |
+| `src/pages/admin/AdminEventEditor.tsx` | **Modificar** | Añadir pestaña "Estadísticas" |
+
+## Componentes Reutilizados
+
+- `MetricCard` - Para las 4 tarjetas de métricas
+- `DataTable` - Para el listado de inscripciones
+- `Badge` - Para estados y contador de acompañantes
+
+## Iconos a Usar (lucide-react)
+
+- `Users` - Participantes
+- `UserPlus` - Acompañantes  
+- `GraduationCap` - Mentores
+- `Ticket` - Entradas restantes
+- `BarChart3` - Pestaña de estadísticas
