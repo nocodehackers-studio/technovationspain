@@ -67,7 +67,7 @@ export function AdminSidebar() {
             <img 
               src={LOGO_POWER_TO_CODE_WHITE} 
               alt="Power to Code" 
-              className="h-8 w-auto"
+              className="h-8 w-auto mix-blend-lighten"
             />
           </div>
           <div className="text-center">
