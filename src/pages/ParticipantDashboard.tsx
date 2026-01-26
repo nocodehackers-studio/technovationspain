@@ -59,6 +59,7 @@ export default function ParticipantDashboard() {
         `)
         .eq('user_id', user.id)
         .eq('is_companion', false)
+        .neq('registration_status', 'cancelled')
         .order('created_at', { ascending: false });
       
       if (mainError) throw mainError;
@@ -75,6 +76,7 @@ export default function ParticipantDashboard() {
           `)
           .in('companion_of_registration_id', mainIds)
           .eq('is_companion', true)
+          .neq('registration_status', 'cancelled')
           .order('created_at', { ascending: false });
         
         if (compError) throw compError;
