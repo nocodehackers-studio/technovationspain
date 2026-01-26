@@ -17,9 +17,9 @@ export default function ValidatePage() {
   const navigate = useNavigate();
   const { user, role, isLoading: authLoading } = useAuth();
 
-  // Admin-only access: redirect non-admins to home
+  // Admin and volunteer access: redirect others to home
   useEffect(() => {
-    if (!authLoading && (!user || role !== 'admin')) {
+    if (!authLoading && (!user || !['admin', 'volunteer'].includes(role || ''))) {
       navigate('/', { replace: true });
     }
   }, [user, role, authLoading, navigate]);
@@ -29,8 +29,8 @@ export default function ValidatePage() {
     return <LoadingPage message="Verificando acceso..." />;
   }
 
-  // Don't render anything while redirecting non-admins
-  if (!user || role !== 'admin') {
+  // Don't render anything while redirecting unauthorized users
+  if (!user || !['admin', 'volunteer'].includes(role || '')) {
     return null;
   }
 

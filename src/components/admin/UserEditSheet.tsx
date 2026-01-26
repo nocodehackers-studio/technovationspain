@@ -16,7 +16,7 @@ import { Separator } from "@/components/ui/separator";
 import { StatusBadge } from "@/components/admin/StatusBadge";
 import { RoleBadge } from "@/components/admin/RoleBadge";
 import { toast } from "sonner";
-import { UserCheck, UserX, Trash2 } from "lucide-react";
+import { UserCheck, UserX, Trash2, QrCode } from "lucide-react";
 import { Profile, AppRole, VerificationStatus, TableCustomColumn } from "@/types/database";
 
 type UserWithRole = Profile & { role?: AppRole };
@@ -138,6 +138,29 @@ export function UserEditSheet({
     });
   }, [user, updateVerificationMutation]);
 
+  // Assign volunteer role mutation
+  const assignRoleMutation = useMutation({
+    mutationFn: async ({ userId, role }: { userId: string; role: AppRole }) => {
+      const { error } = await supabase
+        .from("user_roles")
+        .upsert({ user_id: userId, role }, { onConflict: "user_id,role" });
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin-users"] });
+      toast.success("Rol de validador QR asignado correctamente");
+    },
+    onError: (error) => {
+      toast.error(`Error al asignar rol: ${error.message}`);
+    },
+  });
+
+  const handleAssignVolunteer = useCallback(() => {
+    if (!user) return;
+    assignRoleMutation.mutate({ userId: user.id, role: "volunteer" });
+  }, [user, assignRoleMutation]);
+
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!user) return;
@@ -207,7 +230,7 @@ export function UserEditSheet({
           </div>
 
           {/* Quick Actions */}
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {user.verification_status !== "verified" && (
               <Button
                 variant="outline"
@@ -232,6 +255,16 @@ export function UserEditSheet({
                 Rechazar
               </Button>
             )}
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-accent/50 text-accent hover:bg-accent/10"
+              onClick={handleAssignVolunteer}
+              disabled={assignRoleMutation.isPending}
+            >
+              <QrCode className="h-4 w-4 mr-1" />
+              Validador QR
+            </Button>
           </div>
         </SheetHeader>
 
