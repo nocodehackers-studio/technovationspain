@@ -64,6 +64,7 @@ interface AirtableDataTableProps<TData, TValue> {
   data: TData[];
   searchPlaceholder?: string;
   filterableColumns?: FilterableColumn[];
+  initialFilters?: Record<string, string>;
   onAddColumn?: () => void;
   onExport?: () => void;
   loading?: boolean;
@@ -77,6 +78,7 @@ export function AirtableDataTable<TData, TValue>({
   data,
   searchPlaceholder = "Buscar...",
   filterableColumns = [],
+  initialFilters = {},
   onAddColumn,
   onExport,
   loading = false,
@@ -89,7 +91,8 @@ export function AirtableDataTable<TData, TValue>({
   const [globalFilter, setGlobalFilter] = useState("");
   const [rowSelection, setRowSelection] = useState({});
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
-  const [activeFilters, setActiveFilters] = useState<Record<string, string>>({});
+  const [activeFilters, setActiveFilters] = useState<Record<string, string>>(initialFilters);
+  const [initialFiltersApplied, setInitialFiltersApplied] = useState(false);
 
   // Initialize column visibility from hiddenColumns prop
   useEffect(() => {
@@ -130,6 +133,16 @@ export function AirtableDataTable<TData, TValue>({
       columnVisibility,
     },
   });
+
+  // Apply initial filters to table columns once table is ready
+  useEffect(() => {
+    if (!initialFiltersApplied && Object.keys(initialFilters).length > 0 && data.length > 0) {
+      Object.entries(initialFilters).forEach(([key, value]) => {
+        table.getColumn(key)?.setFilterValue(value);
+      });
+      setInitialFiltersApplied(true);
+    }
+  }, [initialFilters, initialFiltersApplied, data.length, table]);
 
   const handleFilterChange = (columnKey: string, value: string) => {
     setActiveFilters((prev) => {

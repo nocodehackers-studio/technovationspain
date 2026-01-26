@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { MetricCard } from "@/components/admin/MetricCard";
@@ -12,6 +13,7 @@ import {
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, CartesianGrid, Legend } from "recharts";
 
 export default function AdminDashboard() {
+  const navigate = useNavigate();
   // Fetch dashboard metrics
   const { data: metrics, isLoading } = useQuery({
     queryKey: ["admin-dashboard-metrics"],
@@ -138,6 +140,7 @@ export default function AdminDashboard() {
             value={metrics?.pendingUsers || 0}
             icon={<Clock className="h-6 w-6" />}
             color="warning"
+            onClick={() => navigate("/admin/users?status=pending")}
           />
           <MetricCard
             title="Equipos"

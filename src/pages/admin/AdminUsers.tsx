@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ColumnDef } from "@tanstack/react-table";
 import { supabase } from "@/integrations/supabase/client";
@@ -30,7 +31,12 @@ import { toast } from "sonner";
 import { Plus, MoreVertical, Trash2 } from "lucide-react";
 import { Profile, AppRole, TableCustomColumn } from "@/types/database";
 
-type UserWithRole = Profile & { role?: AppRole };
+type UserWithRole = Profile & { 
+  role?: AppRole;
+  team_name?: string | null;
+  school_name?: string | null;
+  hub_name?: string | null;
+};
 
 // Slugify column label to create a key
 function slugify(text: string): string {
@@ -43,6 +49,7 @@ function slugify(text: string): string {
 }
 
 export default function AdminUsers() {
+  const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const [selectedUser, setSelectedUser] = useState<UserWithRole | null>(null);
   const [editSheetOpen, setEditSheetOpen] = useState(false);
@@ -52,30 +59,60 @@ export default function AdminUsers() {
   const [newFieldLabel, setNewFieldLabel] = useState("");
   const [hiddenColumns, setHiddenColumns] = useState<string[]>([]);
 
-  // Fetch users with roles
+  // Fetch users with roles, teams, and hub info
   const { data: users, isLoading } = useQuery({
     queryKey: ["admin-users"],
     queryFn: async () => {
+      // Fetch profiles
       const { data: profiles, error: profilesError } = await supabase
         .from("profiles")
-        .select("*")
+        .select(`
+          *,
+          hub:hubs(name)
+        `)
         .order("created_at", { ascending: false });
 
       if (profilesError) throw profilesError;
 
+      // Fetch roles
       const { data: roles, error: rolesError } = await supabase
         .from("user_roles")
         .select("*");
 
       if (rolesError) throw rolesError;
 
-      // Merge profiles with roles
+      // Fetch team memberships with team names
+      const { data: teamMembers, error: teamError } = await supabase
+        .from("team_members")
+        .select(`
+          user_id,
+          team:teams(name)
+        `);
+
+      if (teamError) throw teamError;
+
+      // Fetch authorized_students for school_name
+      const { data: authorizedStudents, error: authStudentsError } = await supabase
+        .from("authorized_students")
+        .select("email, school_name");
+
+      if (authStudentsError) throw authStudentsError;
+
+      // Merge profiles with all related data
       const usersWithRoles: UserWithRole[] = (profiles || []).map((profile) => {
         const userRole = roles?.find((r) => r.user_id === profile.id);
+        const teamMember = teamMembers?.find((tm) => tm.user_id === profile.id);
+        const authorizedStudent = authorizedStudents?.find(
+          (as) => as.email?.toLowerCase() === profile.email?.toLowerCase()
+        );
+        
         return {
           ...profile,
           custom_fields: (profile.custom_fields as Record<string, unknown>) || {},
           role: userRole?.role as AppRole | undefined,
+          team_name: (teamMember?.team as { name: string } | null)?.name || null,
+          school_name: authorizedStudent?.school_name || null,
+          hub_name: (profile.hub as { name: string } | null)?.name || null,
         };
       });
 
@@ -195,24 +232,9 @@ export default function AdminUsers() {
   // Static columns - memoized to prevent re-renders
   const staticColumns: ColumnDef<UserWithRole>[] = useMemo(() => [
     {
-      id: "avatar",
-      header: "",
-      enableHiding: false,
-      cell: ({ row }) => {
-        const initials =
-          `${row.original.first_name?.charAt(0) || ""}${row.original.last_name?.charAt(0) || ""}`.toUpperCase() ||
-          "?";
-        return (
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary text-sm font-medium">
-            {initials}
-          </div>
-        );
-      },
-    },
-    {
       id: "name",
       accessorFn: (row) => 
-        `${row.first_name || ""} ${row.last_name || ""} ${row.email || ""} ${row.tg_id || ""} ${row.phone || ""}`.toLowerCase(),
+        `${row.first_name || ""} ${row.last_name || ""} ${row.email || ""} ${row.tg_id || ""} ${row.phone || ""} ${row.team_name || ""} ${row.school_name || ""} ${row.hub_name || ""}`.toLowerCase(),
       header: "Nombre",
       enableHiding: true,
       cell: ({ row }) => (
@@ -224,6 +246,14 @@ export default function AdminUsers() {
             {row.original.email}
           </span>
         </div>
+      ),
+    },
+    {
+      accessorKey: "tg_id",
+      header: "TG ID",
+      enableHiding: true,
+      cell: ({ row }) => (
+        <span className="font-mono text-sm">{row.original.tg_id || "—"}</span>
       ),
     },
     {
@@ -249,11 +279,27 @@ export default function AdminUsers() {
       ),
     },
     {
-      accessorKey: "tg_id",
-      header: "TG ID",
+      accessorKey: "team_name",
+      header: "Equipo",
       enableHiding: true,
       cell: ({ row }) => (
-        <span className="font-mono text-sm">{row.original.tg_id || "—"}</span>
+        <span className="text-sm">{row.original.team_name || "—"}</span>
+      ),
+    },
+    {
+      accessorKey: "school_name",
+      header: "Colegio/Empresa",
+      enableHiding: true,
+      cell: ({ row }) => (
+        <span className="text-sm max-w-[150px] truncate block">{row.original.school_name || "—"}</span>
+      ),
+    },
+    {
+      accessorKey: "hub_name",
+      header: "Hub",
+      enableHiding: true,
+      cell: ({ row }) => (
+        <span className="text-sm">{row.original.hub_name || "—"}</span>
       ),
     },
     {
@@ -386,6 +432,16 @@ export default function AdminUsers() {
     },
   ];
 
+  // Get initial filters from URL params
+  const initialFilters = useMemo(() => {
+    const filters: Record<string, string> = {};
+    const status = searchParams.get("status");
+    if (status) {
+      filters.verification_status = status;
+    }
+    return filters;
+  }, [searchParams]);
+
   const handleAddField = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newFieldLabel.trim()) return;
@@ -412,9 +468,10 @@ export default function AdminUsers() {
         <AirtableDataTable
           columns={columns}
           data={users || []}
-          searchPlaceholder="Buscar por nombre, email o TG ID..."
+          searchPlaceholder="Buscar por nombre, email, equipo, hub..."
           loading={isLoading}
           filterableColumns={filterableColumns}
+          initialFilters={initialFilters}
           hiddenColumns={hiddenColumns}
           onHiddenColumnsChange={setHiddenColumns}
           onAddColumn={() => setAddFieldDialogOpen(true)}

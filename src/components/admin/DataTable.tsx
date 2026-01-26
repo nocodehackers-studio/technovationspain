@@ -35,7 +35,9 @@ interface DataTableProps<TData, TValue> {
   searchPlaceholder?: string;
   searchColumn?: string;
   onExport?: () => void;
+  onRowClick?: (row: TData) => void;
   loading?: boolean;
+  toolbarContent?: React.ReactNode;
 }
 
 export function DataTable<TData, TValue>({
@@ -44,7 +46,9 @@ export function DataTable<TData, TValue>({
   searchPlaceholder = "Buscar...",
   searchColumn,
   onExport,
+  onRowClick,
   loading = false,
+  toolbarContent,
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
@@ -85,6 +89,7 @@ export function DataTable<TData, TValue>({
         </div>
         
         <div className="flex items-center gap-2">
+          {toolbarContent}
           {onExport && (
             <Button variant="outline" size="sm" onClick={onExport}>
               <Download className="h-4 w-4 sm:mr-2" />
@@ -128,6 +133,8 @@ export function DataTable<TData, TValue>({
                 <TableRow
                   key={row.id}
                   data-state={row.getIsSelected() && "selected"}
+                  onClick={() => onRowClick?.(row.original)}
+                  className={onRowClick ? "cursor-pointer hover:bg-muted/50" : ""}
                 >
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id}>
