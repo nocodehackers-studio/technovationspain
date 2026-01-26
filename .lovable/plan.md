@@ -1,177 +1,121 @@
 
+# Plan: Rol de Validador QR (Opción A)
 
-# Plan: Corregir Redirección Post-Login y Añadir Navegación al Dashboard
+## Resumen
 
-## Resumen del Problema
-
-Hay dos problemas principales:
-
-1. **Redirección incorrecta después de login**: Al iniciar sesión (con OTP o magic link), el usuario es redirigido a `/events` en lugar del dashboard
-2. **Sin navegación desde `/events`**: La página de eventos no tiene forma de volver al dashboard
-
-## Análisis de la Causa
-
-### Problema 1: Redirección
-
-Después de verificar el OTP en `Index.tsx` (líneas 98-101), el código solo dice:
-```typescript
-if (data.session) {
-  toast.success('¡Verificación exitosa!');
-  // The auth state change will handle redirection
-}
-```
-
-El problema es que **no se fuerza una navegación explícita**. Se confía en que `onAuthStateChange` dispare un re-render del componente, pero:
-- Hay una condición de carrera entre la actualización del estado y la navegación
-- Si el usuario ya ha completado onboarding y está verificado, debería ir a `/dashboard`
-
-El `Index.tsx` tiene la lógica correcta (líneas 34-48), pero **la verificación OTP no fuerza un re-render inmediato**.
-
-### Problema 2: Navegación en Events
-
-`EventsListPage.tsx` es una página completa sin header de navegación ni forma de volver al dashboard.
+Implementar la funcionalidad para que los administradores puedan asignar el rol `volunteer` a usuarios desde el panel de administración, permitiéndoles acceder al escáner de QR para validar entradas.
 
 ---
 
-## Solución
+## Cambios a Realizar
 
-### 1. Añadir Navegación Explícita Post-Verificación OTP
+### 1. Permitir acceso a Volunteers en ValidatePage
 
-En `Index.tsx`, después de verificar OTP exitosamente, navegar explícitamente basándose en el rol:
+| Archivo | Cambio |
+|---------|--------|
+| `src/pages/validate/ValidatePage.tsx` | Modificar la verificación de acceso para permitir `admin` o `volunteer` |
 
+**Implementación:**
+- Cambiar la condición de línea 22 de `role !== 'admin'` a `!['admin', 'volunteer'].includes(role || '')`
+- Cambiar la condición de línea 33 de `role !== 'admin'` a `!['admin', 'volunteer'].includes(role || '')`
+
+---
+
+### 2. Añadir botón para asignar rol Volunteer en UserEditSheet
+
+| Archivo | Cambio |
+|---------|--------|
+| `src/components/admin/UserEditSheet.tsx` | Añadir botón "Asignar Validador QR" en acciones rápidas |
+
+**Implementación:**
+
+1. Añadir importación del icono `QrCode` de lucide-react
+2. Crear nueva mutación para asignar rol:
 ```typescript
-if (data.session) {
-  toast.success('¡Verificación exitosa!');
-  
-  // Check profile to determine redirect
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('onboarding_completed, verification_status')
-    .eq('id', data.session.user.id)
-    .single();
-  
-  if (!profile?.onboarding_completed) {
-    navigate('/onboarding', { replace: true });
-    return;
-  }
-  
-  // Check role for redirect
-  const { data: rolesData } = await supabase
-    .from('user_roles')
-    .select('role')
-    .eq('user_id', data.session.user.id);
-  
-  const rolePriority = ['admin', 'mentor', 'judge', 'volunteer', 'participant'];
-  const userRoles = rolesData?.map(r => r.role) || [];
-  const highestRole = rolePriority.find(r => userRoles.includes(r));
-  
-  if (highestRole === 'admin') {
-    navigate('/admin', { replace: true });
-  } else if (profile?.verification_status !== 'verified') {
-    navigate('/pending-verification', { replace: true });
-  } else {
-    navigate('/dashboard', { replace: true });
-  }
-}
+const assignRoleMutation = useMutation({
+  mutationFn: async ({ userId, role }: { userId: string; role: AppRole }) => {
+    const { error } = await supabase
+      .from("user_roles")
+      .upsert({ user_id: userId, role }, { onConflict: 'user_id,role' });
+    if (error) throw error;
+  },
+  onSuccess: () => {
+    queryClient.invalidateQueries({ queryKey: ["admin-users"] });
+    toast.success("Rol asignado correctamente");
+  },
+  onError: (error) => {
+    toast.error(`Error al asignar rol: ${error.message}`);
+  },
+});
 ```
 
-### 2. Añadir Header de Navegación a EventsListPage
+3. Añadir función para manejar la asignación:
+```typescript
+const handleAssignVolunteer = useCallback(() => {
+  if (!user) return;
+  assignRoleMutation.mutate({ userId: user.id, role: 'volunteer' });
+}, [user, assignRoleMutation]);
+```
 
-Crear un header consistente con navegación de vuelta al dashboard:
-
+4. Añadir botón en la sección de acciones rápidas junto a Validar/Rechazar:
 ```tsx
-// Header con navegación
-<header className="bg-background border-b sticky top-0 z-10">
-  <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
-    <Link to="/dashboard" className="flex items-center gap-2 text-muted-foreground hover:text-foreground">
-      <ArrowLeft className="h-4 w-4" />
-      <span>Volver al dashboard</span>
-    </Link>
-    <Button variant="ghost" size="icon" onClick={signOut}>
-      <LogOut className="h-5 w-5" />
-    </Button>
-  </div>
-</header>
+<Button
+  variant="outline"
+  size="sm"
+  className="border-success/50 text-success hover:bg-success/10"
+  onClick={handleAssignVolunteer}
+  disabled={assignRoleMutation.isPending}
+>
+  <QrCode className="h-4 w-4 mr-1" />
+  Asignar Validador QR
+</Button>
+```
+
+---
+
+### 3. Actualizar tipo UserWithRole para incluir todos los roles
+
+| Archivo | Cambio |
+|---------|--------|
+| `src/components/admin/UserEditSheet.tsx` | Añadir `roles` al tipo para soportar múltiples roles |
+
+**Consideración:** El sistema actual solo muestra un rol principal. Para mostrar el botón condicionalmente, podríamos:
+- Opción A: Mostrar siempre el botón (más simple)
+- Opción B: Buscar los roles del usuario para ocultar si ya tiene `volunteer`
+
+Se recomienda **Opción A** por simplicidad, ya que el `upsert` con `onConflict` previene duplicados.
+
+---
+
+## Flujo de Uso
+
+```text
+1. Admin abre el panel de Usuarios
+2. Hace clic en un usuario
+3. Se abre el sidebar (Sheet) con la info del usuario
+4. En "Acciones Rápidas" aparece el botón "Asignar Validador QR"
+5. Al hacer clic, se asigna el rol 'volunteer' al usuario
+6. El usuario ahora puede acceder a /validate para escanear QRs
 ```
 
 ---
 
 ## Archivos a Modificar
 
-| Archivo | Cambio |
-|---------|--------|
-| `src/pages/Index.tsx` | Añadir navegación explícita después de verificación OTP |
-| `src/pages/register/RegisterStudent.tsx` | La verificación OTP ya navega a `/onboarding?role=participant` - OK |
-| `src/pages/register/RegisterMentor.tsx` | La verificación OTP ya navega a `/onboarding?role=mentor` - OK |
-| `src/pages/register/RegisterJudge.tsx` | La verificación OTP ya navega a `/onboarding?role=judge` - OK |
-| `src/pages/events/EventsListPage.tsx` | Añadir header con navegación al dashboard |
+| Archivo | Tipo de Cambio |
+|---------|----------------|
+| `src/pages/validate/ValidatePage.tsx` | Cambiar condición de acceso |
+| `src/components/admin/UserEditSheet.tsx` | Añadir mutación y botón |
 
 ---
 
-## Detalles de Implementación
+## Nota Técnica
 
-### Cambios en `Index.tsx`
+La política RLS existente para `user_roles` permite que los admins gestionen todos los roles:
 
-La función `handleVerifyOtp` pasará de:
-```typescript
-if (data.session) {
-  toast.success('¡Verificación exitosa!');
-  // The auth state change will handle redirection
-}
+```sql
+Policy: "Admins can manage all roles"
+Using Expression: has_role(auth.uid(), 'admin'::app_role)
 ```
 
-A incluir lógica completa de redirección similar a `AuthCallback.tsx`.
-
-### Cambios en `EventsListPage.tsx`
-
-Añadir imports necesarios:
-```typescript
-import { Link } from 'react-router-dom';
-import { ArrowLeft, LogOut } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { useAuth } from '@/hooks/useAuth';
-```
-
-Añadir header de navegación antes del hero gradient actual.
-
----
-
-## Flujo Corregido
-
-```text
-Usuario existente → Introduce email en Index.tsx
-                         │
-                         ▼
-              ┌─────────────────────┐
-              │ Recibe email con:   │
-              │ - Magic Link        │
-              │ - Código OTP        │
-              └─────────────────────┘
-                         │
-    ┌────────────────────┴────────────────────┐
-    ▼                                         ▼
-Magic Link → AuthCallback.tsx           OTP → Index.tsx (handleVerifyOtp)
-    │                                         │
-    └─────────────┬───────────────────────────┘
-                  ▼
-         ┌───────────────────┐
-         │ Verificar perfil: │
-         │ - ¿Onboarding?    │
-         │ - ¿Verificado?    │
-         │ - ¿Admin?         │
-         └───────────────────┘
-                  │
-    ┌─────────────┼─────────────┬─────────────┐
-    ▼             ▼             ▼             ▼
-Onboarding   Verificación   /admin      /dashboard
-pendiente    pendiente    (admin)     (otros roles)
-```
-
----
-
-## Beneficios
-
-1. **Consistencia**: Tanto magic link como OTP siguen el mismo flujo de redirección
-2. **UX mejorada**: Los usuarios siempre llegan a la página correcta según su estado
-3. **Navegación**: Desde `/events` se puede volver fácilmente al dashboard
-
+Por lo tanto, no se requieren cambios en la base de datos.
