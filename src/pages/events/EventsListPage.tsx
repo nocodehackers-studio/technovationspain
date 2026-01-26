@@ -1,10 +1,14 @@
-import { Calendar } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Calendar, ArrowLeft, LogOut } from 'lucide-react';
 import { useEventsList } from '@/hooks/useEventRegistration';
 import { EventCard } from '@/components/events/EventCard';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { Button } from '@/components/ui/button';
+import { useAuth } from '@/hooks/useAuth';
 
 export default function EventsListPage() {
   const { data: events, isLoading, error } = useEventsList();
+  const { signOut } = useAuth();
   
   if (isLoading) {
     return (
@@ -24,7 +28,20 @@ export default function EventsListPage() {
   
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
+      {/* Navigation Header */}
+      <header className="bg-background border-b sticky top-0 z-10">
+        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+          <Link to="/dashboard" className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors">
+            <ArrowLeft className="h-4 w-4" />
+            <span>Volver al dashboard</span>
+          </Link>
+          <Button variant="ghost" size="icon" onClick={() => signOut()}>
+            <LogOut className="h-5 w-5" />
+          </Button>
+        </div>
+      </header>
+
+      {/* Hero */}
       <div className="gradient-hero text-white py-16 px-4">
         <div className="max-w-6xl mx-auto text-center">
           <div className="flex justify-center mb-4">

@@ -97,7 +97,37 @@ export default function Index() {
 
       if (data.session) {
         toast.success("¡Verificación exitosa!");
-        // The auth state change will handle redirection
+        
+        // Check profile to determine redirect
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('onboarding_completed, verification_status')
+          .eq('id', data.session.user.id)
+          .maybeSingle();
+        
+        if (!profile?.onboarding_completed) {
+          navigate('/onboarding', { replace: true });
+          return;
+        }
+        
+        // Check role for redirect
+        const { data: rolesData } = await supabase
+          .from('user_roles')
+          .select('role')
+          .eq('user_id', data.session.user.id);
+        
+        type AppRole = 'admin' | 'mentor' | 'judge' | 'volunteer' | 'participant';
+        const rolePriority: AppRole[] = ['admin', 'mentor', 'judge', 'volunteer', 'participant'];
+        const userRoles = (rolesData?.map(r => r.role) || []) as AppRole[];
+        const highestRole = rolePriority.find(r => userRoles.includes(r));
+        
+        if (highestRole === 'admin') {
+          navigate('/admin', { replace: true });
+        } else if (profile?.verification_status !== 'verified') {
+          navigate('/pending-verification', { replace: true });
+        } else {
+          navigate('/dashboard', { replace: true });
+        }
       }
     } catch (error: any) {
       toast.error(error.message || "Código inválido o expirado");
