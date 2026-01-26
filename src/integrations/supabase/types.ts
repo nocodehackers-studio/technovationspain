@@ -1026,10 +1026,19 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      decrement_registration_count: {
-        Args: { p_event_id: string; p_ticket_type_id: string }
-        Returns: undefined
-      }
+      decrement_registration_count:
+        | {
+            Args: { p_event_id: string; p_ticket_type_id: string }
+            Returns: undefined
+          }
+        | {
+            Args: {
+              p_companions_count?: number
+              p_event_id: string
+              p_ticket_type_id: string
+            }
+            Returns: undefined
+          }
       get_user_role: {
         Args: { _user_id: string }
         Returns: Database["public"]["Enums"]["app_role"]
@@ -1042,10 +1051,19 @@ export type Database = {
         }
         Returns: boolean
       }
-      increment_registration_count: {
-        Args: { p_event_id: string; p_ticket_type_id: string }
-        Returns: undefined
-      }
+      increment_registration_count:
+        | {
+            Args: { p_event_id: string; p_ticket_type_id: string }
+            Returns: undefined
+          }
+        | {
+            Args: {
+              p_companions_count?: number
+              p_event_id: string
+              p_ticket_type_id: string
+            }
+            Returns: undefined
+          }
       is_team_member: {
         Args: { _team_id: string; _user_id: string }
         Returns: boolean
