@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
@@ -7,27 +7,77 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { Sparkles, User, Calendar, Mail, ArrowRight, ArrowLeft } from 'lucide-react';
+import { Sparkles, User, Calendar, Mail, ArrowRight, ArrowLeft, GraduationCap, Users, Scale } from 'lucide-react';
 import { z } from 'zod';
 import { AppRole } from '@/types/database';
 
-const onboardingSchema = z.object({
+type AllowedRole = 'participant' | 'mentor' | 'judge';
+
+const roleConfig: Record<AllowedRole, { 
+  label: string; 
+  icon: typeof GraduationCap; 
+  ageMin: number; 
+  ageMax: number | null;
+  ageLabel: string;
+  color: string;
+}> = {
+  participant: { 
+    label: 'Estudiante', 
+    icon: GraduationCap, 
+    ageMin: 7, 
+    ageMax: 18,
+    ageLabel: '7-18 años',
+    color: 'text-primary',
+  },
+  mentor: { 
+    label: 'Mentora', 
+    icon: Users, 
+    ageMin: 18, 
+    ageMax: null,
+    ageLabel: '18+ años',
+    color: 'text-secondary',
+  },
+  judge: { 
+    label: 'Juez', 
+    icon: Scale, 
+    ageMin: 18, 
+    ageMax: null,
+    ageLabel: '18+ años',
+    color: 'text-accent',
+  },
+};
+
+const createOnboardingSchema = (role: AllowedRole) => z.object({
   first_name: z.string().min(1, 'El nombre es obligatorio').max(100),
   last_name: z.string().min(1, 'Los apellidos son obligatorios').max(100),
   date_of_birth: z.string().min(1, 'La fecha de nacimiento es obligatoria'),
-  // Only participant role is allowed for public signup - other roles are assigned by admin
-  role: z.literal('participant'),
+  role: z.enum(['participant', 'mentor', 'judge']),
   tg_email: z.string().email('Email inválido').optional().or(z.literal('')),
   phone: z.string().max(20).optional(),
   postal_code: z.string().max(10).optional(),
 });
 
-type OnboardingData = z.infer<typeof onboardingSchema>;
+type OnboardingData = {
+  first_name: string;
+  last_name: string;
+  date_of_birth: string;
+  role: AllowedRole;
+  tg_email: string;
+  phone: string;
+  postal_code: string;
+};
 
 export default function Onboarding() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { user, refreshProfile } = useAuth();
   const { toast } = useToast();
+  
+  // Get role from URL params or default to participant
+  const urlRole = searchParams.get('role') as AllowedRole | null;
+  const initialRole: AllowedRole = urlRole && ['participant', 'mentor', 'judge'].includes(urlRole) 
+    ? urlRole 
+    : 'participant';
   
   const [step, setStep] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
@@ -37,15 +87,36 @@ export default function Onboarding() {
     first_name: '',
     last_name: '',
     date_of_birth: '',
-    role: 'participant',
+    role: initialRole,
     tg_email: user?.email || '',
     phone: '',
     postal_code: '',
   });
 
+  // Update role if URL changes
+  useEffect(() => {
+    if (urlRole && ['participant', 'mentor', 'judge'].includes(urlRole)) {
+      setFormData(prev => ({ ...prev, role: urlRole }));
+    }
+  }, [urlRole]);
+
+  const currentRoleConfig = roleConfig[formData.role];
+  const RoleIcon = currentRoleConfig.icon;
+
   const updateField = (field: keyof OnboardingData, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
     setErrors(prev => ({ ...prev, [field]: '' }));
+  };
+
+  const calculateAge = (birthDate: string): number => {
+    const birth = new Date(birthDate);
+    const today = new Date();
+    let age = today.getFullYear() - birth.getFullYear();
+    const monthDiff = today.getMonth() - birth.getMonth();
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
+      age--;
+    }
+    return age;
   };
 
   const validateStep1 = () => {
@@ -64,6 +135,17 @@ export default function Onboarding() {
       const today = new Date();
       if (birthDate >= today) {
         newErrors.date_of_birth = 'La fecha debe ser anterior a hoy';
+      } else {
+        // Validate age for role
+        const age = calculateAge(formData.date_of_birth);
+        const { ageMin, ageMax, ageLabel } = currentRoleConfig;
+        
+        if (age < ageMin) {
+          newErrors.date_of_birth = `Debes tener al menos ${ageMin} años para registrarte como ${currentRoleConfig.label.toLowerCase()}`;
+        }
+        if (ageMax !== null && age > ageMax) {
+          newErrors.date_of_birth = `Para registrarte como ${currentRoleConfig.label.toLowerCase()} debes tener entre ${ageMin} y ${ageMax} años`;
+        }
       }
     }
 
@@ -91,7 +173,8 @@ export default function Onboarding() {
     }
 
     // Validate all fields
-    const result = onboardingSchema.safeParse(formData);
+    const schema = createOnboardingSchema(formData.role);
+    const result = schema.safeParse(formData);
     if (!result.success) {
       const fieldErrors: Record<string, string> = {};
       result.error.errors.forEach(err => {
@@ -103,23 +186,33 @@ export default function Onboarding() {
       return;
     }
 
+    // Final age validation
+    const age = calculateAge(formData.date_of_birth);
+    const { ageMin, ageMax } = currentRoleConfig;
+    if (age < ageMin || (ageMax !== null && age > ageMax)) {
+      toast({
+        title: 'Error de edad',
+        description: `Tu edad no corresponde con el rol de ${currentRoleConfig.label.toLowerCase()} (${currentRoleConfig.ageLabel})`,
+        variant: 'destructive',
+      });
+      setStep(1);
+      return;
+    }
+
     setIsLoading(true);
 
     try {
-      // Check if tg_email is in authorized_students (whitelist)
+      // Check if tg_email is in authorized_students (whitelist) - only for participants
       let isInWhitelist = false;
       let authorizedData: any = null;
       
-      if (formData.tg_email?.trim()) {
-        // Use ilike for case-insensitive email comparison
-        // Search without matched_profile_id restriction to handle re-attempts
+      if (formData.role === 'participant' && formData.tg_email?.trim()) {
         const { data: authorized } = await supabase
           .from('authorized_students')
           .select('*')
           .ilike('email', formData.tg_email.trim())
           .maybeSingle();
         
-        // Consider in whitelist if exists AND (not matched OR matched with this same user)
         if (authorized && (!authorized.matched_profile_id || authorized.matched_profile_id === user.id)) {
           isInWhitelist = true;
           authorizedData = authorized;
@@ -137,7 +230,7 @@ export default function Onboarding() {
         onboarding_completed: true,
       };
 
-      // If in whitelist, auto-verify and copy TG data
+      // If in whitelist (participant), auto-verify and copy TG data
       if (isInWhitelist && authorizedData) {
         profileUpdate.verification_status = 'verified';
         profileUpdate.tg_id = authorizedData.tg_id;
@@ -152,24 +245,24 @@ export default function Onboarding() {
         throw profileError;
       }
 
-      // If in whitelist, update authorized_students (only if not already matched) and assign role
+      // Assign role
+      const roleToAssign = formData.role as AppRole;
+      const { error: roleError } = await supabase
+        .from('user_roles')
+        .insert({ user_id: user.id, role: roleToAssign });
+      
+      // Ignore duplicate errors
+      if (roleError && !roleError.message.includes('duplicate')) {
+        console.warn('Role assignment warning:', roleError.message);
+      }
+
+      // If in whitelist (participant), update authorized_students
       if (isInWhitelist && authorizedData) {
-        // Mark as matched only if not already matched
         if (!authorizedData.matched_profile_id) {
           await supabase
             .from('authorized_students')
             .update({ matched_profile_id: user.id })
             .eq('id', authorizedData.id);
-        }
-
-        // Assign participant role - use upsert to avoid RLS issues
-        const { error: roleError } = await supabase
-          .from('user_roles')
-          .insert({ user_id: user.id, role: 'participant' as const });
-        
-        // Ignore duplicate errors
-        if (roleError && !roleError.message.includes('duplicate')) {
-          console.warn('Role assignment warning:', roleError.message);
         }
       }
 
@@ -216,14 +309,9 @@ export default function Onboarding() {
   // Check if user is under 14 for parental consent
   const isMinor = () => {
     if (!formData.date_of_birth) return false;
-    const birthDate = new Date(formData.date_of_birth);
-    const today = new Date();
-    const age = today.getFullYear() - birthDate.getFullYear();
+    const age = calculateAge(formData.date_of_birth);
     return age < 14;
   };
-
-  // Role is fixed to participant for public signup
-  const roleLabel = 'Participante (8-18 años)';
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-secondary via-background to-muted p-4">
@@ -307,20 +395,35 @@ export default function Onboarding() {
                     {errors.date_of_birth && (
                       <p className="text-sm text-destructive">{errors.date_of_birth}</p>
                     )}
-                    {isMinor() && (
+                    {formData.role === 'participant' && isMinor() && (
                       <p className="text-sm text-warning">
-                        Al ser menor de 14 años, necesitarás el consentimiento de tu padre/madre/tutor.
+                        ⚠️ Al ser menor de 14 años, necesitarás el consentimiento de tu padre/madre/tutor.
                       </p>
                     )}
                   </div>
 
-                  {/* Role is fixed to participant for public signup */}
+                  {/* Role display - shows selected role from registration */}
                   <div className="rounded-lg bg-muted p-4">
                     <Label className="text-sm font-medium">Tu rol</Label>
-                    <p className="text-base font-semibold text-foreground mt-1">{roleLabel}</p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      El registro público es solo para participantes. Si eres mentora, jueza o 
-                      voluntaria, contacta con tu coordinadora regional.
+                    <div className="flex items-center gap-2 mt-1">
+                      <RoleIcon className={`h-5 w-5 ${currentRoleConfig.color}`} />
+                      <span className="text-base font-semibold text-foreground">
+                        {currentRoleConfig.label}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        ({currentRoleConfig.ageLabel})
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-2">
+                      {formData.role === 'participant' && 
+                        'Si ya estás registrada en Technovation Global, podrás verificar tu cuenta automáticamente.'
+                      }
+                      {formData.role === 'mentor' && 
+                        'Las mentoras guían y apoyan a los equipos de estudiantes durante la temporada.'
+                      }
+                      {formData.role === 'judge' && 
+                        'Los jueces evalúan los proyectos de las estudiantes en eventos regionales y nacionales.'
+                      }
                     </p>
                   </div>
 
@@ -336,7 +439,12 @@ export default function Onboarding() {
               ) : (
                 <>
                   <div className="space-y-2">
-                    <Label htmlFor="tg_email">Email en Technovation Global</Label>
+                    <Label htmlFor="tg_email">
+                      {formData.role === 'participant' 
+                        ? 'Email en Technovation Global'
+                        : 'Email de contacto'
+                      }
+                    </Label>
                     <div className="relative">
                       <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                       <Input
@@ -349,7 +457,9 @@ export default function Onboarding() {
                       />
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      Si ya estás registrada en Technovation Global, introduce el email que usaste allí.
+                      {formData.role === 'participant'
+                        ? 'Si ya estás registrada en Technovation Global, introduce el email que usaste allí.'
+                        : 'Email donde podemos contactarte para coordinación de eventos.'}
                     </p>
                     {errors.tg_email && (
                       <p className="text-sm text-destructive">{errors.tg_email}</p>

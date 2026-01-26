@@ -2,7 +2,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Clock, LogOut, Mail, CheckCircle2 } from 'lucide-react';
+import { Clock, LogOut, Mail, CheckCircle2, AlertCircle } from 'lucide-react';
 import { LoadingPage } from '@/components/ui/loading-spinner';
 
 export default function PendingVerification() {
@@ -55,9 +55,26 @@ export default function PendingVerification() {
             </h4>
             <ul className="text-sm text-muted-foreground space-y-2">
               <li>• Asegúrate de haber completado tu registro en Technovation Global</li>
-              <li>• Espera mientras nuestro equipo valida tu información</li>
-              <li>• Recibirás un email cuando tu cuenta sea verificada</li>
+              <li>• Usa el mismo email que usaste aquí para registrarte en Technovation Global</li>
+              <li>• <strong>Este proceso puede durar hasta 24 horas</strong></li>
+              <li>• <strong>Recibirás un correo de confirmación cuando tu cuenta esté activa</strong></li>
             </ul>
+          </div>
+
+          <div className="bg-primary/5 border border-primary/20 rounded-lg p-4 space-y-2">
+            <h4 className="font-medium flex items-center gap-2 text-sm">
+              <AlertCircle className="h-4 w-4 text-primary" />
+              ¿Necesitas ayuda?
+            </h4>
+            <p className="text-sm text-muted-foreground">
+              Si tienes dudas o problemas con tu verificación, contacta con nosotros en{' '}
+              <a 
+                href="mailto:soporte@powertocode.org" 
+                className="text-primary hover:underline font-medium"
+              >
+                soporte@powertocode.org
+              </a>
+            </p>
           </div>
 
           {profile?.email && (

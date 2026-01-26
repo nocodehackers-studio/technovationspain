@@ -9,7 +9,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { AlertTriangle, Clock, Mail, LogOut } from 'lucide-react';
+import { AlertTriangle, Clock, Mail, LogOut, Timer } from 'lucide-react';
 
 export function VerificationPendingModal() {
   const { profile, isVerified, signOut, isLoading } = useAuth();
@@ -92,18 +92,28 @@ export function VerificationPendingModal() {
                   <li>
                     Usa el <strong>mismo email</strong> que usaste aquí para registrarte en Technovation Global
                   </li>
-                  <li>
-                    La verificación se realizará automáticamente cuando importemos los datos
-                  </li>
                 </ul>
               </div>
             </div>
           </div>
 
+          <div className="rounded-lg border border-secondary/20 bg-secondary/5 p-4">
+            <div className="flex items-start gap-3">
+              <Timer className="h-5 w-5 text-secondary shrink-0 mt-0.5" />
+              <div className="text-sm">
+                <p className="font-medium">Tiempo de espera</p>
+                <p className="text-muted-foreground mt-1">
+                  <strong>Este proceso puede durar hasta 24 horas.</strong> Recibirás un correo 
+                  de confirmación cuando tu cuenta esté activa.
+                </p>
+              </div>
+            </div>
+          </div>
+
           <p className="text-xs text-muted-foreground text-center">
-            Si tienes dudas, contacta con tu coordinadora regional o escríbenos a{' '}
-            <a href="mailto:soporte@technovation.es" className="text-primary hover:underline">
-              soporte@technovation.es
+            Si tienes dudas, contacta con nosotros en{' '}
+            <a href="mailto:soporte@powertocode.org" className="text-primary hover:underline">
+              soporte@powertocode.org
             </a>
           </p>
         </div>
