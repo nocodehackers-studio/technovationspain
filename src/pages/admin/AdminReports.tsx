@@ -151,24 +151,101 @@ export default function AdminReports() {
   };
 
   const exportToCSV = (data: any[], filename: string) => {
-    if (!data.length) {
+    if (!data || data.length === 0) {
       toast.error("No hay datos para exportar");
       return;
     }
-    
-    const headers = Object.keys(data[0]).join(",");
-    const rows = data.map((row) => Object.values(row).join(",")).join("\n");
-    const csv = `${headers}\n${rows}`;
-    
-    const blob = new Blob([csv], { type: "text/csv" });
+
+    const headers = Object.keys(data[0]);
+    const csvRows = [
+      headers.join(","),
+      ...data.map((row) =>
+        headers
+          .map((h) => {
+            const val = row[h];
+            if (val === null || val === undefined) return "";
+            const strVal = typeof val === "object" ? JSON.stringify(val) : String(val);
+            if (strVal.includes(",") || strVal.includes('"') || strVal.includes("\n")) {
+              return `"${strVal.replace(/"/g, '""')}"`;
+            }
+            return strVal;
+          })
+          .join(",")
+      ),
+    ];
+
+    const blob = new Blob(["\ufeff" + csvRows.join("\n")], {
+      type: "text/csv;charset=utf-8;",
+    });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${filename}.csv`;
+    a.download = `${filename}_${new Date().toISOString().split("T")[0]}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-    
-    toast.success("Archivo exportado correctamente");
+
+    toast.success(`${filename} exportado correctamente`);
+  };
+
+  const exportTable = async (tableName: string, displayName: string) => {
+    toast.loading(`Exportando ${displayName}...`, { id: "export" });
+
+    const { data, error } = await supabase
+      .from(tableName as "profiles" | "user_roles" | "authorized_students" | "teams" | "team_members" | "events" | "event_registrations" | "companions" | "hubs" | "audit_logs")
+      .select("*");
+
+    toast.dismiss("export");
+
+    if (error) {
+      toast.error(`Error al exportar: ${error.message}`);
+      return;
+    }
+
+    exportToCSV(data || [], displayName);
+  };
+
+  const exportEventRegistrations = async () => {
+    if (!selectedEventId) {
+      toast.error("Selecciona un evento primero");
+      return;
+    }
+
+    toast.loading("Exportando registros del evento...", { id: "export" });
+
+    const { data, error } = await supabase
+      .from("event_registrations")
+      .select(`
+        registration_number,
+        first_name,
+        last_name,
+        email,
+        phone,
+        team_name,
+        team_id_tg,
+        tg_email,
+        registration_status,
+        checked_in_at,
+        image_consent,
+        data_consent,
+        created_at,
+        ticket_type:event_ticket_types(name)
+      `)
+      .eq("event_id", selectedEventId);
+
+    toast.dismiss("export");
+
+    if (error) {
+      toast.error(`Error al exportar: ${error.message}`);
+      return;
+    }
+
+    const flatData = data?.map((r) => ({
+      ...r,
+      ticket_type: r.ticket_type?.name || "",
+    }));
+
+    const eventName = events?.find((e) => e.id === selectedEventId)?.name || "evento";
+    exportToCSV(flatData || [], `registros_${eventName.replace(/\s+/g, "_")}`);
   };
 
   const COLORS = ["hsl(270, 80%, 55%)", "hsl(200, 90%, 50%)", "hsl(175, 80%, 45%)", "hsl(150, 80%, 42%)", "hsl(35, 95%, 55%)"];
@@ -196,6 +273,10 @@ export default function AdminReports() {
             <TabsTrigger value="activity" className="gap-2">
               <FileText className="h-4 w-4" />
               <span className="hidden sm:inline">Actividad</span>
+            </TabsTrigger>
+            <TabsTrigger value="export" className="gap-2">
+              <Download className="h-4 w-4" />
+              <span className="hidden sm:inline">Exportar</span>
             </TabsTrigger>
           </TabsList>
 
@@ -392,6 +473,144 @@ export default function AdminReports() {
                       No hay logs de auditoría
                     </div>
                   )}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Export Tab */}
+          <TabsContent value="export" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Exportar Datos en Bruto</CardTitle>
+                <CardDescription>
+                  Descarga los datos completos de la plataforma en formato CSV
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {/* Usuarios */}
+                <div className="space-y-2">
+                  <h3 className="font-medium">Usuarios</h3>
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    <Button
+                      variant="outline"
+                      onClick={() => exportTable("profiles", "usuarios")}
+                    >
+                      <Download className="mr-2 h-4 w-4" />
+                      Perfiles (profiles)
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => exportTable("user_roles", "roles_usuario")}
+                    >
+                      <Download className="mr-2 h-4 w-4" />
+                      Roles de Usuario
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => exportTable("authorized_students", "estudiantes_autorizados")}
+                    >
+                      <Download className="mr-2 h-4 w-4" />
+                      Estudiantes Autorizados
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Equipos */}
+                <div className="space-y-2">
+                  <h3 className="font-medium">Equipos</h3>
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    <Button
+                      variant="outline"
+                      onClick={() => exportTable("teams", "equipos")}
+                    >
+                      <Download className="mr-2 h-4 w-4" />
+                      Equipos (teams)
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => exportTable("team_members", "miembros_equipo")}
+                    >
+                      <Download className="mr-2 h-4 w-4" />
+                      Miembros de Equipo
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Eventos */}
+                <div className="space-y-2">
+                  <h3 className="font-medium">Eventos</h3>
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    <Button
+                      variant="outline"
+                      onClick={() => exportTable("events", "eventos")}
+                    >
+                      <Download className="mr-2 h-4 w-4" />
+                      Eventos
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => exportTable("event_registrations", "todos_registros_eventos")}
+                    >
+                      <Download className="mr-2 h-4 w-4" />
+                      Todos los Registros
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => exportTable("companions", "acompanantes")}
+                    >
+                      <Download className="mr-2 h-4 w-4" />
+                      Acompañantes
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Evento específico */}
+                <div className="space-y-2">
+                  <h3 className="font-medium">Registros por Evento</h3>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <Select value={selectedEventId} onValueChange={setSelectedEventId}>
+                      <SelectTrigger className="w-full sm:w-[300px]">
+                        <SelectValue placeholder="Seleccionar evento" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {events?.map((event) => (
+                          <SelectItem key={event.id} value={event.id}>
+                            {event.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      variant="default"
+                      onClick={exportEventRegistrations}
+                      disabled={!selectedEventId}
+                    >
+                      <Download className="mr-2 h-4 w-4" />
+                      Exportar Registros
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Otros */}
+                <div className="space-y-2">
+                  <h3 className="font-medium">Otros</h3>
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    <Button
+                      variant="outline"
+                      onClick={() => exportTable("hubs", "hubs")}
+                    >
+                      <Download className="mr-2 h-4 w-4" />
+                      Hubs
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => exportTable("audit_logs", "logs_auditoria")}
+                    >
+                      <Download className="mr-2 h-4 w-4" />
+                      Logs de Auditoría
+                    </Button>
+                  </div>
                 </div>
               </CardContent>
             </Card>
