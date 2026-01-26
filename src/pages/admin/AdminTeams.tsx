@@ -29,8 +29,15 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { MoreHorizontal, Plus, Edit, Trash2, Users, Upload, Mail, UserCircle } from "lucide-react";
+import { MoreHorizontal, Plus, Edit, Trash2, Users, Upload, Mail, UserCircle, MapPin } from "lucide-react";
 import { Team, TeamCategory } from "@/types/database";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 interface TeamMember {
   id: string;
@@ -53,20 +60,44 @@ export default function AdminTeams() {
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [membersDialogOpen, setMembersDialogOpen] = useState(false);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+  const [hubFilter, setHubFilter] = useState<string>("all");
 
-  // Fetch teams with member counts
+  // Fetch teams with member counts and hub info
   const { data: teams, isLoading } = useQuery({
     queryKey: ["admin-teams"],
     queryFn: async () => {
       const { data: teamsData, error } = await supabase
         .from("teams")
-        .select("*, team_members(count)")
+        .select("*, team_members(count), hub:hubs(id, name)")
         .order("created_at", { ascending: false });
 
       if (error) throw error;
-      return teamsData as (Team & { team_members: { count: number }[] })[];
+      return teamsData as (Team & { team_members: { count: number }[]; hub: { id: string; name: string } | null })[];
     },
   });
+
+  // Filtered teams based on hub selection
+  const filteredTeams = teams?.filter((team) => {
+    if (hubFilter === "all") return true;
+    if (hubFilter === "none") return !team.hub_id;
+    return team.hub_id === hubFilter;
+  }) || [];
+
+  // Function to open team members dialog
+  const openTeamMembers = async (team: Team) => {
+    setSelectedTeam(team);
+    const { data: members } = await supabase
+      .from("team_members")
+      .select(`
+        id,
+        member_type,
+        joined_at,
+        user:profiles!team_members_user_id_fkey(id, email, first_name, last_name)
+      `)
+      .eq("team_id", team.id);
+    setTeamMembers(members as TeamMember[] || []);
+    setMembersDialogOpen(true);
+  };
 
   // Fetch hubs for dropdown
   const { data: hubs } = useQuery({
@@ -141,7 +172,7 @@ export default function AdminTeams() {
     senior: "bg-category-senior/10 text-category-senior border-category-senior/20",
   };
 
-  const columns: ColumnDef<Team & { team_members: { count: number }[] }>[] = [
+  const columns: ColumnDef<Team & { team_members: { count: number }[]; hub: { id: string; name: string } | null }>[] = [
     {
       accessorKey: "name",
       header: "Nombre",
@@ -187,6 +218,22 @@ export default function AdminTeams() {
       ),
     },
     {
+      id: "hub",
+      header: "Hub",
+      cell: ({ row }) => (
+        <div className="flex items-center gap-2">
+          {row.original.hub ? (
+            <>
+              <MapPin className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm">{row.original.hub.name}</span>
+            </>
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          )}
+        </div>
+      ),
+    },
+    {
       accessorKey: "created_at",
       header: "Creado",
       cell: ({ row }) => (
@@ -202,7 +249,11 @@ export default function AdminTeams() {
         return (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="h-8 w-8 p-0">
+              <Button 
+                variant="ghost" 
+                className="h-8 w-8 p-0"
+                onClick={(e) => e.stopPropagation()}
+              >
                 <MoreHorizontal className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
@@ -210,7 +261,8 @@ export default function AdminTeams() {
               <DropdownMenuLabel>Acciones</DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuItem
-                onClick={() => {
+                onClick={(e) => {
+                  e.stopPropagation();
                   setSelectedTeam(team);
                   setEditDialogOpen(true);
                 }}
@@ -219,20 +271,9 @@ export default function AdminTeams() {
                 Editar
               </DropdownMenuItem>
               <DropdownMenuItem
-                onClick={async () => {
-                  setSelectedTeam(team);
-                  // Fetch team members
-                  const { data: members } = await supabase
-                    .from("team_members")
-                    .select(`
-                      id,
-                      member_type,
-                      joined_at,
-                      user:profiles!team_members_user_id_fkey(id, email, first_name, last_name)
-                    `)
-                    .eq("team_id", team.id);
-                  setTeamMembers(members as TeamMember[] || []);
-                  setMembersDialogOpen(true);
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openTeamMembers(team);
                 }}
               >
                 <Users className="mr-2 h-4 w-4" />
@@ -241,7 +282,8 @@ export default function AdminTeams() {
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 className="text-destructive"
-                onClick={() => {
+                onClick={(e) => {
+                  e.stopPropagation();
                   setSelectedTeam(team);
                   setDeleteDialogOpen(true);
                 }}
@@ -361,9 +403,26 @@ export default function AdminTeams() {
 
         <DataTable
           columns={columns}
-          data={teams || []}
+          data={filteredTeams}
           searchPlaceholder="Buscar equipos..."
           loading={isLoading}
+          onRowClick={(team) => openTeamMembers(team as Team)}
+          toolbarContent={
+            <Select value={hubFilter} onValueChange={setHubFilter}>
+              <SelectTrigger className="w-[160px]">
+                <SelectValue placeholder="Filtrar por hub" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos los hubs</SelectItem>
+                <SelectItem value="none">Sin hub</SelectItem>
+                {hubs?.map((hub) => (
+                  <SelectItem key={hub.id} value={hub.id}>
+                    {hub.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          }
         />
       </div>
 
