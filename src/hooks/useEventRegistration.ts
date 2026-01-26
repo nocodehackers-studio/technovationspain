@@ -116,7 +116,10 @@ export function useEventRegistration(eventId: string) {
         }
       }
       
-      // 1. Check capacity
+      // 1. Check capacity (including companions)
+      const companionsCount = formData.companions?.length || 0;
+      const totalSpotsNeeded = 1 + companionsCount; // Main person + companions
+      
       const { data: ticketType, error: ticketError } = await supabase
         .from('event_ticket_types')
         .select('max_capacity, current_count')
@@ -127,10 +130,14 @@ export function useEventRegistration(eventId: string) {
         throw new Error('Tipo de entrada no encontrado');
       }
       
-      if (ticketType.current_count !== null && 
-          ticketType.max_capacity !== null && 
-          ticketType.current_count >= ticketType.max_capacity) {
-        throw new Error('Lo sentimos, no quedan plazas disponibles para este tipo de entrada');
+      const availableSpots = (ticketType.max_capacity ?? 0) - (ticketType.current_count ?? 0);
+      
+      if (availableSpots < totalSpotsNeeded) {
+        if (companionsCount > 0) {
+          throw new Error(`No hay suficientes plazas disponibles. Necesitas ${totalSpotsNeeded} plazas (tú + ${companionsCount} acompañante${companionsCount > 1 ? 's' : ''}) pero solo quedan ${availableSpots}.`);
+        } else {
+          throw new Error('Lo sentimos, no quedan plazas disponibles para este tipo de entrada');
+        }
       }
       
       // 2. Generate codes for main registration
@@ -185,10 +192,12 @@ export function useEventRegistration(eventId: string) {
         }
       }
       
-      // 5. Update counters
+      // 5. Update counters (including companions in the count)
+      const companionsCreated = formData.companions?.length || 0;
       await supabase.rpc('increment_registration_count', {
         p_event_id: eventId,
         p_ticket_type_id: formData.ticket_type_id,
+        p_companions_count: companionsCreated,
       });
       
       // 6. Send confirmation email
