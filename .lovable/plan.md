@@ -1,184 +1,263 @@
 
-# Plan: Vista de Métricas e Inscripciones del Evento
+
+# Plan: Validación Robusta de CSVs en Importación
 
 ## Resumen
 
-Añadir una nueva pestaña "Estadísticas" al editor de eventos (`AdminEventEditor`) que muestre:
-1. **Tarjetas de métricas clave**: Participantes, Acompañantes, Mentores/Jueces, Entradas restantes
-2. **Tabla de inscripciones**: Listado completo con indicador de acompañantes (+1, +2)
+Implementar validaciones preventivas en ambos sistemas de importación CSV para detectar archivos incorrectos **antes** de procesar los datos, mostrando errores claros y amigables.
 
-## Arquitectura de Datos
+## Validaciones a Implementar
 
-### Estructura actual de inscripciones:
-- **`event_registrations`**: Contiene los registros principales (participantes, mentores, jueces)
-  - `is_companion: false` para registros principales
-  - `ticket_type_id` referencia a `event_ticket_types`
-- **`companions`**: Tabla separada con acompañantes
-  - `event_registration_id` referencia al registro principal
-  - Contiene `first_name`, `last_name`, `relationship`
-- **`event_ticket_types`**: Define tipos de entrada con `allowed_roles` (participant, mentor, judge)
+### Nivel 1: Validación de Archivo (Inmediata)
 
-### Cálculo de métricas:
-- **Participantes**: Registros donde `ticket_type.allowed_roles` incluye `participant`
-- **Mentores**: Registros donde `ticket_type.allowed_roles` incluye `mentor`
-- **Acompañantes**: Conteo de la tabla `companions` del evento
-- **Entradas restantes**: `max_capacity - current_registrations` del evento
+| Validación | Descripción | Mensaje de Error |
+|------------|-------------|------------------|
+| Extensión | Solo `.csv` | "Por favor, selecciona un archivo CSV" |
+| Tamaño máximo | ≤ 10MB | "El archivo no puede superar los 10MB" |
+| Tipo MIME | `text/csv` o `text/plain` | "El archivo no parece ser un CSV válido" |
+| Encoding | Detectar y advertir si no es UTF-8 | "⚠️ El archivo podría tener problemas de encoding" |
 
-## Cambios a Implementar
+### Nivel 2: Validación de Estructura (Tras parsear)
 
-### 1. Nuevo componente: `src/components/admin/events/EventStatsView.tsx`
+| Validación | AdminImportCSV (Estudiantes) | TeamCSVImport (Equipos) |
+|------------|------------------------------|-------------------------|
+| CSV vacío | ✅ | ✅ (ya existe) |
+| Columnas requeridas | Email (obligatorio) | Team ID, Name, Division |
+| Columnas esperadas | Al menos 3 de: email, first name, last name, team name | Ya implementado |
+| Número mínimo filas | ≥ 1 fila de datos | ≥ 1 fila de datos |
+| Número máximo filas | ≤ 5000 filas | ≤ 1000 equipos |
+
+### Nivel 3: Validación de Datos (En preview)
+
+| Validación | Descripción |
+|------------|-------------|
+| Emails válidos | Regex básico para formato email |
+| Campos vacíos críticos | Advertir si >50% de emails están vacíos |
+| Caracteres extraños | Detectar posibles problemas de encoding |
+
+## Cambios en AdminImportCSV.tsx
+
+### 1. Nueva función de validación de estructura
 
 ```typescript
-// Props
-interface EventStatsViewProps {
-  eventId: string;
+interface CSVValidationResult {
+  isValid: boolean;
+  errors: string[];
+  warnings: string[];
+  detectedType: "technovation_students" | "unknown";
 }
 
-// Queries necesarias
-const { data: event } = useQuery({...}); // Para max_capacity y current_registrations
-const { data: registrations } = useQuery({...}); // event_registrations con ticket_type
-const { data: companions } = useQuery({...}); // companions del evento
+const validateCSVStructure = (headers: string[], data: CSVRow[]): CSVValidationResult => {
+  const result: CSVValidationResult = {
+    isValid: true,
+    errors: [],
+    warnings: [],
+    detectedType: "unknown",
+  };
 
-// Cálculo de métricas
-const participantsCount = registrations.filter(r => 
-  r.ticket_type?.allowed_roles?.includes('participant')
-).length;
+  // 1. Check if empty
+  if (data.length === 0) {
+    result.isValid = false;
+    result.errors.push("El archivo CSV está vacío");
+    return result;
+  }
 
-const mentorsCount = registrations.filter(r => 
-  r.ticket_type?.allowed_roles?.includes('mentor')
-).length;
+  // 2. Check for email column (required)
+  const emailPatterns = ["email", "correo", "e-mail", "mail"];
+  const hasEmailColumn = headers.some(h => 
+    emailPatterns.some(p => h.toLowerCase().includes(p))
+  );
+  
+  if (!hasEmailColumn) {
+    result.isValid = false;
+    result.errors.push("No se encontró una columna de Email. Este campo es obligatorio.");
+  }
 
-const judgesCount = registrations.filter(r => 
-  r.ticket_type?.allowed_roles?.includes('judge')
-).length;
+  // 3. Check for expected Technovation columns
+  const technovationPatterns = [
+    "participant id", "first name", "last name", "team name", 
+    "team division", "parent guardian", "school name"
+  ];
+  
+  const matchedPatterns = technovationPatterns.filter(pattern =>
+    headers.some(h => h.toLowerCase().includes(pattern))
+  );
 
-const companionsCount = companions?.length || 0;
+  if (matchedPatterns.length >= 3) {
+    result.detectedType = "technovation_students";
+  } else if (matchedPatterns.length === 0 && hasEmailColumn) {
+    result.warnings.push(
+      "Este CSV no parece ser de Technovation Global. " +
+      "Asegúrate de que contiene los datos correctos antes de continuar."
+    );
+  }
 
-const remainingTickets = (event?.max_capacity || 0) - (event?.current_registrations || 0);
+  // 4. Check row count limits
+  if (data.length > 5000) {
+    result.isValid = false;
+    result.errors.push(`El archivo tiene ${data.length} filas. El máximo permitido es 5000.`);
+  }
+
+  // 5. Sample data validation
+  const sampleSize = Math.min(100, data.length);
+  const emailColumn = headers.find(h => 
+    emailPatterns.some(p => h.toLowerCase().includes(p))
+  );
+  
+  if (emailColumn) {
+    const emptyEmails = data.slice(0, sampleSize).filter(row => 
+      !row[emailColumn] || row[emailColumn].trim() === ""
+    ).length;
+    
+    if (emptyEmails > sampleSize * 0.5) {
+      result.warnings.push(
+        `Más del 50% de las filas tienen el email vacío. ` +
+        `Esto podría indicar un problema con el archivo.`
+      );
+    }
+  }
+
+  return result;
+};
 ```
 
-### 2. Estructura del componente
+### 2. UI para mostrar errores/warnings
 
 ```text
 ┌─────────────────────────────────────────────────────────────────┐
-│  Estadísticas del Evento                                        │
-├─────────────────────────────────────────────────────────────────┤
+│  ❌ Error: El archivo no es válido                              │
+│  ────────────────────────────────────────────────────────────── │
+│  • No se encontró una columna de Email. Este campo es          │
+│    obligatorio.                                                 │
 │                                                                 │
-│  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌────────────┐│
-│  │   👧 42     │ │   👨‍👩 28   │ │   🎓 12    │ │   🎫 417   ││
-│  │ Participan. │ │ Acompañant. │ │  Mentores   │ │  Restantes ││
-│  └─────────────┘ └─────────────┘ └─────────────┘ └────────────┘│
+│  Asegúrate de subir el CSV de estudiantes exportado desde      │
+│  Technovation Global (People > Students > Export).              │
 │                                                                 │
-│  Listado de Inscripciones                    [🔍 Buscar...   ] │
-│  ──────────────────────────────────────────────────────────────│
-│  │ Nombre        │ Tipo Entrada │ Acomp. │ Estado  │ Fecha    ││
-│  ├───────────────┼──────────────┼────────┼─────────┼──────────┤│
-│  │ Lucía Martín. │ Participante │  +2    │ ✓ Conf. │ 26/01/26 ││
-│  │ Elena Rodríg. │ Participante │  +1    │ ✓ Conf. │ 26/01/26 ││
-│  │ Carlos Pérez  │ Mentor       │   -    │ ✓ Conf. │ 25/01/26 ││
-│  │ Paula Fernán. │ Participante │  +1    │ ✓ Conf. │ 26/01/26 ││
-│  └───────────────┴──────────────┴────────┴─────────┴──────────┘│
+│                    [Subir otro archivo]                         │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────┐
+│  ⚠️ Advertencia                                                 │
+│  ────────────────────────────────────────────────────────────── │
+│  • Este CSV no parece ser de Technovation Global.               │
 │                                                                 │
+│  Archivo detectado: "ventas_2024.csv"                           │
+│  Columnas: Producto, Cantidad, Precio, Fecha                    │
+│                                                                 │
+│           [Cancelar]        [Continuar de todos modos]          │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### 3. Modificar `AdminEventEditor.tsx`
-
-Añadir nueva pestaña después de "Emails":
+### 3. Modificar handleFileUpload
 
 ```typescript
-// Importar
-import { EventStatsView } from "@/components/admin/events/EventStatsView";
-import { BarChart3 } from "lucide-react";
+const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+  const selectedFile = e.target.files?.[0];
+  if (!selectedFile) return;
 
-// En TabsList (ahora 7 tabs)
-<TabsTrigger value="stats" className="gap-2" disabled={!isEditing}>
-  <BarChart3 className="h-4 w-4" />
-  <span className="hidden sm:inline">Estadísticas</span>
-</TabsTrigger>
-
-// TabsContent
-<TabsContent value="stats">
-  {eventId && <EventStatsView eventId={eventId} />}
-</TabsContent>
-```
-
-### 4. Columnas de la tabla de inscripciones
-
-| Columna | Descripción |
-|---------|-------------|
-| **Nombre** | `first_name` + `last_name` del registro |
-| **Tipo Entrada** | Nombre del `ticket_type` (Participante, Mentor, etc.) |
-| **Acompañantes** | Badge con +1, +2 o "-" según count de companions |
-| **Estado** | Badge: Confirmada/Cancelada/Check-in |
-| **Check-in** | Hora de check-in si aplica |
-| **Fecha registro** | Fecha de creación |
-
-### 5. Query de datos con conteo de acompañantes
-
-```typescript
-// Query principal de registros
-const { data: registrations } = useQuery({
-  queryKey: ["event-registrations-stats", eventId],
-  queryFn: async () => {
-    const { data: regs } = await supabase
-      .from("event_registrations")
-      .select(`
-        id, first_name, last_name, email, registration_status,
-        checked_in_at, created_at, registration_number,
-        ticket_type:event_ticket_types(id, name, allowed_roles)
-      `)
-      .eq("event_id", eventId)
-      .eq("is_companion", false)
-      .neq("registration_status", "cancelled")
-      .order("created_at", { ascending: false });
-
-    // Obtener conteo de acompañantes por registro
-    const { data: companions } = await supabase
-      .from("companions")
-      .select("event_registration_id")
-      .in("event_registration_id", regs?.map(r => r.id) || []);
-
-    // Mapear conteo a cada registro
-    const companionCounts = companions?.reduce((acc, c) => {
-      acc[c.event_registration_id] = (acc[c.event_registration_id] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
-
-    return regs?.map(r => ({
-      ...r,
-      companions_count: companionCounts?.[r.id] || 0
-    }));
+  // Validación de extensión
+  if (!selectedFile.name.toLowerCase().endsWith(".csv")) {
+    toast.error("Por favor, selecciona un archivo CSV");
+    return;
   }
-});
+
+  // Validación de tamaño
+  if (selectedFile.size > 10 * 1024 * 1024) {
+    toast.error("El archivo no puede superar los 10MB");
+    return;
+  }
+
+  // Validación de tipo MIME (opcional, algunos navegadores varían)
+  const validMimeTypes = ["text/csv", "text/plain", "application/vnd.ms-excel"];
+  if (selectedFile.type && !validMimeTypes.includes(selectedFile.type)) {
+    console.warn("MIME type sospechoso:", selectedFile.type);
+  }
+
+  setFile(selectedFile);
+
+  Papa.parse(selectedFile, {
+    header: true,
+    skipEmptyLines: true,
+    complete: (results) => {
+      const headers = results.meta.fields || [];
+      const data = results.data as CSVRow[];
+      
+      // NUEVA validación de estructura
+      const validation = validateCSVStructure(headers, data);
+      
+      if (!validation.isValid) {
+        setValidationErrors(validation.errors);
+        setStep("validation-error");
+        return;
+      }
+      
+      if (validation.warnings.length > 0) {
+        setValidationWarnings(validation.warnings);
+        setShowWarningDialog(true);
+      }
+      
+      setCsvHeaders(headers);
+      setCsvData(data);
+      setColumnMappings(autoDetectMappings(headers));
+      setStep("preview");
+    },
+    error: (error) => {
+      toast.error(`Error al leer el archivo: ${error.message}`);
+    },
+  });
+}, []);
 ```
 
-### 6. Funcionalidad de exportación
+## Cambios en TeamCSVImport.tsx
 
-Botón "Exportar CSV" que incluya:
-- Nombre, Email, Teléfono
-- Tipo de entrada
-- Número de acompañantes
-- Estado de registro
-- Check-in (sí/no y hora)
+### Añadir validaciones similares
 
-## Archivos a Crear/Modificar
+```typescript
+// Añadir límite de tamaño
+if (file.size > 5 * 1024 * 1024) {
+  toast.error("El archivo no puede superar los 5MB");
+  return;
+}
 
-| Archivo | Acción | Descripción |
-|---------|--------|-------------|
-| `src/components/admin/events/EventStatsView.tsx` | **Crear** | Nuevo componente con métricas y tabla |
-| `src/pages/admin/AdminEventEditor.tsx` | **Modificar** | Añadir pestaña "Estadísticas" |
+// Añadir límite de filas
+if (rows.length > 1000) {
+  toast.error(`El archivo tiene ${rows.length} equipos. El máximo permitido es 1000.`);
+  return;
+}
 
-## Componentes Reutilizados
+// Validar formato de Team ID (debe ser numérico o alfanumérico específico)
+const invalidTeamIds = rows.filter(r => 
+  !r["Team ID"] || !/^[A-Za-z0-9-]+$/.test(r["Team ID"])
+);
+if (invalidTeamIds.length > 0) {
+  toast.error(`${invalidTeamIds.length} filas tienen Team ID inválido`);
+  return;
+}
+```
 
-- `MetricCard` - Para las 4 tarjetas de métricas
-- `DataTable` - Para el listado de inscripciones
-- `Badge` - Para estados y contador de acompañantes
+## Nuevo estado para errores de validación
 
-## Iconos a Usar (lucide-react)
+```typescript
+// Nuevos estados
+const [validationErrors, setValidationErrors] = useState<string[]>([]);
+const [validationWarnings, setValidationWarnings] = useState<string[]>([]);
+const [showWarningDialog, setShowWarningDialog] = useState(false);
 
-- `Users` - Participantes
-- `UserPlus` - Acompañantes  
-- `GraduationCap` - Mentores
-- `Ticket` - Entradas restantes
-- `BarChart3` - Pestaña de estadísticas
+// Nuevo paso
+type ImportStep = "upload" | "validation-error" | "preview" | "processing" | "results";
+```
+
+## Resumen de Archivos a Modificar
+
+| Archivo | Cambios |
+|---------|---------|
+| `src/pages/admin/AdminImportCSV.tsx` | Añadir validación de estructura, UI de errores, límites de filas |
+| `src/components/admin/TeamCSVImport.tsx` | Añadir límite de tamaño, límite de filas, validación de Team ID |
+
+## Beneficios
+
+1. **Prevención**: Detecta archivos incorrectos antes de intentar procesarlos
+2. **Claridad**: Mensajes de error específicos que explican qué está mal
+3. **Seguridad**: Limita tamaño y número de filas para evitar sobrecarga
+4. **UX**: Permite al usuario corregir el error sin perder tiempo
+
