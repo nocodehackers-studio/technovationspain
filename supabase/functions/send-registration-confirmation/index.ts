@@ -150,6 +150,15 @@ const handler = async (req: Request): Promise<Response> => {
     const event = registration.event;
     const ticketType = registration.ticket_type;
 
+    // Fetch companions for this registration
+    const { data: companions } = await supabase
+      .from("companions")
+      .select("*")
+      .eq("event_registration_id", registrationId)
+      .order("created_at");
+
+    console.log("Found companions:", companions?.length || 0);
+
     // Fetch custom email template if exists
     const { data: customTemplate } = await supabase
       .from("event_email_templates")
@@ -222,6 +231,89 @@ const handler = async (req: Request): Promise<Response> => {
     const qrImageUrl = publicUrlData?.publicUrl || "";
     console.log("QR image URL:", qrImageUrl);
 
+    // Generate and upload companion QR codes
+    interface CompanionWithQR {
+      first_name: string;
+      last_name: string;
+      relationship: string;
+      qr_code: string;
+      qr_image_url: string;
+    }
+
+    const companionQRs: CompanionWithQR[] = [];
+
+    if (companions && companions.length > 0) {
+      console.log("Generating companion QR codes...");
+      
+      for (const companion of companions) {
+        const companionValidateUrl = `https://technovationspain.lovable.app/validate/${companion.qr_code}`;
+        const companionQrBuffer = await generateQRCode(companionValidateUrl);
+        const companionQrFileName = `qr-codes/${companion.qr_code}.png`;
+        
+        await supabase.storage
+          .from("Assets")
+          .upload(companionQrFileName, companionQrBuffer, {
+            contentType: "image/png",
+            upsert: true,
+          });
+        
+        const { data: companionUrlData } = supabase.storage
+          .from("Assets")
+          .getPublicUrl(companionQrFileName);
+        
+        companionQRs.push({
+          first_name: companion.first_name,
+          last_name: companion.last_name,
+          relationship: companion.relationship || "",
+          qr_code: companion.qr_code,
+          qr_image_url: companionUrlData?.publicUrl || "",
+        });
+      }
+      
+      console.log("Generated", companionQRs.length, "companion QR codes");
+    }
+
+    // Relationship labels for Spanish display
+    const relationshipLabels: Record<string, string> = {
+      mother: "Madre",
+      father: "Padre",
+      guardian: "Tutor/a legal",
+      grandparent: "Abuelo/a",
+      sibling: "Hermano/a mayor",
+      other: "Otro familiar",
+    };
+
+    // Generate companions HTML section
+    let companionsHtml = "";
+    if (companionQRs.length > 0) {
+      const companionCards = companionQRs.map((c) => `
+        <div style="display: inline-block; width: 48%; min-width: 200px; vertical-align: top; margin: 10px 1%; text-align: center; background-color: #f9fafb; border-radius: 8px; padding: 20px;">
+          <p style="color: #6b7280; font-size: 12px; margin: 0 0 5px 0; text-transform: uppercase;">Acompañante</p>
+          <p style="font-weight: 600; color: #1f2937; margin: 0 0 5px 0;">${c.first_name} ${c.last_name}</p>
+          <p style="color: #6b7280; font-size: 13px; margin: 0 0 15px 0;">${relationshipLabels[c.relationship] || c.relationship}</p>
+          <img src="${c.qr_image_url}" alt="QR ${c.first_name}" style="width: 140px; height: 140px; display: block; margin: 0 auto;" />
+          <p style="color: #7c3aed; font-size: 12px; font-family: monospace; margin: 10px 0 0 0;">${c.qr_code}</p>
+        </div>
+      `).join("");
+
+      companionsHtml = `
+        <!-- Companion QR Codes Section -->
+        <div style="margin-top: 30px; padding-top: 30px; border-top: 1px solid #e5e7eb;">
+          <h3 style="color: #1f2937; font-size: 18px; text-align: center; margin: 0 0 20px 0;">
+            🎫 Entradas de Acompañantes (${companionQRs.length})
+          </h3>
+          <div style="text-align: center;">
+            ${companionCards}
+          </div>
+        </div>
+      `;
+    }
+
+    // Dynamic important note based on companions
+    const importantNoteText = companionQRs.length > 0
+      ? `<strong>⚠️ Importante:</strong> Cada persona debe presentar su propio código QR en la entrada del evento. Los acompañantes también necesitan mostrar sus entradas individuales.`
+      : `<strong>⚠️ Importante:</strong> Presenta el código QR de tu entrada en la entrada del evento para acceder. Puedes mostrarlo desde tu móvil o imprimirlo.`;
+
     // Convert plain text body to HTML with line breaks
     const emailBodyHtml = emailBodyText
       .split("\n")
@@ -282,12 +374,14 @@ const handler = async (req: Request): Promise<Response> => {
                       </tr>
                     </table>
                     
+                    ${companionsHtml}
+                    
                     <!-- Important Note -->
                     <table width="100%" style="background-color: #fef3c7; border-radius: 8px; padding: 16px; margin-top: 20px;">
                       <tr>
                         <td>
                           <p style="color: #92400e; font-size: 14px; margin: 0; line-height: 1.5;">
-                            <strong>⚠️ Importante:</strong> Presenta el código QR de tu entrada en la entrada del evento para acceder. Puedes mostrarlo desde tu móvil o imprimirlo.
+                            ${importantNoteText}
                           </p>
                         </td>
                       </tr>
