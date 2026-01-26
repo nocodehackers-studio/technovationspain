@@ -1,18 +1,45 @@
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useState } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { ArrowLeft, Calendar, MapPin, Download, CalendarPlus } from 'lucide-react';
-import { useRegistration } from '@/hooks/useEventRegistration';
+import { ArrowLeft, Calendar, MapPin, Download, CalendarPlus, XCircle } from 'lucide-react';
+import { useRegistration, useCancelRegistration } from '@/hooks/useEventRegistration';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { QRTicket } from '@/components/events/QRTicket';
 import { RegistrationStatusBadge } from '@/components/events/RegistrationStatusBadge';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 
 export default function TicketDetailPage() {
   const { registrationId } = useParams<{ registrationId: string }>();
   const navigate = useNavigate();
   const { data: registration, isLoading, error } = useRegistration(registrationId || '');
+  const cancelMutation = useCancelRegistration();
+  const [showCancelDialog, setShowCancelDialog] = useState(false);
+  
+  const handleCancel = async () => {
+    if (!registrationId) return;
+    
+    try {
+      await cancelMutation.mutateAsync(registrationId);
+      setShowCancelDialog(false);
+    } catch (err) {
+      console.error('Error cancelling registration:', err);
+    }
+  };
+  
+  const isCancelled = registration?.registration_status === 'cancelled';
   
   if (isLoading) {
     return (
@@ -158,17 +185,55 @@ export default function TicketDetailPage() {
           </CardContent>
           
           {/* Actions */}
-          <div className="border-t p-4 flex gap-3">
-            <Button variant="outline" className="flex-1 gap-2" disabled>
-              <Download className="h-4 w-4" />
-              Descargar PDF
-            </Button>
-            <Button variant="outline" className="flex-1 gap-2" asChild>
-              <a href={generateCalendarUrl()} target="_blank" rel="noopener noreferrer">
-                <CalendarPlus className="h-4 w-4" />
-                Añadir al calendario
-              </a>
-            </Button>
+          <div className="border-t p-4 space-y-3">
+            <div className="flex gap-3">
+              <Button variant="outline" className="flex-1 gap-2" disabled>
+                <Download className="h-4 w-4" />
+                Descargar PDF
+              </Button>
+              <Button variant="outline" className="flex-1 gap-2" asChild>
+                <a href={generateCalendarUrl()} target="_blank" rel="noopener noreferrer">
+                  <CalendarPlus className="h-4 w-4" />
+                  Añadir al calendario
+                </a>
+              </Button>
+            </div>
+            
+            {!isCancelled && (
+              <AlertDialog open={showCancelDialog} onOpenChange={setShowCancelDialog}>
+                <AlertDialogTrigger asChild>
+                  <Button variant="destructive" className="w-full gap-2">
+                    <XCircle className="h-4 w-4" />
+                    Cancelar entrada
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>¿Cancelar tu entrada?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Esta acción cancelará tu inscripción al evento "{event?.name}". 
+                      Se liberará tu plaza y podrás volver a inscribirte si hay disponibilidad.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>No, mantener entrada</AlertDialogCancel>
+                    <AlertDialogAction 
+                      onClick={handleCancel}
+                      disabled={cancelMutation.isPending}
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    >
+                      {cancelMutation.isPending ? 'Cancelando...' : 'Sí, cancelar entrada'}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
+            
+            {cancelMutation.isError && (
+              <p className="text-sm text-destructive text-center">
+                {(cancelMutation.error as Error)?.message || 'Error al cancelar la entrada'}
+              </p>
+            )}
           </div>
         </Card>
       </div>
