@@ -50,7 +50,7 @@ type RegistrationFormValues = z.infer<typeof registrationSchema>;
 export default function EventRegistrationPage() {
   const { eventId } = useParams<{ eventId: string }>();
   const navigate = useNavigate();
-  const { profile } = useAuth();
+  const { profile, role } = useAuth();
   const [step, setStep] = useState(1);
   const [companions, setCompanions] = useState<CompanionData[]>([]);
   
@@ -187,7 +187,19 @@ export default function EventRegistrationPage() {
     );
   }
   
-  const ticketTypes = event.ticket_types?.filter(t => t.is_active) || [];
+  const ticketTypes = event.ticket_types?.filter(t => {
+    // Debe estar activo
+    if (!t.is_active) return false;
+    
+    // Si no tiene roles configurados, visible para todos
+    if (!t.allowed_roles || t.allowed_roles.length === 0) return true;
+    
+    // Si el usuario tiene rol, verificar que esté en la lista permitida
+    if (role && t.allowed_roles.includes(role)) return true;
+    
+    // Si no hay rol o no está permitido, ocultar
+    return false;
+  }) || [];
   
   const handleNext = async () => {
     if (step === 1) {
