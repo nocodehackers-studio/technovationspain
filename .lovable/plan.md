@@ -1,339 +1,319 @@
 
-# Plan: Exportación CSV de Datos en Bruto
 
-## Resumen
-
-Añadir una nueva pestaña "Exportar" en la página de Reportes que permita a los administradores descargar datos completos de las principales tablas de la base de datos en formato CSV.
-
----
-
-## Cambios a Realizar
-
-### Archivo a Modificar
-
-| Archivo | Cambio |
-|---------|--------|
-| `src/pages/admin/AdminReports.tsx` | Añadir pestaña "Exportar" con botones de descarga |
-
----
-
-## Implementación
-
-### 1. Añadir nueva pestaña en el TabsList
-
-```tsx
-<TabsTrigger value="export" className="gap-2">
-  <Download className="h-4 w-4" />
-  <span className="hidden sm:inline">Exportar</span>
-</TabsTrigger>
-```
-
-### 2. Mejorar función exportToCSV
-
-La función actual tiene un problema: no escapa correctamente valores que contienen comas o comillas. Se mejorará para manejar estos casos:
-
-```typescript
-const exportToCSV = (data: any[], filename: string) => {
-  if (!data || data.length === 0) {
-    toast.error("No hay datos para exportar");
-    return;
-  }
-
-  const headers = Object.keys(data[0]);
-  const csvRows = [
-    headers.join(","),
-    ...data.map((row) =>
-      headers
-        .map((h) => {
-          const val = row[h];
-          if (val === null || val === undefined) return "";
-          const strVal = typeof val === "object" ? JSON.stringify(val) : String(val);
-          // Escape values with commas, quotes, or newlines
-          if (strVal.includes(",") || strVal.includes('"') || strVal.includes("\n")) {
-            return `"${strVal.replace(/"/g, '""')}"`;
-          }
-          return strVal;
-        })
-        .join(",")
-    ),
-  ];
-
-  const blob = new Blob(["\ufeff" + csvRows.join("\n")], {
-    type: "text/csv;charset=utf-8;",
-  });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `${filename}_${new Date().toISOString().split("T")[0]}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
-
-  toast.success(`${filename} exportado correctamente`);
-};
-```
-
-### 3. Crear función genérica para exportar tablas
-
-```typescript
-const exportTable = async (
-  tableName: string,
-  displayName: string,
-  selectQuery?: string
-) => {
-  toast.loading(`Exportando ${displayName}...`, { id: "export" });
-
-  const { data, error } = await supabase
-    .from(tableName)
-    .select(selectQuery || "*");
-
-  toast.dismiss("export");
-
-  if (error) {
-    toast.error(`Error al exportar: ${error.message}`);
-    return;
-  }
-
-  exportToCSV(data || [], displayName);
-};
-```
-
-### 4. Crear función para exportar registros de evento
-
-```typescript
-const exportEventRegistrations = async () => {
-  if (!selectedEventId) {
-    toast.error("Selecciona un evento primero");
-    return;
-  }
-
-  toast.loading("Exportando registros del evento...", { id: "export" });
-
-  const { data, error } = await supabase
-    .from("event_registrations")
-    .select(`
-      registration_number,
-      first_name,
-      last_name,
-      email,
-      phone,
-      team_name,
-      team_id_tg,
-      tg_email,
-      registration_status,
-      checked_in_at,
-      image_consent,
-      data_consent,
-      created_at,
-      ticket_type:event_ticket_types(name)
-    `)
-    .eq("event_id", selectedEventId);
-
-  toast.dismiss("export");
-
-  if (error) {
-    toast.error(`Error al exportar: ${error.message}`);
-    return;
-  }
-
-  // Flatten nested ticket_type
-  const flatData = data?.map((r) => ({
-    ...r,
-    ticket_type: r.ticket_type?.name || "",
-  }));
-
-  const eventName = events?.find((e) => e.id === selectedEventId)?.name || "evento";
-  exportToCSV(flatData || [], `registros_${eventName.replace(/\s+/g, "_")}`);
-};
-```
-
-### 5. Añadir contenido de la pestaña Exportar
-
-```tsx
-<TabsContent value="export" className="space-y-4">
-  <Card>
-    <CardHeader>
-      <CardTitle>Exportar Datos en Bruto</CardTitle>
-      <CardDescription>
-        Descarga los datos completos de la plataforma en formato CSV
-      </CardDescription>
-    </CardHeader>
-    <CardContent className="space-y-6">
-      {/* Usuarios */}
-      <div className="space-y-2">
-        <h3 className="font-medium">Usuarios</h3>
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          <Button
-            variant="outline"
-            onClick={() => exportTable("profiles", "usuarios")}
-          >
-            <Download className="mr-2 h-4 w-4" />
-            Perfiles (profiles)
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => exportTable("user_roles", "roles_usuario")}
-          >
-            <Download className="mr-2 h-4 w-4" />
-            Roles de Usuario
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => exportTable("authorized_students", "estudiantes_autorizados")}
-          >
-            <Download className="mr-2 h-4 w-4" />
-            Estudiantes Autorizados
-          </Button>
-        </div>
-      </div>
-
-      {/* Equipos */}
-      <div className="space-y-2">
-        <h3 className="font-medium">Equipos</h3>
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          <Button
-            variant="outline"
-            onClick={() => exportTable("teams", "equipos")}
-          >
-            <Download className="mr-2 h-4 w-4" />
-            Equipos (teams)
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => exportTable("team_members", "miembros_equipo")}
-          >
-            <Download className="mr-2 h-4 w-4" />
-            Miembros de Equipo
-          </Button>
-        </div>
-      </div>
-
-      {/* Eventos */}
-      <div className="space-y-2">
-        <h3 className="font-medium">Eventos</h3>
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          <Button
-            variant="outline"
-            onClick={() => exportTable("events", "eventos")}
-          >
-            <Download className="mr-2 h-4 w-4" />
-            Eventos
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => exportTable("event_registrations", "todos_registros_eventos")}
-          >
-            <Download className="mr-2 h-4 w-4" />
-            Todos los Registros
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => exportTable("companions", "acompanantes")}
-          >
-            <Download className="mr-2 h-4 w-4" />
-            Acompañantes
-          </Button>
-        </div>
-      </div>
-
-      {/* Evento específico */}
-      <div className="space-y-2">
-        <h3 className="font-medium">Registros por Evento</h3>
-        <div className="flex flex-col sm:flex-row gap-2">
-          <Select value={selectedEventId} onValueChange={setSelectedEventId}>
-            <SelectTrigger className="w-full sm:w-[300px]">
-              <SelectValue placeholder="Seleccionar evento" />
-            </SelectTrigger>
-            <SelectContent>
-              {events?.map((event) => (
-                <SelectItem key={event.id} value={event.id}>
-                  {event.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button
-            variant="default"
-            onClick={exportEventRegistrations}
-            disabled={!selectedEventId}
-          >
-            <Download className="mr-2 h-4 w-4" />
-            Exportar Registros
-          </Button>
-        </div>
-      </div>
-
-      {/* Otros */}
-      <div className="space-y-2">
-        <h3 className="font-medium">Otros</h3>
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          <Button
-            variant="outline"
-            onClick={() => exportTable("hubs", "hubs")}
-          >
-            <Download className="mr-2 h-4 w-4" />
-            Hubs
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => exportTable("audit_logs", "logs_auditoria")}
-          >
-            <Download className="mr-2 h-4 w-4" />
-            Logs de Auditoría
-          </Button>
-        </div>
-      </div>
-    </CardContent>
-  </Card>
-</TabsContent>
-```
-
----
-
-## Tablas Disponibles para Exportar
-
-| Tabla | Descripción |
-|-------|-------------|
-| `profiles` | Datos de todos los usuarios |
-| `user_roles` | Roles asignados a cada usuario |
-| `authorized_students` | Whitelist de estudiantes autorizados |
-| `teams` | Equipos registrados |
-| `team_members` | Miembros de cada equipo |
-| `events` | Lista de eventos |
-| `event_registrations` | Registros a eventos (todos) |
-| `companions` | Acompañantes de registros |
-| `hubs` | Hubs/sedes |
-| `audit_logs` | Logs de auditoría |
-
----
-
-## Características de la Exportación
-
-1. **Formato CSV con BOM UTF-8**: Incluye marca de orden de bytes para compatibilidad con Excel en español
-2. **Escape de caracteres especiales**: Maneja comas, comillas y saltos de línea correctamente
-3. **Fecha en nombre de archivo**: Añade fecha actual al nombre del archivo descargado
-4. **Objetos JSON**: Serializa campos JSONB (como `custom_fields`) como strings
-5. **Toast de progreso**: Muestra indicador mientras se descarga
-
----
-
-## Flujo de Usuario
-
-```text
-1. Admin navega a Reportes
-2. Selecciona la pestaña "Exportar"
-3. Ve las categorías de datos disponibles
-4. Hace clic en el botón de la tabla deseada
-5. Se muestra toast de carga
-6. Se descarga el archivo CSV automáticamente
-7. Toast de éxito confirma la descarga
-```
-
----
+# Plan: Mejoras en el Editor de Eventos
 
 ## Resumen de Cambios
 
+| Cambio | Descripción | Complejidad |
+|--------|-------------|-------------|
+| 1. Tipo de evento | Añadir "Taller presencial" como opción | Baja |
+| 2. Subida de imagen | Permitir upload al bucket "Assets" existente | Media |
+| 3. Fechas con hora | Cambiar inputs date a datetime-local | Media |
+| 4. Validación horarios | Verificar hora inicio < hora fin | Baja |
+
+---
+
+## 1. Añadir Tipo de Evento "Taller Presencial"
+
+### Archivos a modificar
+
+| Archivo | Cambio |
+|---------|--------|
+| `src/types/database.ts` | Añadir `'workshop'` al tipo `EventType` |
+| `src/components/admin/events/EventBasicInfoForm.tsx` | Añadir opción en el Select |
+
+### Implementación
+
+```typescript
+// src/types/database.ts - línea 10
+export type EventType = 'intermediate' | 'regional_final' | 'workshop';
+```
+
+```tsx
+// EventBasicInfoForm.tsx - dentro del SelectContent
+<SelectItem value="intermediate">Evento Intermedio</SelectItem>
+<SelectItem value="regional_final">Final Regional</SelectItem>
+<SelectItem value="workshop">Taller Presencial</SelectItem>
+```
+
+---
+
+## 2. Subida de Imagen de Portada
+
+### Contexto
+Ya existe un bucket público llamado **"Assets"** en Supabase Storage. Se modificará el formulario para permitir:
+- Subir una imagen directamente
+- O pegar una URL manualmente
+
+### Archivo a modificar
+
+| Archivo | Cambio |
+|---------|--------|
+| `src/components/admin/events/EventBasicInfoForm.tsx` | Añadir input de archivo + lógica de upload |
+
+### Implementación
+
+```tsx
+// Añadir imports
+import { useState } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
+import { Upload, Link } from "lucide-react";
+import { Button } from "@/components/ui/button";
+
+// Dentro del componente, añadir estado
+const [uploading, setUploading] = useState(false);
+
+// Función de upload
+const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+
+  // Validar tipo y tamaño
+  if (!file.type.startsWith('image/')) {
+    toast.error('Por favor selecciona un archivo de imagen');
+    return;
+  }
+  if (file.size > 5 * 1024 * 1024) { // 5MB
+    toast.error('La imagen no puede superar los 5MB');
+    return;
+  }
+
+  setUploading(true);
+  const fileName = `events/${Date.now()}-${file.name.replace(/\s+/g, '-')}`;
+
+  const { error } = await supabase.storage
+    .from('Assets')
+    .upload(fileName, file, { upsert: true });
+
+  if (error) {
+    toast.error('Error al subir la imagen');
+    setUploading(false);
+    return;
+  }
+
+  const { data: { publicUrl } } = supabase.storage
+    .from('Assets')
+    .getPublicUrl(fileName);
+
+  onUpdate('image_url', publicUrl);
+  setUploading(false);
+  toast.success('Imagen subida correctamente');
+};
+```
+
+### UI del componente
+
+```tsx
+<div className="space-y-2">
+  <Label>Imagen de portada</Label>
+  <div className="flex flex-col gap-3">
+    {/* Opción 1: Subir archivo */}
+    <div className="flex items-center gap-2">
+      <Button
+        type="button"
+        variant="outline"
+        disabled={uploading}
+        onClick={() => document.getElementById('image-upload')?.click()}
+      >
+        <Upload className="h-4 w-4 mr-2" />
+        {uploading ? 'Subiendo...' : 'Subir imagen'}
+      </Button>
+      <input
+        id="image-upload"
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleImageUpload}
+      />
+    </div>
+    
+    {/* Opción 2: Pegar URL */}
+    <div className="flex items-center gap-2">
+      <Link className="h-4 w-4 text-muted-foreground" />
+      <Input
+        type="url"
+        value={imageUrl}
+        onChange={(e) => onUpdate("image_url", e.target.value)}
+        placeholder="O pega una URL de imagen"
+        className="flex-1"
+      />
+    </div>
+  </div>
+  
+  {/* Preview */}
+  {imageUrl && (
+    <div className="mt-3 relative">
+      <img
+        src={imageUrl}
+        alt="Preview"
+        className="w-full max-w-md h-48 object-cover rounded-lg border"
+        onError={(e) => {
+          (e.target as HTMLImageElement).style.display = 'none';
+        }}
+      />
+      <Button
+        type="button"
+        variant="destructive"
+        size="sm"
+        className="absolute top-2 right-2"
+        onClick={() => onUpdate("image_url", "")}
+      >
+        Eliminar
+      </Button>
+    </div>
+  )}
+</div>
+```
+
+---
+
+## 3. Fechas de Registro con Hora
+
+### Problema actual
+Las columnas `registration_open_date` y `registration_close_date` son tipo `DATE` en la base de datos, sin componente de hora.
+
+### Solución
+
+#### Paso 1: Migración de base de datos
+
+```sql
+-- Convertir a timestamp with time zone
+ALTER TABLE events 
+  ALTER COLUMN registration_open_date TYPE timestamp with time zone 
+    USING registration_open_date::timestamp with time zone,
+  ALTER COLUMN registration_close_date TYPE timestamp with time zone 
+    USING registration_close_date::timestamp with time zone;
+```
+
+#### Paso 2: Actualizar formulario
+
+| Archivo | Cambio |
+|---------|--------|
+| `src/components/admin/events/EventLocationForm.tsx` | Cambiar inputs de `date` a `datetime-local` |
+| `src/pages/admin/AdminEventEditor.tsx` | Formatear correctamente los valores al cargar/guardar |
+
+```tsx
+// EventLocationForm.tsx - líneas 119-136
+<div className="grid gap-4 md:grid-cols-2">
+  <div className="space-y-2">
+    <Label htmlFor="registration_open_date">Apertura de registro</Label>
+    <Input
+      id="registration_open_date"
+      type="datetime-local"
+      value={registrationOpenDate}
+      onChange={(e) => onUpdate("registration_open_date", e.target.value)}
+    />
+  </div>
+  <div className="space-y-2">
+    <Label htmlFor="registration_close_date">Cierre de registro</Label>
+    <Input
+      id="registration_close_date"
+      type="datetime-local"
+      value={registrationCloseDate}
+      onChange={(e) => onUpdate("registration_close_date", e.target.value)}
+    />
+  </div>
+</div>
+```
+
+#### Paso 3: Formateo en AdminEventEditor
+
+Al cargar datos del evento, formatear timestamps ISO a formato datetime-local:
+
+```typescript
+// Función helper
+const formatDateTimeLocal = (isoString: string | null): string => {
+  if (!isoString) return "";
+  const date = new Date(isoString);
+  return date.toISOString().slice(0, 16); // "YYYY-MM-DDTHH:mm"
+};
+
+// En useEffect al cargar evento
+registration_open_date: formatDateTimeLocal(event.registration_open_date),
+registration_close_date: formatDateTimeLocal(event.registration_close_date),
+```
+
+---
+
+## 4. Validación Hora Inicio < Hora Fin
+
+### Archivo a modificar
+
+| Archivo | Cambio |
+|---------|--------|
+| `src/pages/admin/AdminEventEditor.tsx` | Añadir validación en `handleSave` |
+
+### Implementación
+
+```typescript
+// En handleSave, después de validar fecha (línea 212)
+const handleSave = () => {
+  if (!formData.name) {
+    toast.error("El nombre del evento es obligatorio");
+    setActiveTab("basic");
+    return;
+  }
+  if (!formData.date) {
+    toast.error("La fecha del evento es obligatoria");
+    setActiveTab("location");
+    return;
+  }
+
+  // NUEVA VALIDACIÓN: hora inicio < hora fin
+  if (formData.start_time && formData.end_time) {
+    if (formData.start_time >= formData.end_time) {
+      toast.error("La hora de inicio debe ser anterior a la hora de fin");
+      setActiveTab("location");
+      return;
+    }
+  }
+
+  // También validar fechas de registro
+  if (formData.registration_open_date && formData.registration_close_date) {
+    if (formData.registration_open_date >= formData.registration_close_date) {
+      toast.error("La fecha de apertura de registro debe ser anterior al cierre");
+      setActiveTab("location");
+      return;
+    }
+  }
+
+  if (isEditing) {
+    updateMutation.mutate(formData);
+  } else {
+    createMutation.mutate(formData);
+  }
+};
+```
+
+---
+
+## Resumen de Archivos a Modificar
+
 | Archivo | Cambios |
 |---------|---------|
-| `src/pages/admin/AdminReports.tsx` | Nueva pestaña "Exportar", función `exportTable` mejorada, `exportEventRegistrations` para evento específico |
+| `src/types/database.ts` | Añadir `'workshop'` a EventType |
+| `src/components/admin/events/EventBasicInfoForm.tsx` | Nueva opción tipo + upload de imagen |
+| `src/components/admin/events/EventLocationForm.tsx` | Inputs datetime-local |
+| `src/pages/admin/AdminEventEditor.tsx` | Formateo timestamps + validaciones |
 
-No se requieren cambios en la base de datos.
+### Migración de Base de Datos
+
+```sql
+ALTER TABLE events 
+  ALTER COLUMN registration_open_date TYPE timestamp with time zone 
+    USING registration_open_date::timestamp with time zone,
+  ALTER COLUMN registration_close_date TYPE timestamp with time zone 
+    USING registration_close_date::timestamp with time zone;
+```
+
+---
+
+## Orden de Implementación
+
+1. Migración de base de datos (fechas a timestamp)
+2. Tipo de evento "Taller presencial" (cambio sencillo)
+3. Validación hora inicio < hora fin 
+4. Subida de imagen de portada
+5. Inputs datetime-local para fechas de registro
+
