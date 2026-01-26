@@ -1,76 +1,169 @@
 
-
-# Plan: Corregir Sistema de Cancelación de Entradas
+# Plan: Incluir QR de Acompañantes en Email de Confirmación
 
 ## Resumen
 
-Implementar la Opción A para permitir re-inscripción después de cancelar una entrada, eliminando la constraint de base de datos que lo impide y filtrando las entradas canceladas del dashboard.
+Modificar la Edge Function `send-registration-confirmation` para que, si el registro tiene acompañantes, incluya sus códigos QR en el email de confirmación.
 
-## Cambios
+## Análisis de Datos
 
-### 1. Migración SQL: Eliminar Constraint Única
+Los acompañantes se almacenan en la tabla `companions`:
+- `event_registration_id` → ID del registro principal
+- `first_name`, `last_name` → Nombre del acompañante
+- `relationship` → Relación (mother, father, guardian, etc.)
+- `qr_code` → Código QR único ya generado (ej: `TGM-2026-RJT50XB5`)
 
-Crear migración para eliminar la constraint `event_registrations_event_id_user_id_key`:
+## Cambios en la Edge Function
 
-```sql
--- Eliminar la constraint que impide re-inscripción tras cancelar
-ALTER TABLE public.event_registrations 
-DROP CONSTRAINT IF EXISTS event_registrations_event_id_user_id_key;
+### Archivo: `supabase/functions/send-registration-confirmation/index.ts`
 
--- Crear índice parcial para optimizar búsquedas de registros activos
-CREATE INDEX IF NOT EXISTS idx_event_registrations_active 
-ON public.event_registrations (event_id, user_id) 
-WHERE registration_status != 'cancelled';
-```
-
-### 2. Dashboard: Filtrar Entradas Canceladas
-
-**Archivo:** `src/pages/ParticipantDashboard.tsx`
-
-Añadir filtro `.neq('registration_status', 'cancelled')` a las queries de registros:
+#### 1. Añadir Query de Acompañantes (después de línea ~148)
 
 ```typescript
-// Query principal (líneas 53-62)
-const { data: mainRegistrations, error: mainError } = await supabase
-  .from('event_registrations')
-  .select(`
-    *,
-    event:events(*),
-    ticket_type:event_ticket_types(*)
-  `)
-  .eq('user_id', user.id)
-  .eq('is_companion', false)
-  .neq('registration_status', 'cancelled')  // ← Nuevo filtro
-  .order('created_at', { ascending: false });
+// Fetch companions for this registration
+const { data: companions } = await supabase
+  .from("companions")
+  .select("*")
+  .eq("event_registration_id", registrationId)
+  .order("created_at");
 
-// Query de acompañantes (líneas 69-78)
-const { data: companionRegistrations, error: compError } = await supabase
-  .from('event_registrations')
-  .select(`
-    *,
-    event:events(*),
-    ticket_type:event_ticket_types(*)
-  `)
-  .in('companion_of_registration_id', mainIds)
-  .eq('is_companion', true)
-  .neq('registration_status', 'cancelled')  // ← Nuevo filtro
-  .order('created_at', { ascending: false });
+console.log("Found companions:", companions?.length || 0);
 ```
 
-## Flujo Final
+#### 2. Generar QRs de Acompañantes (después de línea ~223)
+
+```typescript
+// Generate and upload companion QR codes
+interface CompanionWithQR {
+  first_name: string;
+  last_name: string;
+  relationship: string;
+  qr_code: string;
+  qr_image_url: string;
+}
+
+const companionQRs: CompanionWithQR[] = [];
+
+if (companions && companions.length > 0) {
+  console.log("Generating companion QR codes...");
+  
+  for (const companion of companions) {
+    const companionValidateUrl = `https://technovationspain.lovable.app/validate/${companion.qr_code}`;
+    const companionQrBuffer = await generateQRCode(companionValidateUrl);
+    const companionQrFileName = `qr-codes/${companion.qr_code}.png`;
+    
+    await supabase.storage
+      .from("Assets")
+      .upload(companionQrFileName, companionQrBuffer, {
+        contentType: "image/png",
+        upsert: true,
+      });
+    
+    const { data: companionUrlData } = supabase.storage
+      .from("Assets")
+      .getPublicUrl(companionQrFileName);
+    
+    companionQRs.push({
+      first_name: companion.first_name,
+      last_name: companion.last_name,
+      relationship: companion.relationship || "",
+      qr_code: companion.qr_code,
+      qr_image_url: companionUrlData?.publicUrl || "",
+    });
+  }
+  
+  console.log("Generated", companionQRs.length, "companion QR codes");
+}
+```
+
+#### 3. Generar HTML de Sección Acompañantes
+
+```typescript
+// Relationship labels
+const relationshipLabels: Record<string, string> = {
+  mother: "Madre",
+  father: "Padre",
+  guardian: "Tutor/a legal",
+  grandparent: "Abuelo/a",
+  sibling: "Hermano/a mayor",
+  other: "Otro familiar",
+};
+
+// Generate companions HTML section
+let companionsHtml = "";
+if (companionQRs.length > 0) {
+  const companionCards = companionQRs.map((c) => `
+    <div style="display: inline-block; width: 48%; min-width: 200px; vertical-align: top; margin: 10px 1%; text-align: center; background-color: #f9fafb; border-radius: 8px; padding: 20px;">
+      <p style="color: #6b7280; font-size: 12px; margin: 0 0 5px 0; text-transform: uppercase;">Acompañante</p>
+      <p style="font-weight: 600; color: #1f2937; margin: 0 0 5px 0;">${c.first_name} ${c.last_name}</p>
+      <p style="color: #6b7280; font-size: 13px; margin: 0 0 15px 0;">${relationshipLabels[c.relationship] || c.relationship}</p>
+      <img src="${c.qr_image_url}" alt="QR ${c.first_name}" style="width: 140px; height: 140px; display: block; margin: 0 auto;" />
+      <p style="color: #7c3aed; font-size: 12px; font-family: monospace; margin: 10px 0 0 0;">${c.qr_code}</p>
+    </div>
+  `).join("");
+
+  companionsHtml = `
+    <!-- Companion QR Codes Section -->
+    <div style="margin-top: 30px; padding-top: 30px; border-top: 1px solid #e5e7eb;">
+      <h3 style="color: #1f2937; font-size: 18px; text-align: center; margin: 0 0 20px 0;">
+        🎫 Entradas de Acompañantes (${companionQRs.length})
+      </h3>
+      <div style="text-align: center;">
+        ${companionCards}
+      </div>
+    </div>
+  `;
+}
+```
+
+#### 4. Insertar en el Email HTML (antes del Important Note)
+
+Añadir `${companionsHtml}` después de la sección del QR principal y antes del "Important Note".
+
+#### 5. Actualizar Mensaje de Importante
+
+Si hay acompañantes, el mensaje debe indicar que cada persona necesita su propio QR:
+
+```typescript
+const importantNote = companionQRs.length > 0
+  ? `<strong>⚠️ Importante:</strong> Cada persona debe presentar su propio código QR en la entrada del evento. Los acompañantes también necesitan mostrar sus entradas individuales.`
+  : `<strong>⚠️ Importante:</strong> Presenta el código QR de tu entrada en la entrada del evento para acceder. Puedes mostrarlo desde tu móvil o imprimirlo.`;
+```
+
+## Resultado Final del Email
 
 ```text
-1. Usuario tiene entrada confirmada
-2. Usuario cancela entrada → Estado = "cancelled"
-3. Dashboard oculta la entrada cancelada
-4. Usuario puede registrarse de nuevo → Se crea nuevo registro sin errores
-5. Los contadores de capacidad reflejan correctamente las plazas disponibles
+┌─────────────────────────────────────────┐
+│  ¡Inscripción confirmada!               │
+│  Technovation Girls España              │
+├─────────────────────────────────────────┤
+│                                         │
+│  Hola {nombre}, ...                     │
+│                                         │
+│  ┌─────────────────────┐                │
+│  │ Tu código QR:       │                │
+│  │    [QR Principal]   │                │
+│  │  TGM-2026-XXXXXX    │                │
+│  └─────────────────────┘                │
+│                                         │
+│  [Ver mi entrada]                       │
+│                                         │
+│  ── Entradas de Acompañantes (2) ──     │
+│                                         │
+│  ┌─────────┐ ┌─────────┐                │
+│  │ Padre   │ │ Madre   │                │
+│  │ [QR 1]  │ │ [QR 2]  │                │
+│  │ TGM-XXX │ │ TGM-XXX │                │
+│  └─────────┘ └─────────┘                │
+│                                         │
+│  ⚠️ Importante: Cada persona debe       │
+│  presentar su propio QR...              │
+│                                         │
+└─────────────────────────────────────────┘
 ```
 
 ## Archivos a Modificar
 
-| Archivo | Cambio |
-|---------|--------|
-| Nueva migración SQL | Eliminar constraint única + crear índice parcial |
-| `src/pages/ParticipantDashboard.tsx` | Añadir `.neq('registration_status', 'cancelled')` a las 2 queries |
-
+| Archivo | Cambios |
+|---------|---------|
+| `supabase/functions/send-registration-confirmation/index.ts` | Consultar acompañantes, generar sus QRs, añadir sección al email |
