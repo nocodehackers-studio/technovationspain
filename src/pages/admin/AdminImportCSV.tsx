@@ -24,12 +24,23 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { toast } from "sonner";
-import { Upload, FileSpreadsheet, CheckCircle2, XCircle, AlertCircle, ArrowLeft, ArrowRight, Users, UserPlus, RefreshCw } from "lucide-react";
+import { Upload, FileSpreadsheet, CheckCircle2, XCircle, AlertCircle, ArrowLeft, ArrowRight, Users, UserPlus, RefreshCw, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useAuth } from "@/hooks/useAuth";
 import { VerificationStatus } from "@/types/database";
 
-type ImportStep = "upload" | "preview" | "processing" | "results";
+type ImportStep = "upload" | "validation-error" | "preview" | "processing" | "results";
 
 interface CSVRow {
   [key: string]: string;
@@ -46,6 +57,14 @@ interface ImportResult {
   updated: number;
   skipped: number;
   errors: { row: number; reason: string; data: CSVRow }[];
+}
+
+interface CSVValidationResult {
+  isValid: boolean;
+  errors: string[];
+  warnings: string[];
+  detectedType: "technovation_students" | "unknown";
+  detectedColumns: string[];
 }
 
 // Database fields for mapping - extended for Technovation CSV
@@ -84,6 +103,87 @@ export default function AdminImportCSV() {
   });
   const [progress, setProgress] = useState(0);
   const [result, setResult] = useState<ImportResult | null>(null);
+  const [validationErrors, setValidationErrors] = useState<string[]>([]);
+  const [validationWarnings, setValidationWarnings] = useState<string[]>([]);
+  const [showWarningDialog, setShowWarningDialog] = useState(false);
+  const [pendingCsvData, setPendingCsvData] = useState<{ headers: string[]; data: CSVRow[] } | null>(null);
+
+  // Validate CSV structure before processing
+  const validateCSVStructure = (headers: string[], data: CSVRow[]): CSVValidationResult => {
+    const result: CSVValidationResult = {
+      isValid: true,
+      errors: [],
+      warnings: [],
+      detectedType: "unknown",
+      detectedColumns: headers.slice(0, 5),
+    };
+
+    // 1. Check if empty
+    if (data.length === 0) {
+      result.isValid = false;
+      result.errors.push("El archivo CSV está vacío");
+      return result;
+    }
+
+    // 2. Check for email column (required)
+    const emailPatterns = ["email", "correo", "e-mail", "mail"];
+    const hasEmailColumn = headers.some(h => 
+      emailPatterns.some(p => h.toLowerCase().includes(p))
+    );
+    
+    if (!hasEmailColumn) {
+      result.isValid = false;
+      result.errors.push("No se encontró una columna de Email. Este campo es obligatorio para la importación de estudiantes.");
+    }
+
+    // 3. Check for expected Technovation columns
+    const technovationPatterns = [
+      "participant id", "first name", "last name", "team name", 
+      "team division", "parent guardian", "school name"
+    ];
+    
+    const matchedPatterns = technovationPatterns.filter(pattern =>
+      headers.some(h => h.toLowerCase().includes(pattern))
+    );
+
+    if (matchedPatterns.length >= 3) {
+      result.detectedType = "technovation_students";
+    } else if (matchedPatterns.length === 0 && hasEmailColumn) {
+      result.warnings.push(
+        "Este CSV no parece ser un archivo de Technovation Global. " +
+        "Asegúrate de que contiene los datos de estudiantes correctos antes de continuar."
+      );
+    }
+
+    // 4. Check row count limits
+    if (data.length > 5000) {
+      result.isValid = false;
+      result.errors.push(`El archivo tiene ${data.length.toLocaleString()} filas. El máximo permitido es 5,000.`);
+    }
+
+    // 5. Sample data validation - check for empty emails
+    if (hasEmailColumn) {
+      const emailColumn = headers.find(h => 
+        emailPatterns.some(p => h.toLowerCase().includes(p))
+      );
+      
+      if (emailColumn) {
+        const sampleSize = Math.min(100, data.length);
+        const emptyEmails = data.slice(0, sampleSize).filter(row => 
+          !row[emailColumn] || row[emailColumn].trim() === ""
+        ).length;
+        
+        if (emptyEmails > sampleSize * 0.5) {
+          result.warnings.push(
+            `Más del 50% de las filas revisadas tienen el email vacío. ` +
+            `Esto podría indicar un problema con el archivo o un formato incorrecto.`
+          );
+        }
+      }
+    }
+
+    return result;
+  };
 
   // Auto-detect column mappings based on Technovation CSV headers
   const autoDetectMappings = (headers: string[]): ColumnMapping[] => {
@@ -126,7 +226,8 @@ export default function AdminImportCSV() {
     const selectedFile = e.target.files?.[0];
     if (!selectedFile) return;
 
-    if (!selectedFile.name.endsWith(".csv")) {
+    // Level 1: File validation
+    if (!selectedFile.name.toLowerCase().endsWith(".csv")) {
       toast.error("Por favor, selecciona un archivo CSV");
       return;
     }
@@ -136,6 +237,12 @@ export default function AdminImportCSV() {
       return;
     }
 
+    // Optional MIME type check (browsers vary)
+    const validMimeTypes = ["text/csv", "text/plain", "application/vnd.ms-excel", ""];
+    if (selectedFile.type && !validMimeTypes.includes(selectedFile.type)) {
+      console.warn("MIME type inusual:", selectedFile.type);
+    }
+
     setFile(selectedFile);
 
     Papa.parse(selectedFile, {
@@ -143,8 +250,28 @@ export default function AdminImportCSV() {
       skipEmptyLines: true,
       complete: (results) => {
         const headers = results.meta.fields || [];
+        const data = results.data as CSVRow[];
+        
+        // Level 2: Structure validation
+        const validation = validateCSVStructure(headers, data);
+        
+        if (!validation.isValid) {
+          setValidationErrors(validation.errors);
+          setStep("validation-error");
+          return;
+        }
+        
+        if (validation.warnings.length > 0) {
+          // Store data temporarily and show warning dialog
+          setPendingCsvData({ headers, data });
+          setValidationWarnings(validation.warnings);
+          setShowWarningDialog(true);
+          return;
+        }
+        
+        // No issues, proceed to preview
         setCsvHeaders(headers);
-        setCsvData(results.data as CSVRow[]);
+        setCsvData(data);
         setColumnMappings(autoDetectMappings(headers));
         setStep("preview");
       },
@@ -152,6 +279,26 @@ export default function AdminImportCSV() {
         toast.error(`Error al leer el archivo: ${error.message}`);
       },
     });
+  }, []);
+
+  // Handle warning dialog confirmation
+  const handleWarningContinue = useCallback(() => {
+    if (pendingCsvData) {
+      setCsvHeaders(pendingCsvData.headers);
+      setCsvData(pendingCsvData.data);
+      setColumnMappings(autoDetectMappings(pendingCsvData.headers));
+      setStep("preview");
+    }
+    setShowWarningDialog(false);
+    setPendingCsvData(null);
+    setValidationWarnings([]);
+  }, [pendingCsvData]);
+
+  const handleWarningCancel = useCallback(() => {
+    setShowWarningDialog(false);
+    setPendingCsvData(null);
+    setValidationWarnings([]);
+    setFile(null);
   }, []);
 
   // Handle drag and drop
@@ -419,6 +566,9 @@ export default function AdminImportCSV() {
     setColumnMappings([]);
     setProgress(0);
     setResult(null);
+    setValidationErrors([]);
+    setValidationWarnings([]);
+    setPendingCsvData(null);
   };
 
   return (
@@ -499,6 +649,59 @@ export default function AdminImportCSV() {
                   </li>
                 </ul>
               </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Validation Error Step */}
+        {step === "validation-error" && (
+          <Card className="border-destructive">
+            <CardHeader className="pb-2 sm:pb-6">
+              <CardTitle className="flex items-center gap-2 text-destructive">
+                <XCircle className="h-5 w-5" />
+                Error: El archivo no es válido
+              </CardTitle>
+              <CardDescription>
+                El archivo que intentas subir no cumple con el formato esperado
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>Problemas encontrados</AlertTitle>
+                <AlertDescription>
+                  <ul className="mt-2 space-y-1 list-disc list-inside">
+                    {validationErrors.map((error, idx) => (
+                      <li key={idx}>{error}</li>
+                    ))}
+                  </ul>
+                </AlertDescription>
+              </Alert>
+
+              <div className="p-4 bg-muted rounded-lg">
+                <h4 className="font-medium text-sm mb-2">
+                  ¿Cómo obtener el archivo correcto?
+                </h4>
+                <ol className="text-sm text-muted-foreground space-y-1 list-decimal list-inside">
+                  <li>Inicia sesión en Technovation Global</li>
+                  <li>Ve a People → Students</li>
+                  <li>Haz clic en "Export" para descargar el CSV</li>
+                  <li>Sube el archivo descargado aquí</li>
+                </ol>
+              </div>
+
+              {file && (
+                <div className="p-3 bg-muted/50 rounded-lg text-sm">
+                  <p className="text-muted-foreground">
+                    <strong>Archivo subido:</strong> {file.name}
+                  </p>
+                </div>
+              )}
+
+              <Button onClick={resetImport} className="w-full">
+                <Upload className="h-4 w-4 mr-2" />
+                Subir otro archivo
+              </Button>
             </CardContent>
           </Card>
         )}
@@ -762,6 +965,44 @@ export default function AdminImportCSV() {
           </Card>
         )}
       </div>
+
+      {/* Warning Dialog */}
+      <AlertDialog open={showWarningDialog} onOpenChange={setShowWarningDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-warning" />
+              Advertencia
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                {validationWarnings.map((warning, idx) => (
+                  <p key={idx}>{warning}</p>
+                ))}
+                {file && (
+                  <div className="mt-4 p-3 bg-muted rounded-lg text-sm">
+                    <p><strong>Archivo:</strong> {file.name}</p>
+                    {pendingCsvData && (
+                      <p className="text-muted-foreground mt-1">
+                        <strong>Columnas detectadas:</strong> {pendingCsvData.headers.slice(0, 5).join(", ")}
+                        {pendingCsvData.headers.length > 5 && "..."}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={handleWarningCancel}>
+              Cancelar
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={handleWarningContinue}>
+              Continuar de todos modos
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AdminLayout>
   );
 }

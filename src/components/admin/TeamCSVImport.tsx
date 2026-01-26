@@ -107,6 +107,12 @@ export function TeamCSVImport({ open, onOpenChange, onImportComplete }: TeamCSVI
   }, [resetState, onOpenChange]);
 
   const handleFileSelect = useCallback(async (file: File) => {
+    // Level 1: File validation
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("El archivo no puede superar los 5MB");
+      return;
+    }
+
     setFileName(file.name);
     
     Papa.parse<CSVTeamRow>(file, {
@@ -115,8 +121,15 @@ export function TeamCSVImport({ open, onOpenChange, onImportComplete }: TeamCSVI
       complete: async (results) => {
         const rows = results.data;
         
+        // Level 2: Structure validation
         if (rows.length === 0) {
           toast.error("El archivo CSV está vacío");
+          return;
+        }
+
+        // Check row limit
+        if (rows.length > 1000) {
+          toast.error(`El archivo tiene ${rows.length.toLocaleString()} equipos. El máximo permitido es 1,000.`);
           return;
         }
 
@@ -130,8 +143,27 @@ export function TeamCSVImport({ open, onOpenChange, onImportComplete }: TeamCSVI
           return;
         }
 
-        // Parse teams
+        // Validate Team ID format
+        const invalidTeamIds = rows.filter(r => 
+          !r["Team ID"] || !/^[A-Za-z0-9_-]+$/.test(r["Team ID"])
+        );
+        if (invalidTeamIds.length > 0) {
+          toast.error(
+            `${invalidTeamIds.length} fila(s) tienen Team ID inválido o vacío. ` +
+            `El Team ID debe contener solo letras, números, guiones o guiones bajos.`
+          );
+          return;
+        }
+
+        // Check for duplicate Team IDs in CSV
         const teamIds = rows.map((r) => r["Team ID"]).filter(Boolean);
+        const duplicateIds = teamIds.filter((id, idx) => teamIds.indexOf(id) !== idx);
+        if (duplicateIds.length > 0) {
+          toast.warning(
+            `Se encontraron ${duplicateIds.length} Team ID duplicados en el archivo. ` +
+            `Solo se procesará la primera aparición de cada uno.`
+          );
+        }
         
         // Check which teams already exist
         const { data: existingTeams } = await supabase
