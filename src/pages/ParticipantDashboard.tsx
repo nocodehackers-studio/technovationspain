@@ -11,8 +11,7 @@ import {
   ArrowRight, 
   CheckCircle2, 
   Clock, 
-  LogOut,
-  Bell
+  LogOut
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
@@ -140,23 +139,14 @@ export default function ParticipantDashboard() {
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <Button 
-                variant="ghost" 
-                size="icon"
-                className="text-primary-foreground hover:bg-primary-foreground/10"
-              >
-                <Bell className="h-5 w-5" />
-              </Button>
-              <Button 
-                variant="ghost" 
-                size="icon"
-                className="text-primary-foreground hover:bg-primary-foreground/10"
-                onClick={signOut}
-              >
-                <LogOut className="h-5 w-5" />
-              </Button>
-            </div>
+            <Button 
+              variant="ghost" 
+              size="icon"
+              className="text-primary-foreground hover:bg-primary-foreground/10"
+              onClick={signOut}
+            >
+              <LogOut className="h-5 w-5" />
+            </Button>
           </div>
         </div>
       </header>
