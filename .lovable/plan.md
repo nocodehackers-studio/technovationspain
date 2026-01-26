@@ -1,125 +1,177 @@
 
 
-## Plan: Corrección del Código OTP de 6 a 8 dígitos
+# Plan: Corregir Redirección Post-Login y Añadir Navegación al Dashboard
 
-### Problema Identificado
+## Resumen del Problema
 
-Tu proyecto Supabase tiene configurado `auth.email.otp_length = 8`, pero la UI solo acepta 6 dígitos. Esto hace que el código del email no pueda ser introducido correctamente.
+Hay dos problemas principales:
 
-| Componente | Configuración Actual | Debería Ser |
-|------------|---------------------|-------------|
-| Email (Supabase) | 8 dígitos | 8 dígitos |
-| UI (InputOTP) | 6 slots | **8 slots** |
-| Validación JS | `length !== 6` | **`length !== 8`** |
+1. **Redirección incorrecta después de login**: Al iniciar sesión (con OTP o magic link), el usuario es redirigido a `/events` en lugar del dashboard
+2. **Sin navegación desde `/events`**: La página de eventos no tiene forma de volver al dashboard
+
+## Análisis de la Causa
+
+### Problema 1: Redirección
+
+Después de verificar el OTP en `Index.tsx` (líneas 98-101), el código solo dice:
+```typescript
+if (data.session) {
+  toast.success('¡Verificación exitosa!');
+  // The auth state change will handle redirection
+}
+```
+
+El problema es que **no se fuerza una navegación explícita**. Se confía en que `onAuthStateChange` dispare un re-render del componente, pero:
+- Hay una condición de carrera entre la actualización del estado y la navegación
+- Si el usuario ya ha completado onboarding y está verificado, debería ir a `/dashboard`
+
+El `Index.tsx` tiene la lógica correcta (líneas 34-48), pero **la verificación OTP no fuerza un re-render inmediato**.
+
+### Problema 2: Navegación en Events
+
+`EventsListPage.tsx` es una página completa sin header de navegación ni forma de volver al dashboard.
 
 ---
 
-### Archivos a Modificar
+## Solución
 
-Se actualizarán **4 archivos** con los mismos cambios:
+### 1. Añadir Navegación Explícita Post-Verificación OTP
 
-1. `src/pages/Index.tsx`
-2. `src/pages/register/RegisterStudent.tsx`
-3. `src/pages/register/RegisterMentor.tsx`
-4. `src/pages/register/RegisterJudge.tsx`
-
----
-
-### Cambios en Cada Archivo
-
-#### 1. Cambiar validación de longitud
+En `Index.tsx`, después de verificar OTP exitosamente, navegar explícitamente basándose en el rol:
 
 ```typescript
-// ANTES
-if (otpCode.length !== 6) {
-  toast.error('Introduce el código de 6 dígitos completo');
-  return;
+if (data.session) {
+  toast.success('¡Verificación exitosa!');
+  
+  // Check profile to determine redirect
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('onboarding_completed, verification_status')
+    .eq('id', data.session.user.id)
+    .single();
+  
+  if (!profile?.onboarding_completed) {
+    navigate('/onboarding', { replace: true });
+    return;
+  }
+  
+  // Check role for redirect
+  const { data: rolesData } = await supabase
+    .from('user_roles')
+    .select('role')
+    .eq('user_id', data.session.user.id);
+  
+  const rolePriority = ['admin', 'mentor', 'judge', 'volunteer', 'participant'];
+  const userRoles = rolesData?.map(r => r.role) || [];
+  const highestRole = rolePriority.find(r => userRoles.includes(r));
+  
+  if (highestRole === 'admin') {
+    navigate('/admin', { replace: true });
+  } else if (profile?.verification_status !== 'verified') {
+    navigate('/pending-verification', { replace: true });
+  } else {
+    navigate('/dashboard', { replace: true });
+  }
 }
-
-// DESPUÉS
-if (otpCode.length !== 8) {
-  toast.error('Introduce el código de 8 dígitos completo');
-  return;
-}
 ```
 
-#### 2. Actualizar maxLength del InputOTP
+### 2. Añadir Header de Navegación a EventsListPage
+
+Crear un header consistente con navegación de vuelta al dashboard:
 
 ```tsx
-// ANTES
-<InputOTP maxLength={6} ...>
-
-// DESPUÉS
-<InputOTP maxLength={8} ...>
-```
-
-#### 3. Añadir 2 slots adicionales
-
-```tsx
-// ANTES
-<InputOTPGroup>
-  <InputOTPSlot index={0} />
-  <InputOTPSlot index={1} />
-  <InputOTPSlot index={2} />
-  <InputOTPSlot index={3} />
-  <InputOTPSlot index={4} />
-  <InputOTPSlot index={5} />
-</InputOTPGroup>
-
-// DESPUÉS
-<InputOTPGroup>
-  <InputOTPSlot index={0} />
-  <InputOTPSlot index={1} />
-  <InputOTPSlot index={2} />
-  <InputOTPSlot index={3} />
-  <InputOTPSlot index={4} />
-  <InputOTPSlot index={5} />
-  <InputOTPSlot index={6} />
-  <InputOTPSlot index={7} />
-</InputOTPGroup>
-```
-
-#### 4. Actualizar texto de ayuda
-
-```tsx
-// ANTES
-<p className="text-xs text-muted-foreground">
-  Introduce el código de 6 dígitos del correo
-</p>
-
-// DESPUÉS
-<p className="text-xs text-muted-foreground">
-  Introduce el código de 8 dígitos del correo
-</p>
-```
-
-#### 5. Actualizar condición del botón
-
-```tsx
-// ANTES
-disabled={verifyingOtp || otpCode.length !== 6}
-
-// DESPUÉS
-disabled={verifyingOtp || otpCode.length !== 8}
+// Header con navegación
+<header className="bg-background border-b sticky top-0 z-10">
+  <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+    <Link to="/dashboard" className="flex items-center gap-2 text-muted-foreground hover:text-foreground">
+      <ArrowLeft className="h-4 w-4" />
+      <span>Volver al dashboard</span>
+    </Link>
+    <Button variant="ghost" size="icon" onClick={signOut}>
+      <LogOut className="h-5 w-5" />
+    </Button>
+  </div>
+</header>
 ```
 
 ---
 
-### Resumen de Cambios por Archivo
+## Archivos a Modificar
 
-| Archivo | Líneas a modificar |
-|---------|-------------------|
-| `Index.tsx` | 82-83, 158, 162-169, 171-173, 179 |
-| `RegisterStudent.tsx` | 58-59, 125, 129-136, 138-140, 146 |
-| `RegisterMentor.tsx` | 58-59, 125, 129-136, 138-140, 146 |
-| `RegisterJudge.tsx` | 58-59, 125, 129-136, 138-140, 146 |
+| Archivo | Cambio |
+|---------|--------|
+| `src/pages/Index.tsx` | Añadir navegación explícita después de verificación OTP |
+| `src/pages/register/RegisterStudent.tsx` | La verificación OTP ya navega a `/onboarding?role=participant` - OK |
+| `src/pages/register/RegisterMentor.tsx` | La verificación OTP ya navega a `/onboarding?role=mentor` - OK |
+| `src/pages/register/RegisterJudge.tsx` | La verificación OTP ya navega a `/onboarding?role=judge` - OK |
+| `src/pages/events/EventsListPage.tsx` | Añadir header con navegación al dashboard |
 
 ---
 
-### Resultado Esperado
+## Detalles de Implementación
 
-Después de aplicar estos cambios:
-- La UI mostrará **8 casillas** para el código OTP
-- Los usuarios podrán introducir el código completo de 8 dígitos del email
-- La verificación funcionará correctamente tanto con magic link como con código OTP
+### Cambios en `Index.tsx`
+
+La función `handleVerifyOtp` pasará de:
+```typescript
+if (data.session) {
+  toast.success('¡Verificación exitosa!');
+  // The auth state change will handle redirection
+}
+```
+
+A incluir lógica completa de redirección similar a `AuthCallback.tsx`.
+
+### Cambios en `EventsListPage.tsx`
+
+Añadir imports necesarios:
+```typescript
+import { Link } from 'react-router-dom';
+import { ArrowLeft, LogOut } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { useAuth } from '@/hooks/useAuth';
+```
+
+Añadir header de navegación antes del hero gradient actual.
+
+---
+
+## Flujo Corregido
+
+```text
+Usuario existente → Introduce email en Index.tsx
+                         │
+                         ▼
+              ┌─────────────────────┐
+              │ Recibe email con:   │
+              │ - Magic Link        │
+              │ - Código OTP        │
+              └─────────────────────┘
+                         │
+    ┌────────────────────┴────────────────────┐
+    ▼                                         ▼
+Magic Link → AuthCallback.tsx           OTP → Index.tsx (handleVerifyOtp)
+    │                                         │
+    └─────────────┬───────────────────────────┘
+                  ▼
+         ┌───────────────────┐
+         │ Verificar perfil: │
+         │ - ¿Onboarding?    │
+         │ - ¿Verificado?    │
+         │ - ¿Admin?         │
+         └───────────────────┘
+                  │
+    ┌─────────────┼─────────────┬─────────────┐
+    ▼             ▼             ▼             ▼
+Onboarding   Verificación   /admin      /dashboard
+pendiente    pendiente    (admin)     (otros roles)
+```
+
+---
+
+## Beneficios
+
+1. **Consistencia**: Tanto magic link como OTP siguen el mismo flujo de redirección
+2. **UX mejorada**: Los usuarios siempre llegan a la página correcta según su estado
+3. **Navegación**: Desde `/events` se puede volver fácilmente al dashboard
 
