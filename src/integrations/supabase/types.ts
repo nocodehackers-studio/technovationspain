@@ -291,6 +291,123 @@ export type Database = {
           },
         ]
       }
+      event_email_sends: {
+        Row: {
+          body_content: string | null
+          created_at: string | null
+          error_message: string | null
+          event_id: string
+          id: string
+          recipients_count: number | null
+          scheduled_for: string | null
+          sent_at: string | null
+          sent_by: string | null
+          status: string | null
+          subject: string
+          target_audience: string | null
+          target_ticket_type_id: string | null
+          template_type: string
+        }
+        Insert: {
+          body_content?: string | null
+          created_at?: string | null
+          error_message?: string | null
+          event_id: string
+          id?: string
+          recipients_count?: number | null
+          scheduled_for?: string | null
+          sent_at?: string | null
+          sent_by?: string | null
+          status?: string | null
+          subject: string
+          target_audience?: string | null
+          target_ticket_type_id?: string | null
+          template_type: string
+        }
+        Update: {
+          body_content?: string | null
+          created_at?: string | null
+          error_message?: string | null
+          event_id?: string
+          id?: string
+          recipients_count?: number | null
+          scheduled_for?: string | null
+          sent_at?: string | null
+          sent_by?: string | null
+          status?: string | null
+          subject?: string
+          target_audience?: string | null
+          target_ticket_type_id?: string | null
+          template_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_email_sends_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_email_sends_sent_by_fkey"
+            columns: ["sent_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_email_sends_target_ticket_type_id_fkey"
+            columns: ["target_ticket_type_id"]
+            isOneToOne: false
+            referencedRelation: "event_ticket_types"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      event_email_templates: {
+        Row: {
+          body_content: string
+          created_at: string | null
+          event_id: string
+          id: string
+          is_active: boolean | null
+          reply_to_email: string | null
+          subject: string
+          template_type: string
+          updated_at: string | null
+        }
+        Insert: {
+          body_content?: string
+          created_at?: string | null
+          event_id: string
+          id?: string
+          is_active?: boolean | null
+          reply_to_email?: string | null
+          subject?: string
+          template_type: string
+          updated_at?: string | null
+        }
+        Update: {
+          body_content?: string
+          created_at?: string | null
+          event_id?: string
+          id?: string
+          is_active?: boolean | null
+          reply_to_email?: string | null
+          subject?: string
+          template_type?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_email_templates_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       event_registrations: {
         Row: {
           checked_in_at: string | null
