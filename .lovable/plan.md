@@ -1,46 +1,75 @@
 
-
-# Plan: Corregir Configuración JWT para Envío de Emails
+# Plan: Corregir Generación de QR en Edge Function
 
 ## Problema
 
-La función `send-registration-confirmation` devuelve 401 porque `verify_jwt = true` en config.toml conflictúa con el sistema de signing-keys de Supabase, bloqueando las peticiones antes de llegar al código.
-
-## Solución
-
-Cambiar a `verify_jwt = false` manteniendo la seguridad con la validación manual existente.
-
-## Cambio Único
-
-### supabase/config.toml
-
-```toml
-project_id = "orvkqnbshkxzyhqpjsdw"
-
-[functions.send-registration-confirmation]
-verify_jwt = false
-
-[functions.send-auth-email]
-verify_jwt = false
-
-[functions.send-event-email]
-verify_jwt = true
+Los logs muestran que la función falla al generar el QR:
+```
+INFO: Generating QR code...
+ERROR: You need to specify a canvas element
 ```
 
-Solo se cambia la línea 4 de `true` a `false`.
+La librería `qrcode` importada desde `esm.sh` intenta usar Canvas del navegador, que no existe en Deno.
 
-## Seguridad Mantenida
+## Cambios a Realizar
 
-La función ya implementa validación completa:
-- Verifica presencia de header Authorization
-- Valida JWT con `supabase.auth.getUser(token)`
-- Comprueba ownership del registro
-- Permite acceso a admins verificando tabla `user_roles`
+### supabase/functions/send-registration-confirmation/index.ts
 
-## Verificación
+**Cambio 1 - Línea 3 (Importación):**
+```typescript
+// ANTES:
+import QRCode from "https://esm.sh/qrcode@1.5.3";
 
-Después del despliegue:
-1. Registrarse a un evento
-2. Los logs mostrarán el flujo completo hasta "Email sent successfully"
-3. El email aparecerá en el dashboard de Resend
+// DESPUÉS:
+import QRCode from "npm:qrcode@1.5.3";
+```
 
+**Cambio 2 - Líneas 50-66 (Función generateQRCode):**
+```typescript
+// ANTES:
+async function generateQRCode(url: string): Promise<Uint8Array> {
+  const dataUrl = await QRCode.toDataURL(url, {
+    width: 300,
+    margin: 2,
+    errorCorrectionLevel: "H",
+  });
+  
+  const base64Data = dataUrl.split(",")[1];
+  const binaryString = atob(base64Data);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+}
+
+// DESPUÉS:
+async function generateQRCode(url: string): Promise<Uint8Array> {
+  // Usar toBuffer que funciona en Node/Deno sin Canvas del navegador
+  const buffer = await QRCode.toBuffer(url, {
+    width: 300,
+    margin: 2,
+    errorCorrectionLevel: "H",
+    type: "png",
+  });
+  
+  return new Uint8Array(buffer);
+}
+```
+
+## Por Qué Funciona
+
+| Aspecto | esm.sh | npm: |
+|---------|--------|------|
+| Entorno | Navegador | Node.js/Deno |
+| Canvas | Requiere DOM | Usa node-canvas nativo |
+| toBuffer() | No disponible | Genera PNG directamente |
+
+## Resultado Esperado
+
+Después del despliegue, los logs mostrarán:
+1. "Generating QR code..."
+2. "QR image URL: https://..."
+3. "Email sent successfully"
+
+Y el email llegará con el código QR visible.
