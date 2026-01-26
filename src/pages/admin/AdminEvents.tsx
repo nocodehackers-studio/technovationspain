@@ -205,12 +205,6 @@ export default function AdminEvents() {
                 Editar
               </DropdownMenuItem>
               <DropdownMenuItem
-                onClick={() => window.location.href = `/admin/events/${event.id}/registrations`}
-              >
-                <Users className="mr-2 h-4 w-4" />
-                Ver Registros
-              </DropdownMenuItem>
-              <DropdownMenuItem
                 onClick={() => window.location.href = `/admin/events/${event.id}/workshops`}
               >
                 <GraduationCap className="mr-2 h-4 w-4" />
