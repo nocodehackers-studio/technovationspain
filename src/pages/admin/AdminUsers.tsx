@@ -68,7 +68,7 @@ export default function AdminUsers() {
         .from("profiles")
         .select(`
           *,
-          hub:hubs(name)
+          hub:hubs!profiles_hub_id_fkey(name)
         `)
         .order("created_at", { ascending: false });
 
