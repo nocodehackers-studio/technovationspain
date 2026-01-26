@@ -43,12 +43,14 @@ export default function ParticipantDashboard() {
     },
   });
 
-  // Fetch user's registrations
+  // Fetch user's registrations including companions they registered
   const { data: myRegistrations, isLoading: registrationsLoading } = useQuery({
     queryKey: ['my-registrations', user?.id],
     queryFn: async () => {
       if (!user) return [];
-      const { data, error } = await supabase
+      
+      // First get user's own registrations (non-companion)
+      const { data: mainRegistrations, error: mainError } = await supabase
         .from('event_registrations')
         .select(`
           *,
@@ -56,11 +58,35 @@ export default function ParticipantDashboard() {
           ticket_type:event_ticket_types(*)
         `)
         .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(3);
+        .eq('is_companion', false)
+        .order('created_at', { ascending: false });
       
-      if (error) throw error;
-      return data;
+      if (mainError) throw mainError;
+      
+      // Then get companions for those registrations
+      if (mainRegistrations && mainRegistrations.length > 0) {
+        const mainIds = mainRegistrations.map(r => r.id);
+        const { data: companionRegistrations, error: compError } = await supabase
+          .from('event_registrations')
+          .select(`
+            *,
+            event:events(*),
+            ticket_type:event_ticket_types(*)
+          `)
+          .in('companion_of_registration_id', mainIds)
+          .eq('is_companion', true)
+          .order('created_at', { ascending: false });
+        
+        if (compError) throw compError;
+        
+        // Combine main registrations with their companions
+        return mainRegistrations.map(main => ({
+          ...main,
+          companions: companionRegistrations?.filter(c => c.companion_of_registration_id === main.id) || []
+        }));
+      }
+      
+      return mainRegistrations || [];
     },
     enabled: !!user,
   });
@@ -290,32 +316,62 @@ export default function ParticipantDashboard() {
                   </div>
                 ) : myRegistrations && myRegistrations.length > 0 ? (
                   <div className="space-y-3">
-                    {myRegistrations.map((reg) => {
+                    {myRegistrations.map((reg: any) => {
                       const event = reg.event as any;
                       const ticketType = reg.ticket_type as any;
+                      const companions = reg.companions || [];
                       
                       return (
-                        <Link
-                          key={reg.id}
-                          to={`/tickets/${reg.id}`}
-                          className="flex items-center justify-between p-3 rounded-lg bg-muted/50 hover:bg-muted transition-colors"
-                        >
-                          <div className="space-y-1">
-                            <p className="font-medium">{event?.name}</p>
-                            <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                              <span className="flex items-center gap-1">
-                                <Calendar className="h-3 w-3" />
-                                {event?.date && format(new Date(event.date), "d MMM", { locale: es })}
-                              </span>
-                              <span>{ticketType?.name || 'General'}</span>
-                            </div>
-                          </div>
-                          <Badge 
-                            variant={reg.registration_status === 'confirmed' ? 'default' : 'secondary'}
+                        <div key={reg.id} className="space-y-2">
+                          {/* Main registration */}
+                          <Link
+                            to={`/tickets/${reg.id}`}
+                            className="flex items-center justify-between p-3 rounded-lg bg-muted/50 hover:bg-muted transition-colors"
                           >
-                            {reg.registration_status === 'confirmed' ? 'Confirmada' : 'Pendiente'}
-                          </Badge>
-                        </Link>
+                            <div className="space-y-1">
+                              <p className="font-medium">{event?.name}</p>
+                              <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                                <span className="flex items-center gap-1">
+                                  <Calendar className="h-3 w-3" />
+                                  {event?.date && format(new Date(event.date), "d MMM", { locale: es })}
+                                </span>
+                                <span>{ticketType?.name || 'General'}</span>
+                              </div>
+                            </div>
+                            <Badge 
+                              variant={reg.registration_status === 'confirmed' ? 'default' : 'secondary'}
+                            >
+                              {reg.registration_status === 'confirmed' ? 'Confirmada' : 'Pendiente'}
+                            </Badge>
+                          </Link>
+                          
+                          {/* Companion registrations */}
+                          {companions.length > 0 && (
+                            <div className="ml-4 space-y-2 border-l-2 border-muted pl-3">
+                              {companions.map((comp: any) => (
+                                <Link
+                                  key={comp.id}
+                                  to={`/tickets/${comp.id}`}
+                                  className="flex items-center justify-between p-2 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
+                                >
+                                  <div className="space-y-0.5">
+                                    <p className="text-sm font-medium flex items-center gap-2">
+                                      <Users className="h-3 w-3 text-muted-foreground" />
+                                      {comp.first_name} {comp.last_name}
+                                    </p>
+                                    <p className="text-xs text-muted-foreground">Acompañante</p>
+                                  </div>
+                                  <Badge 
+                                    variant="outline"
+                                    className="text-xs"
+                                  >
+                                    {comp.registration_status === 'confirmed' ? 'Confirmada' : 'Pendiente'}
+                                  </Badge>
+                                </Link>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       );
                     })}
                   </div>
