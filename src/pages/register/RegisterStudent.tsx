@@ -1,70 +1,46 @@
-import { useState } from "react";
-import { Link, Navigate, useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/hooks/useAuth";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { LoadingPage } from "@/components/ui/loading-spinner";
-import { toast } from "sonner";
-import { Mail, ArrowLeft, Loader2, Info, KeyRound, UserPlus } from "lucide-react";
-import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
+import { useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { supabase } from '@/integrations/supabase/client';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { toast } from 'sonner';
+import { GraduationCap, Mail, ArrowLeft, Loader2, Info, KeyRound } from 'lucide-react';
+import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp';
 
-// Logos from Supabase Storage
 const LOGO_TECHNOVATION = "https://orvkqnbshkxzyhqpjsdw.supabase.co/storage/v1/object/public/Assets/LOGO_Technovation_Girls_Transparente.png";
 const LOGO_POWER_TO_CODE = "https://orvkqnbshkxzyhqpjsdw.supabase.co/storage/v1/object/public/Assets/Logo%20transparente%20PowerToCode.png";
 
-export default function Index() {
+export default function RegisterStudent() {
   const navigate = useNavigate();
-  const { user, isLoading, role, needsOnboarding, isVerified } = useAuth();
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
-  const [otpCode, setOtpCode] = useState("");
+  const [otpCode, setOtpCode] = useState('');
   const [verifyingOtp, setVerifyingOtp] = useState(false);
-
-  // Show loading while checking auth
-  if (isLoading) {
-    return <LoadingPage />;
-  }
-
-  // If logged in, redirect based on role and onboarding status
-  if (user) {
-    if (role === "admin") {
-      return <Navigate to="/admin" replace />;
-    }
-    // Check if user needs onboarding first
-    if (needsOnboarding) {
-      return <Navigate to="/onboarding" replace />;
-    }
-    // Check verification status
-    if (!isVerified) {
-      return <Navigate to="/pending-verification" replace />;
-    }
-    // Verified user - go to dashboard
-    return <Navigate to="/dashboard" replace />;
-  }
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!email) {
-      toast.error("Por favor, introduce tu email");
+      toast.error('Por favor, introduce tu email');
       return;
     }
 
     setLoading(true);
     
-    // Always use production URL except for localhost development
     const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
     const baseUrl = isLocalhost ? window.location.origin : 'https://technovationspain.lovable.app';
     
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        emailRedirectTo: `${baseUrl}/auth/callback`,
+        emailRedirectTo: `${baseUrl}/auth/callback?role=participant`,
+        data: {
+          intended_role: 'participant'
+        }
       },
     });
 
@@ -74,13 +50,13 @@ export default function Index() {
       toast.error(`Error: ${error.message}`);
     } else {
       setEmailSent(true);
-      toast.success("¡Enlace enviado! Revisa tu correo electrónico");
+      toast.success('¡Enlace enviado! Revisa tu correo electrónico');
     }
   };
 
   const handleVerifyOtp = async () => {
     if (otpCode.length !== 6) {
-      toast.error("Introduce el código de 6 dígitos completo");
+      toast.error('Introduce el código de 6 dígitos completo');
       return;
     }
 
@@ -96,11 +72,11 @@ export default function Index() {
       if (error) throw error;
 
       if (data.session) {
-        toast.success("¡Verificación exitosa!");
-        // The auth state change will handle redirection
+        toast.success('¡Verificación exitosa!');
+        navigate('/onboarding?role=participant');
       }
     } catch (error: any) {
-      toast.error(error.message || "Código inválido o expirado");
+      toast.error(error.message || 'Código inválido o expirado');
     } finally {
       setVerifyingOtp(false);
     }
@@ -108,27 +84,18 @@ export default function Index() {
 
   if (emailSent) {
     return (
-      <div className="flex min-h-screen items-center justify-center p-4 bg-muted">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-secondary via-background to-muted p-4">
         <Card className="w-full max-w-md card-hover">
           <CardHeader className="text-center">
-            {/* Logos */}
             <div className="flex items-center justify-center gap-6 mb-6">
-              <img 
-                src={LOGO_TECHNOVATION} 
-                alt="Technovation Girls Madrid" 
-                className="h-14 w-auto"
-              />
+              <img src={LOGO_TECHNOVATION} alt="Technovation Girls" className="h-14 w-auto" />
               <div className="h-10 w-px bg-border" />
-              <img 
-                src={LOGO_POWER_TO_CODE} 
-                alt="Power to Code" 
-                className="h-12 w-auto"
-              />
+              <img src={LOGO_POWER_TO_CODE} alt="Power to Code" className="h-12 w-auto" />
             </div>
-            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-secondary/20">
-              <Mail className="h-7 w-7 text-secondary" />
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary/20">
+              <Mail className="h-7 w-7 text-primary" />
             </div>
-            <CardTitle className="text-xl font-display text-primary">Revisa tu correo</CardTitle>
+            <CardTitle className="text-xl font-display">Revisa tu correo</CardTitle>
             <CardDescription>
               Hemos enviado un enlace a <strong>{email}</strong>
             </CardDescription>
@@ -184,50 +151,43 @@ export default function Index() {
                     Verificando...
                   </>
                 ) : (
-                  "Verificar código"
+                  'Verificar código'
                 )}
               </Button>
             </div>
-          </CardContent>
-          <CardFooter className="flex flex-col gap-3">
+
             <Button 
               variant="outline" 
               className="w-full"
               onClick={() => {
                 setEmailSent(false);
-                setOtpCode("");
+                setOtpCode('');
               }}
             >
               <ArrowLeft className="mr-2 h-4 w-4" />
               Volver e intentar con otro email
             </Button>
-          </CardFooter>
+          </CardContent>
         </Card>
       </div>
     );
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center p-4 bg-muted">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-secondary via-background to-muted p-4">
       <Card className="w-full max-w-md card-hover">
         <CardHeader className="text-center">
-          {/* Logos */}
           <div className="flex items-center justify-center gap-6 mb-4">
-            <img 
-              src={LOGO_TECHNOVATION} 
-              alt="Technovation Girls Madrid" 
-              className="h-14 w-auto"
-            />
+            <img src={LOGO_TECHNOVATION} alt="Technovation Girls" className="h-14 w-auto" />
             <div className="h-10 w-px bg-border" />
-            <img 
-              src={LOGO_POWER_TO_CODE} 
-              alt="Power to Code" 
-              className="h-12 w-auto"
-            />
+            <img src={LOGO_POWER_TO_CODE} alt="Power to Code" className="h-12 w-auto" />
           </div>
-          <CardTitle className="text-xl font-display">Iniciar sesión</CardTitle>
+          <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-primary/20">
+            <GraduationCap className="h-6 w-6 text-primary" />
+          </div>
+          <CardTitle className="text-xl font-display">Registro de Estudiante</CardTitle>
           <CardDescription className="text-base">
-            Introduce tu email para acceder a tu cuenta
+            Para participantes de 7 a 18 años
           </CardDescription>
         </CardHeader>
         <form onSubmit={handleSignUp}>
@@ -252,11 +212,10 @@ export default function Index() {
                 autoComplete="email"
               />
               <p className="text-xs text-muted-foreground">
-                Usa tu email de Technovation Global
+                Usa tu email de Technovation Global si ya estás registrada
               </p>
             </div>
-          </CardContent>
-          <CardFooter className="flex flex-col gap-3">
+
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? (
                 <>
@@ -264,27 +223,23 @@ export default function Index() {
                   Enviando...
                 </>
               ) : (
-                "Continuar con email"
+                'Continuar con email'
               )}
             </Button>
-            <div className="relative w-full">
-              <div className="absolute inset-0 flex items-center">
-                <span className="w-full border-t" />
-              </div>
-              <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-card px-2 text-muted-foreground">o</span>
-              </div>
+
+            <div className="text-center space-y-2">
+              <Link to="/register" className="inline-flex items-center text-sm text-muted-foreground hover:text-primary">
+                <ArrowLeft className="mr-1 h-4 w-4" />
+                Volver a selección de rol
+              </Link>
+              <p className="text-xs text-muted-foreground">
+                ¿Ya tienes cuenta?{' '}
+                <Link to="/" className="font-medium text-primary hover:underline">
+                  Inicia sesión
+                </Link>
+              </p>
             </div>
-            <Link to="/register" className="w-full">
-              <Button variant="outline" className="w-full" type="button">
-                <UserPlus className="mr-2 h-4 w-4" />
-                Crear cuenta nueva
-              </Button>
-            </Link>
-            <p className="text-center text-xs text-muted-foreground">
-              Al continuar, aceptas los términos de uso y la política de privacidad.
-            </p>
-          </CardFooter>
+          </CardContent>
         </form>
       </Card>
     </div>

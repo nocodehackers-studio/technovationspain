@@ -15,6 +15,12 @@ import PendingVerification from "./pages/PendingVerification";
 import NotFound from "./pages/NotFound";
 import ParticipantDashboard from "./pages/ParticipantDashboard";
 
+// Registration Pages
+import RegisterSelect from "./pages/register/RegisterSelect";
+import RegisterStudent from "./pages/register/RegisterStudent";
+import RegisterMentor from "./pages/register/RegisterMentor";
+import RegisterJudge from "./pages/register/RegisterJudge";
+
 // Admin Pages
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import AdminUsers from "./pages/admin/AdminUsers";
@@ -51,6 +57,13 @@ const App = () => (
             {/* Public routes */}
             <Route path="/auth/callback" element={<AuthCallback />} />
             <Route path="/pending-verification" element={<PendingVerification />} />
+            
+            {/* Registration routes (public) */}
+            <Route path="/register" element={<RegisterSelect />} />
+            <Route path="/register/student" element={<RegisterStudent />} />
+            <Route path="/register/mentor" element={<RegisterMentor />} />
+            <Route path="/register/judge" element={<RegisterJudge />} />
+            
             {/* Protected routes */}
             <Route path="/onboarding" element={
               <ProtectedRoute>
