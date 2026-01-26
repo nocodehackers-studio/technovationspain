@@ -52,13 +52,15 @@ export function AdminSidebar() {
     <Sidebar className="border-r border-sidebar-border">
       <SidebarHeader className="border-b border-sidebar-border p-4">
         <div className="flex flex-col gap-3">
-          {/* Technovation Logo - White version */}
+          {/* Technovation Logo - White version with background fix */}
           <div className="flex items-center justify-center">
-            <img 
-              src={LOGO_TECHNOVATION_WHITE} 
-              alt="Technovation Girls Madrid" 
-              className="h-10 w-auto"
-            />
+            <div className="bg-white/10 backdrop-blur-sm rounded-lg p-2">
+              <img 
+                src={LOGO_TECHNOVATION_WHITE} 
+                alt="Technovation Girls Madrid" 
+                className="h-10 w-auto mix-blend-lighten"
+              />
+            </div>
           </div>
           {/* Power to Code Logo - White version */}
           <div className="flex items-center justify-center">
