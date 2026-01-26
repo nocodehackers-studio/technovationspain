@@ -87,6 +87,7 @@ export function useExistingRegistration(eventId: string) {
         .select('id, registration_status, registration_number')
         .eq('event_id', eventId)
         .eq('user_id', user.id)
+        .neq('registration_status', 'cancelled') // Exclude cancelled registrations
         .maybeSingle();
       
       return data;
@@ -100,7 +101,7 @@ export function useEventRegistration(eventId: string) {
   
   const registerMutation = useMutation({
     mutationFn: async (formData: RegistrationFormData) => {
-      // 0. Check if user is already registered
+      // 0. Check if user is already registered (excluding cancelled)
       const { data: { user } } = await supabase.auth.getUser();
       
       if (user) {
@@ -109,6 +110,7 @@ export function useEventRegistration(eventId: string) {
           .select('id, registration_status')
           .eq('event_id', eventId)
           .eq('user_id', user.id)
+          .neq('registration_status', 'cancelled') // Allow re-registration if cancelled
           .maybeSingle();
         
         if (existingRegistration) {
@@ -281,5 +283,61 @@ export function useRegistrationCompanions(registrationId: string) {
       return data;
     },
     enabled: !!registrationId,
+  });
+}
+
+export function useCancelRegistration() {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async (registrationId: string) => {
+      // 1. Fetch the registration to get event_id, ticket_type_id, and companions count
+      const { data: registration, error: fetchError } = await supabase
+        .from('event_registrations')
+        .select(`
+          id,
+          event_id,
+          ticket_type_id,
+          registration_status,
+          companions:companions(id)
+        `)
+        .eq('id', registrationId)
+        .single();
+      
+      if (fetchError || !registration) {
+        throw new Error('No se encontró el registro');
+      }
+      
+      if (registration.registration_status === 'cancelled') {
+        throw new Error('Esta entrada ya está cancelada');
+      }
+      
+      // 2. Update status to cancelled
+      const { error: updateError } = await supabase
+        .from('event_registrations')
+        .update({ registration_status: 'cancelled' })
+        .eq('id', registrationId);
+      
+      if (updateError) {
+        throw new Error('Error al cancelar la entrada');
+      }
+      
+      // 3. Decrement counters (including companions)
+      const companionsCount = (registration.companions as any[])?.length || 0;
+      
+      await supabase.rpc('decrement_registration_count', {
+        p_event_id: registration.event_id,
+        p_ticket_type_id: registration.ticket_type_id,
+        p_companions_count: companionsCount,
+      });
+      
+      return registration;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['registration'] });
+      queryClient.invalidateQueries({ queryKey: ['my-registrations'] });
+      queryClient.invalidateQueries({ queryKey: ['existing-registration', data.event_id] });
+      queryClient.invalidateQueries({ queryKey: ['event', data.event_id] });
+    },
   });
 }
