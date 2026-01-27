@@ -27,7 +27,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useToast } from '@/hooks/use-toast';
 
 export default function ParticipantDashboard() {
-  const { user, profile, role, signOut, isVerified } = useAuth();
+  const { user, profile, role, signOut, isVerified, refreshProfile } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -54,8 +54,9 @@ export default function ParticipantDashboard() {
         .eq('id', user.id);
       if (error) throw error;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['profile'] });
+    onSuccess: async () => {
+      // Refresh the profile in useAuth to update the UI immediately
+      await refreshProfile();
       toast({
         title: 'Hub actualizado',
         description: 'Tu hub regional ha sido actualizado correctamente.',
