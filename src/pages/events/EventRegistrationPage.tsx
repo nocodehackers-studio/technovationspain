@@ -217,7 +217,7 @@ export default function EventRegistrationPage() {
       const valid = await form.trigger(fieldsToValidate);
       if (valid) {
         // Skip to confirmation if no companions allowed
-        setStep(maxCompanions > 0 ? 3 : 4);
+        setStep(maxCompanions > 0 ? 3 : totalSteps);
       }
     } else if (step === 3 && maxCompanions > 0) {
       // Validate companions step
@@ -230,7 +230,7 @@ export default function EventRegistrationPage() {
   const handleBack = () => {
     if (step > 1) {
       // Handle skipping companions step when going back
-      if (step === 4 && maxCompanions === 0) {
+      if (step === totalSteps && maxCompanions === 0) {
         setStep(2);
       } else {
         setStep(step - 1);
