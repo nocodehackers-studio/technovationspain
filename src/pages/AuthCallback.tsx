@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { LoadingPage } from '@/components/ui/loading-spinner';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -8,7 +8,11 @@ import { AlertCircle } from 'lucide-react';
 
 export default function AuthCallback() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [error, setError] = useState<string | null>(null);
+
+  // Capture role from URL params (passed from registration flow)
+  const roleFromUrl = searchParams.get('role');
 
   useEffect(() => {
     const handleCallback = async () => {
@@ -37,7 +41,11 @@ export default function AuthCallback() {
             !profile.date_of_birth;
 
           if (needsOnboarding) {
-            navigate('/onboarding', { replace: true });
+            // Preserve role param when redirecting to onboarding
+            const onboardingUrl = roleFromUrl 
+              ? `/onboarding?role=${roleFromUrl}` 
+              : '/onboarding';
+            navigate(onboardingUrl, { replace: true });
             return;
           }
 
