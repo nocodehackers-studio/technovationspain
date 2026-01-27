@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -13,10 +13,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusBadge } from "@/components/admin/StatusBadge";
 import { RoleBadge } from "@/components/admin/RoleBadge";
 import { toast } from "sonner";
-import { UserCheck, UserX, Trash2, QrCode } from "lucide-react";
+import { UserCheck, UserX, Trash2, QrCode, Shield } from "lucide-react";
 import { Profile, AppRole, VerificationStatus, TableCustomColumn } from "@/types/database";
 
 type UserWithRole = Profile & { role?: AppRole };
@@ -37,6 +38,10 @@ export function UserEditSheet({
   onDelete,
 }: UserEditSheetProps) {
   const queryClient = useQueryClient();
+  const [selectedRole, setSelectedRole] = useState<AppRole | undefined>(undefined);
+
+  // Reset selected role when user changes
+  const currentRole = selectedRole ?? user?.role;
 
   // Update user mutation
   const updateUserMutation = useMutation({
@@ -138,7 +143,35 @@ export function UserEditSheet({
     });
   }, [user, updateVerificationMutation]);
 
-  // Assign volunteer role mutation
+  // Update user role mutation
+  const updateRoleMutation = useMutation({
+    mutationFn: async ({ userId, oldRole, newRole }: { userId: string; oldRole?: AppRole; newRole: AppRole }) => {
+      // First, delete old role if exists
+      if (oldRole) {
+        await supabase
+          .from("user_roles")
+          .delete()
+          .eq("user_id", userId)
+          .eq("role", oldRole);
+      }
+      
+      // Insert new role
+      const { error } = await supabase
+        .from("user_roles")
+        .upsert({ user_id: userId, role: newRole }, { onConflict: "user_id,role" });
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin-users"] });
+      toast.success("Rol actualizado correctamente");
+    },
+    onError: (error) => {
+      toast.error(`Error al cambiar rol: ${error.message}`);
+    },
+  });
+
+  // Assign volunteer role mutation (additional role)
   const assignRoleMutation = useMutation({
     mutationFn: async ({ userId, role }: { userId: string; role: AppRole }) => {
       const { error } = await supabase
@@ -155,6 +188,19 @@ export function UserEditSheet({
       toast.error(`Error al asignar rol: ${error.message}`);
     },
   });
+
+  const handleRoleChange = useCallback((newRole: AppRole) => {
+    setSelectedRole(newRole);
+  }, []);
+
+  const handleSaveRole = useCallback(() => {
+    if (!user || !selectedRole || selectedRole === user.role) return;
+    updateRoleMutation.mutate({ 
+      userId: user.id, 
+      oldRole: user.role, 
+      newRole: selectedRole 
+    });
+  }, [user, selectedRole, updateRoleMutation]);
 
   const handleAssignVolunteer = useCallback(() => {
     if (!user) return;
@@ -319,6 +365,47 @@ export function UserEditSheet({
                 />
               </div>
             </div>
+          </div>
+
+          <Separator />
+
+          {/* Role Management */}
+          <div className="space-y-4">
+            <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-2">
+              <Shield className="h-4 w-4" />
+              Rol del Usuario
+            </h3>
+            <div className="flex items-center gap-3">
+              <Select
+                value={currentRole || "participant"}
+                onValueChange={(value) => handleRoleChange(value as AppRole)}
+              >
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue placeholder="Seleccionar rol" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="participant">Participante</SelectItem>
+                  <SelectItem value="mentor">Mentora</SelectItem>
+                  <SelectItem value="judge">Juez</SelectItem>
+                  <SelectItem value="volunteer">Voluntario</SelectItem>
+                  <SelectItem value="admin">Administrador</SelectItem>
+                </SelectContent>
+              </Select>
+              {selectedRole && selectedRole !== user.role && (
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={handleSaveRole}
+                  disabled={updateRoleMutation.isPending}
+                >
+                  {updateRoleMutation.isPending ? "Guardando..." : "Guardar rol"}
+                </Button>
+              )}
+              {currentRole && <RoleBadge role={currentRole} />}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Cambiar el rol principal del usuario. Los administradores tienen acceso completo al panel de gestión.
+            </p>
           </div>
 
           <Separator />
