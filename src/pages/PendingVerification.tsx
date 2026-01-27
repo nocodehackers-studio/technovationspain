@@ -11,7 +11,7 @@ export default function PendingVerification() {
 
   // Redirect if already verified
   if (!isLoading && isVerified) {
-    navigate('/events', { replace: true });
+    navigate('/dashboard', { replace: true });
     return null;
   }
 
