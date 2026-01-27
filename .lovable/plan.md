@@ -1,85 +1,97 @@
 
-# Plan: Corregir Redirección de Mentores a Dashboard
+# Plan: Corregir Pantalla de Confirmación Vacía para Mentores
 
 ## Problema Identificado
 
-En el archivo `src/pages/PendingVerification.tsx`, línea 14, cuando un usuario es verificado, se le redirige a `/events` en lugar de `/dashboard`:
+Cuando un usuario selecciona un tipo de entrada **sin acompañantes** (como la entrada de Mentor), la pantalla de confirmación (paso final) aparece vacía porque hay una inconsistencia en la lógica de steps.
 
-```typescript
-// Línea 14 - PROBLEMA
-if (!isLoading && isVerified) {
-  navigate('/events', { replace: true });  // ❌ Debería ser /dashboard
-  return null;
-}
-```
+### Causa del Bug
 
-Esto afecta a **todos los usuarios no-admin** (mentores, jueces, voluntarios, participantes) que pasan por la página de verificación pendiente.
-
-## Flujo del Bug
+En `src/pages/events/EventRegistrationPage.tsx`:
 
 ```text
-Mentora se registra
-       │
-       ▼
-Completa onboarding
-       │
-       ▼
-Estado: "pending" ────► Redirigida a /pending-verification
-       │
-       ▼
-Admin verifica la cuenta
-       │
-       ▼
-Mentora refresca o vuelve
-       │
-       ▼
-PendingVerification detecta isVerified=true
-       │
-       ▼
-navigate('/events') ◄── BUG: Debería ser /dashboard
+Línea 94:  totalSteps = maxCompanions > 0 ? 4 : 3
+           ─────────────────────────────────────
+           Para mentores: totalSteps = 3
+
+Línea 220: setStep(maxCompanions > 0 ? 3 : 4)
+           ─────────────────────────────────────
+           Para mentores: salta de step 2 a step 4
+
+Línea 558: {step === totalSteps && (...)}
+           ─────────────────────────────────────
+           Condición: step === 3 (pero step es 4)
+           Resultado: El contenido NO se muestra
 ```
 
-## Solución
+### Flujo del Bug
 
-Cambiar la redirección de `/events` a `/dashboard` en `PendingVerification.tsx`:
+```text
+Mentora en paso 2 (Datos)
+        │
+        ▼
+Click "Siguiente"
+        │
+        ▼
+handleNext() → setStep(4)   ◄── Salta a step 4
+        │
+        ▼
+totalSteps = 3
+        │
+        ▼
+Condición: step === totalSteps  →  4 === 3  →  FALSE
+        │
+        ▼
+Contenido de confirmación NO se renderiza
+        │
+        ▼
+Pantalla vacía ❌
+```
+
+## Soluccion
+
+Cambiar la lógica en línea 220 para que cuando no hay acompañantes, salte a step 3 (que es igual a totalSteps), no a step 4:
+
+```typescript
+// ANTES (línea 220)
+setStep(maxCompanions > 0 ? 3 : 4);
+
+// DESPUÉS
+setStep(maxCompanions > 0 ? 3 : 3);  // O simplemente: setStep(3)
+```
+
+Pero esto rompe la lógica de navegación hacia atrás. La solución correcta es simplificar toda la lógica para que siempre use `totalSteps` como referencia:
 
 ```typescript
 // ANTES
-if (!isLoading && isVerified) {
-  navigate('/events', { replace: true });
-  return null;
-}
+setStep(maxCompanions > 0 ? 3 : 4);
 
 // DESPUÉS
-if (!isLoading && isVerified) {
-  navigate('/dashboard', { replace: true });
-  return null;
-}
+setStep(totalSteps);  // Siempre ir al último paso
 ```
 
-## Archivo a Modificar
+Y ajustar también `handleBack`:
 
-| Archivo | Cambio |
-|---------|--------|
-| `src/pages/PendingVerification.tsx` | Línea 14: `/events` → `/dashboard` |
+```typescript
+// ANTES (línea 233)
+if (step === 4 && maxCompanions === 0) {
+
+// DESPUÉS
+if (step === totalSteps && maxCompanions === 0) {
+```
+
+## Archivos a Modificar
+
+| Archivo | Líneas | Cambio |
+|---------|--------|--------|
+| `src/pages/events/EventRegistrationPage.tsx` | 220 | Cambiar `setStep(maxCompanions > 0 ? 3 : 4)` por `setStep(totalSteps)` |
+| `src/pages/events/EventRegistrationPage.tsx` | 233 | Cambiar `step === 4` por `step === totalSteps` |
 
 ## Resultado Esperado
 
-Tras el cambio:
-- Mentoras verificadas → redirigidas a `/dashboard`
-- Jueces verificados → redirigidos a `/dashboard`  
-- Voluntarios verificados → redirigidos a `/dashboard`
-- Participantes verificados → redirigidos a `/dashboard`
-- Admins → siguen yendo a `/admin` (gestionado en otros puntos del código)
+| Tipo de entrada | totalSteps | Flujo de steps |
+|-----------------|------------|----------------|
+| Con acompañantes | 4 | 1 → 2 → 3 → 4 (confirmar) |
+| Sin acompañantes | 3 | 1 → 2 → 3 (confirmar) |
 
-## Verificación del Resto del Flujo
-
-Revisé los demás archivos y la lógica es correcta:
-
-| Archivo | Redirección para no-admins | Estado |
-|---------|---------------------------|--------|
-| `AuthCallback.tsx` | `/dashboard` | Correcto |
-| `Index.tsx` (OTP verify) | `/dashboard` | Correcto |
-| `Index.tsx` (ya logueado) | `/dashboard` | Correcto |
-| `Onboarding.tsx` | `/dashboard` | Correcto |
-| `PendingVerification.tsx` | `/events` | **A corregir** |
+Tras el fix, la pantalla de confirmación se mostrará correctamente para todos los tipos de entrada.
