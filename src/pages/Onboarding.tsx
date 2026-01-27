@@ -2,12 +2,14 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { Sparkles, User, Calendar, Mail, ArrowRight, ArrowLeft, GraduationCap, Users, Scale } from 'lucide-react';
+import { Sparkles, User, Calendar, Mail, ArrowRight, ArrowLeft, GraduationCap, Users, Scale, Building2 } from 'lucide-react';
 import { z } from 'zod';
 import { AppRole } from '@/types/database';
 
@@ -63,6 +65,7 @@ type OnboardingData = {
   date_of_birth: string;
   role: AllowedRole;
   tg_email: string;
+  hub_id: string;
   phone: string;
   postal_code: string;
 };
@@ -89,8 +92,22 @@ export default function Onboarding() {
     date_of_birth: '',
     role: initialRole,
     tg_email: user?.email || '',
+    hub_id: '',
     phone: '',
     postal_code: '',
+  });
+
+  // Fetch available hubs
+  const { data: hubs } = useQuery({
+    queryKey: ["available-hubs"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("hubs")
+        .select("id, name, location")
+        .order("name", { ascending: true });
+      if (error) throw error;
+      return data;
+    },
   });
 
   // Update role if URL changes
@@ -225,6 +242,7 @@ export default function Onboarding() {
         last_name: formData.last_name.trim(),
         date_of_birth: formData.date_of_birth,
         tg_email: formData.tg_email?.trim() || null,
+        hub_id: formData.hub_id || null,
         phone: formData.phone?.trim() || null,
         postal_code: formData.postal_code?.trim() || null,
         onboarding_completed: true,
@@ -465,6 +483,35 @@ export default function Onboarding() {
                       <p className="text-sm text-destructive">{errors.tg_email}</p>
                     )}
                   </div>
+
+                  {/* Hub selector - optional */}
+                  {hubs && hubs.length > 0 && (
+                    <div className="space-y-2">
+                      <Label htmlFor="hub_id">Hub Regional (opcional)</Label>
+                      <div className="relative">
+                        <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none z-10" />
+                        <Select
+                          value={formData.hub_id}
+                          onValueChange={(value) => updateField('hub_id', value === 'none' ? '' : value)}
+                        >
+                          <SelectTrigger className="pl-10">
+                            <SelectValue placeholder="Selecciona tu hub..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">Sin hub asignado</SelectItem>
+                            {hubs.map((hub) => (
+                              <SelectItem key={hub.id} value={hub.id}>
+                                {hub.name}{hub.location ? ` (${hub.location})` : ''}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Si no conoces tu hub, puedes dejarlo en blanco. Tu mentor o el admin puede asignártelo después.
+                      </p>
+                    </div>
+                  )}
 
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
