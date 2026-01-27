@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { 
   User, 
   Calendar, 
@@ -11,7 +11,9 @@ import {
   ArrowRight, 
   CheckCircle2, 
   Clock, 
-  LogOut
+  LogOut,
+  Building2,
+  ChevronDown
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
@@ -21,9 +23,52 @@ import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { useToast } from '@/hooks/use-toast';
 
 export default function ParticipantDashboard() {
   const { user, profile, role, signOut, isVerified } = useAuth();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  // Fetch available hubs
+  const { data: hubs } = useQuery({
+    queryKey: ['available-hubs'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('hubs')
+        .select('id, name, location')
+        .order('name', { ascending: true });
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  // Mutation to update hub
+  const updateHubMutation = useMutation({
+    mutationFn: async (hubId: string | null) => {
+      if (!user) throw new Error('No user');
+      const { error } = await supabase
+        .from('profiles')
+        .update({ hub_id: hubId })
+        .eq('id', user.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['profile'] });
+      toast({
+        title: 'Hub actualizado',
+        description: 'Tu hub regional ha sido actualizado correctamente.',
+      });
+    },
+    onError: () => {
+      toast({
+        title: 'Error',
+        description: 'No se pudo actualizar el hub.',
+        variant: 'destructive',
+      });
+    },
+  });
 
   // Fetch upcoming events
   const { data: upcomingEvents, isLoading: eventsLoading } = useQuery({
@@ -224,6 +269,37 @@ export default function ParticipantDashboard() {
                       </span>
                     )}
                   </div>
+                  {/* Hub selector */}
+                  {hubs && hubs.length > 0 && (
+                    <>
+                      <Separator />
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <Building2 className="h-4 w-4" />
+                          <span>Hub Regional</span>
+                        </div>
+                        <Select
+                          value={profile?.hub_id || 'none'}
+                          onValueChange={(value) => {
+                            updateHubMutation.mutate(value === 'none' ? null : value);
+                          }}
+                          disabled={updateHubMutation.isPending}
+                        >
+                          <SelectTrigger className="h-9 text-sm">
+                            <SelectValue placeholder="Selecciona tu hub..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">Sin hub asignado</SelectItem>
+                            {hubs.map((hub) => (
+                              <SelectItem key={hub.id} value={hub.id}>
+                                {hub.name}{hub.location ? ` (${hub.location})` : ''}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </>
+                  )}
                 </div>
               </CardContent>
             </Card>
