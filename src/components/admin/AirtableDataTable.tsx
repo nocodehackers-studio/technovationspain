@@ -59,6 +59,11 @@ export interface FilterableColumn {
   options: FilterOption[];
 }
 
+export interface ExportData<TData> {
+  rows: TData[];
+  visibleColumns: { id: string; header: string }[];
+}
+
 interface AirtableDataTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[];
   data: TData[];
@@ -66,7 +71,7 @@ interface AirtableDataTableProps<TData, TValue> {
   filterableColumns?: FilterableColumn[];
   initialFilters?: Record<string, string>;
   onAddColumn?: () => void;
-  onExport?: () => void;
+  onExport?: (exportData: ExportData<TData>) => void;
   loading?: boolean;
   hiddenColumns?: string[];
   onHiddenColumnsChange?: (columns: string[]) => void;
@@ -232,7 +237,18 @@ export function AirtableDataTable<TData, TValue>({
 
             {/* Export Button */}
             {onExport && (
-              <Button variant="outline" size="sm" onClick={onExport}>
+              <Button variant="outline" size="sm" onClick={() => {
+                const visibleColumns = table.getVisibleLeafColumns()
+                  .filter(col => col.id !== "actions")
+                  .map(col => ({
+                    id: col.id,
+                    header: typeof col.columnDef.header === "string" 
+                      ? col.columnDef.header 
+                      : col.id,
+                  }));
+                const rows = table.getFilteredRowModel().rows.map(row => row.original);
+                onExport({ rows, visibleColumns });
+              }}>
                 <Download className="h-4 w-4 sm:mr-2" />
                 <span className="hidden sm:inline">Exportar</span>
               </Button>
