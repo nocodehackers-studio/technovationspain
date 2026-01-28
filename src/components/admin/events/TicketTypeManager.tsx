@@ -16,9 +16,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
-import { Plus, Edit, Trash2, Users, UserPlus } from "lucide-react";
+import { Plus, Edit, Trash2, Users, UserPlus, Settings } from "lucide-react";
 import { ConfirmDialog } from "@/components/admin/ConfirmDialog";
 
 interface TicketType {
@@ -331,7 +332,7 @@ const openEditDialog = (ticket?: TicketType) => {
 
       {/* Edit/Create Dialog */}
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg max-h-[85vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>
               {selectedTicket ? "Editar Tipo de Entrada" : "Nuevo Tipo de Entrada"}
@@ -340,153 +341,193 @@ const openEditDialog = (ticket?: TicketType) => {
               Configura los detalles del tipo de entrada
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="ticket-name">Nombre *</Label>
-              <Input
-                id="ticket-name"
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                placeholder="Ej: Entrada Participante"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="ticket-description">Descripción</Label>
-              <Textarea
-                id="ticket-description"
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                placeholder="Describe quién puede usar esta entrada..."
-                rows={2}
-              />
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="max-capacity">Capacidad máxima</Label>
-                <Input
-                  id="max-capacity"
-                  type="number"
-                  min="1"
-                  value={formData.max_capacity}
-                  onChange={(e) => setFormData({ ...formData, max_capacity: parseInt(e.target.value) || 1 })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="max-companions">Máx. acompañantes</Label>
-                <Input
-                  id="max-companions"
-                  type="number"
-                  min="0"
-                  value={formData.max_companions}
-                  onChange={(e) => setFormData({ ...formData, max_companions: parseInt(e.target.value) || 0 })}
-                />
-              </div>
-            </div>
-
-            {formData.max_companions > 0 && (
-              <div className="space-y-3 p-4 border rounded-lg bg-muted/30">
-                <Label>Datos requeridos de acompañantes</Label>
-                <div className="flex items-center space-x-2">
-                  <Checkbox
-                    id="anonymous-companions"
-                    checked={formData.anonymous_companions}
-                    onCheckedChange={(checked) => setFormData({ ...formData, anonymous_companions: !!checked })}
+          
+          <Tabs defaultValue="general" className="flex-1 overflow-hidden flex flex-col">
+            <TabsList className="grid w-full grid-cols-3">
+              <TabsTrigger value="general">General</TabsTrigger>
+              <TabsTrigger value="companions" disabled={formData.max_companions === 0}>
+                <UserPlus className="h-4 w-4 mr-1" />
+                Acompañantes
+              </TabsTrigger>
+              <TabsTrigger value="config">
+                <Settings className="h-4 w-4 mr-1" />
+                Configuración
+              </TabsTrigger>
+            </TabsList>
+            
+            <div className="flex-1 overflow-y-auto py-4">
+              {/* Tab 1: General */}
+              <TabsContent value="general" className="space-y-4 mt-0">
+                <div className="space-y-2">
+                  <Label htmlFor="ticket-name">Nombre *</Label>
+                  <Input
+                    id="ticket-name"
+                    value={formData.name}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    placeholder="Ej: Entrada Participante"
                   />
-                  <Label htmlFor="anonymous-companions" className="font-normal">
-                    Sin datos (entradas anónimas)
-                  </Label>
                 </div>
-                
-                {!formData.anonymous_companions && (
-                  <div className="space-y-2 pt-2">
-                    <p className="text-sm text-muted-foreground">Campos a solicitar:</p>
-                    <div className="flex flex-wrap gap-x-4 gap-y-2">
-                      {COMPANION_FIELDS.map((field) => (
-                        <div key={field.value} className="flex items-center space-x-2">
-                          <Checkbox
-                            id={`companion-field-${field.value}`}
-                            checked={formData.companion_fields_config.includes(field.value)}
-                            onCheckedChange={() => toggleCompanionField(field.value)}
-                          />
-                          <Label htmlFor={`companion-field-${field.value}`} className="font-normal">
-                            {field.label}
-                          </Label>
-                        </div>
-                      ))}
+
+                <div className="space-y-2">
+                  <Label htmlFor="ticket-description">Descripción</Label>
+                  <Textarea
+                    id="ticket-description"
+                    value={formData.description}
+                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                    placeholder="Describe quién puede usar esta entrada..."
+                    rows={2}
+                  />
+                </div>
+
+                <div className="grid gap-4 grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="max-capacity">Capacidad máxima</Label>
+                    <Input
+                      id="max-capacity"
+                      type="number"
+                      min="1"
+                      value={formData.max_capacity}
+                      onChange={(e) => setFormData({ ...formData, max_capacity: parseInt(e.target.value) || 1 })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="max-companions">Máx. acompañantes</Label>
+                    <Input
+                      id="max-companions"
+                      type="number"
+                      min="0"
+                      value={formData.max_companions}
+                      onChange={(e) => setFormData({ ...formData, max_companions: parseInt(e.target.value) || 0 })}
+                    />
+                  </div>
+                </div>
+              </TabsContent>
+              
+              {/* Tab 2: Companions */}
+              <TabsContent value="companions" className="space-y-4 mt-0">
+                {formData.max_companions > 0 ? (
+                  <div className="space-y-4">
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id="anonymous-companions"
+                        checked={formData.anonymous_companions}
+                        onCheckedChange={(checked) => setFormData({ ...formData, anonymous_companions: !!checked })}
+                      />
+                      <Label htmlFor="anonymous-companions" className="font-normal">
+                        Sin datos (entradas anónimas)
+                      </Label>
                     </div>
+                    
+                    {!formData.anonymous_companions && (
+                      <div className="space-y-3 p-4 border rounded-lg bg-muted/30">
+                        <Label>Campos a solicitar</Label>
+                        <p className="text-sm text-muted-foreground">
+                          Selecciona qué datos se pedirán a cada acompañante
+                        </p>
+                        <div className="grid grid-cols-2 gap-3">
+                          {COMPANION_FIELDS.map((field) => (
+                            <div key={field.value} className="flex items-center space-x-2">
+                              <Checkbox
+                                id={`companion-field-${field.value}`}
+                                checked={formData.companion_fields_config.includes(field.value)}
+                                onCheckedChange={() => toggleCompanionField(field.value)}
+                              />
+                              <Label htmlFor={`companion-field-${field.value}`} className="font-normal">
+                                {field.label}
+                              </Label>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {formData.anonymous_companions && (
+                      <div className="p-4 border rounded-lg bg-muted/30 text-center">
+                        <p className="text-sm text-muted-foreground">
+                          Los acompañantes recibirán entradas anónimas sin necesidad de introducir datos personales.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="p-8 text-center text-muted-foreground">
+                    <UserPlus className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                    <p>Establece un número de acompañantes mayor que 0 en la pestaña General para configurar esta sección.</p>
                   </div>
                 )}
-              </div>
-            )}
-
-            <div className="space-y-2">
-              <Label>Roles permitidos</Label>
-              <p className="text-sm text-muted-foreground mb-2">
-                Si no seleccionas ninguno, estará disponible para todos los roles.
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {AVAILABLE_ROLES.map((role) => (
-                  <div key={role.value} className="flex items-center space-x-2">
-                    <Checkbox
-                      id={`role-${role.value}`}
-                      checked={formData.allowed_roles.includes(role.value)}
-                      onCheckedChange={() => toggleRole(role.value)}
-                    />
-                    <Label htmlFor={`role-${role.value}`} className="font-normal">
-                      {role.label}
-                    </Label>
+              </TabsContent>
+              
+              {/* Tab 3: Configuration */}
+              <TabsContent value="config" className="space-y-4 mt-0">
+                <div className="space-y-3">
+                  <Label>Roles permitidos</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Si no seleccionas ninguno, estará disponible para todos los roles.
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {AVAILABLE_ROLES.map((role) => (
+                      <div key={role.value} className="flex items-center space-x-2">
+                        <Checkbox
+                          id={`role-${role.value}`}
+                          checked={formData.allowed_roles.includes(role.value)}
+                          onCheckedChange={() => toggleRole(role.value)}
+                        />
+                        <Label htmlFor={`role-${role.value}`} className="font-normal">
+                          {role.label}
+                        </Label>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                </div>
+
+                <div className="space-y-3 pt-4 border-t">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label htmlFor="requires-verification">Requiere verificación</Label>
+                      <p className="text-sm text-muted-foreground">
+                        Solo usuarios verificados pueden registrarse
+                      </p>
+                    </div>
+                    <Switch
+                      id="requires-verification"
+                      checked={formData.requires_verification}
+                      onCheckedChange={(checked) => setFormData({ ...formData, requires_verification: checked })}
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label htmlFor="requires-team">Requiere equipo</Label>
+                      <p className="text-sm text-muted-foreground">
+                        El usuario debe pertenecer a un equipo
+                      </p>
+                    </div>
+                    <Switch
+                      id="requires-team"
+                      checked={formData.requires_team}
+                      onCheckedChange={(checked) => setFormData({ ...formData, requires_team: checked })}
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label htmlFor="is-active">Activo</Label>
+                      <p className="text-sm text-muted-foreground">
+                        Mostrar esta entrada en el formulario de registro
+                      </p>
+                    </div>
+                    <Switch
+                      id="is-active"
+                      checked={formData.is_active}
+                      onCheckedChange={(checked) => setFormData({ ...formData, is_active: checked })}
+                    />
+                  </div>
+                </div>
+              </TabsContent>
             </div>
-
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <Label htmlFor="requires-verification">Requiere verificación</Label>
-                  <p className="text-sm text-muted-foreground">
-                    Solo usuarios verificados pueden registrarse
-                  </p>
-                </div>
-                <Switch
-                  id="requires-verification"
-                  checked={formData.requires_verification}
-                  onCheckedChange={(checked) => setFormData({ ...formData, requires_verification: checked })}
-                />
-              </div>
-
-              <div className="flex items-center justify-between">
-                <div>
-                  <Label htmlFor="requires-team">Requiere equipo</Label>
-                  <p className="text-sm text-muted-foreground">
-                    El usuario debe pertenecer a un equipo
-                  </p>
-                </div>
-                <Switch
-                  id="requires-team"
-                  checked={formData.requires_team}
-                  onCheckedChange={(checked) => setFormData({ ...formData, requires_team: checked })}
-                />
-              </div>
-
-              <div className="flex items-center justify-between">
-                <div>
-                  <Label htmlFor="is-active">Activo</Label>
-                  <p className="text-sm text-muted-foreground">
-                    Mostrar esta entrada en el formulario de registro
-                  </p>
-                </div>
-                <Switch
-                  id="is-active"
-                  checked={formData.is_active}
-                  onCheckedChange={(checked) => setFormData({ ...formData, is_active: checked })}
-                />
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
+          </Tabs>
+          
+          <DialogFooter className="pt-4 border-t">
             <Button variant="outline" onClick={() => setEditDialogOpen(false)}>
               Cancelar
             </Button>
