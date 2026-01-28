@@ -38,6 +38,7 @@ const menuItems = [
   { title: "Eventos", url: "/admin/events", icon: Calendar },
   { title: "Talleres", url: "/admin/workshops", icon: GraduationCap },
   { title: "Importar Usuarios", url: "/admin/import-csv", icon: Upload },
+  { title: "Importar Equipos", url: "/admin/import-teams", icon: UsersRound },
   { title: "Reportes", url: "/admin/reports", icon: BarChart3 },
 ];
 

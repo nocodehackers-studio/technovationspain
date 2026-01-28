@@ -30,6 +30,7 @@ import AdminEvents from "./pages/admin/AdminEvents";
 import AdminEventEditor from "./pages/admin/AdminEventEditor";
 import AdminWorkshops from "./pages/admin/AdminWorkshops";
 import AdminImportUnified from "./pages/admin/AdminImportUnified";
+import AdminImportTeams from "./pages/admin/AdminImportTeams";
 import AdminReports from "./pages/admin/AdminReports";
 import AdminSettings from "./pages/admin/AdminSettings";
 
@@ -115,6 +116,11 @@ const App = () => (
             <Route path="/admin/import-csv" element={
               <ProtectedRoute requiredRoles={["admin"]}>
                 <AdminImportUnified />
+              </ProtectedRoute>
+            } />
+            <Route path="/admin/import-teams" element={
+              <ProtectedRoute requiredRoles={["admin"]}>
+                <AdminImportTeams />
               </ProtectedRoute>
             } />
             <Route path="/admin/reports" element={
