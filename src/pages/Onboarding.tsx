@@ -9,11 +9,11 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { Sparkles, User, Calendar, Mail, ArrowRight, ArrowLeft, GraduationCap, Users, Scale, Building2 } from 'lucide-react';
+import { Sparkles, User, Calendar, Mail, ArrowRight, ArrowLeft, GraduationCap, Users, Scale, Building2, Heart } from 'lucide-react';
 import { z } from 'zod';
 import { AppRole } from '@/types/database';
 
-type AllowedRole = 'participant' | 'mentor' | 'judge';
+type AllowedRole = 'participant' | 'mentor' | 'judge' | 'volunteer';
 
 const roleConfig: Record<AllowedRole, { 
   label: string; 
@@ -22,6 +22,7 @@ const roleConfig: Record<AllowedRole, {
   ageMax: number | null;
   ageLabel: string;
   color: string;
+  requiresTGEmail: boolean;
 }> = {
   participant: { 
     label: 'Estudiante', 
@@ -30,6 +31,7 @@ const roleConfig: Record<AllowedRole, {
     ageMax: 18,
     ageLabel: '7-18 años',
     color: 'text-primary',
+    requiresTGEmail: true,
   },
   mentor: { 
     label: 'Mentora', 
@@ -38,6 +40,7 @@ const roleConfig: Record<AllowedRole, {
     ageMax: null,
     ageLabel: '18+ años',
     color: 'text-secondary',
+    requiresTGEmail: true,
   },
   judge: { 
     label: 'Juez', 
@@ -46,6 +49,16 @@ const roleConfig: Record<AllowedRole, {
     ageMax: null,
     ageLabel: '18+ años',
     color: 'text-accent',
+    requiresTGEmail: true,
+  },
+  volunteer: { 
+    label: 'Voluntario/a', 
+    icon: Heart, 
+    ageMin: 18, 
+    ageMax: null,
+    ageLabel: '18+ años',
+    color: 'text-accent',
+    requiresTGEmail: false,
   },
 };
 
@@ -53,7 +66,7 @@ const createOnboardingSchema = (role: AllowedRole) => z.object({
   first_name: z.string().min(1, 'El nombre es obligatorio').max(100),
   last_name: z.string().min(1, 'Los apellidos son obligatorios').max(100),
   date_of_birth: z.string().min(1, 'La fecha de nacimiento es obligatoria'),
-  role: z.enum(['participant', 'mentor', 'judge']),
+  role: z.enum(['participant', 'mentor', 'judge', 'volunteer']),
   tg_email: z.string().email('Email inválido').optional().or(z.literal('')),
   phone: z.string().max(20).optional(),
   postal_code: z.string().max(10).optional(),
@@ -78,7 +91,7 @@ export default function Onboarding() {
   
   // Get role from URL params or default to participant
   const urlRole = searchParams.get('role') as AllowedRole | null;
-  const initialRole: AllowedRole = urlRole && ['participant', 'mentor', 'judge'].includes(urlRole) 
+  const initialRole: AllowedRole = urlRole && ['participant', 'mentor', 'judge', 'volunteer'].includes(urlRole) 
     ? urlRole 
     : 'participant';
   
@@ -112,7 +125,7 @@ export default function Onboarding() {
 
   // Update role if URL changes
   useEffect(() => {
-    if (urlRole && ['participant', 'mentor', 'judge'].includes(urlRole)) {
+    if (urlRole && ['participant', 'mentor', 'judge', 'volunteer'].includes(urlRole)) {
       setFormData(prev => ({ ...prev, role: urlRole }));
     }
   }, [urlRole]);
@@ -219,6 +232,9 @@ export default function Onboarding() {
     setIsLoading(true);
 
     try {
+      // Volunteers are auto-verified (no Technovation Global check needed)
+      const isVolunteer = formData.role === 'volunteer';
+      
       // Check if tg_email is in authorized_students (whitelist) - only for participants
       let isInWhitelist = false;
       let authorizedData: any = null;
@@ -236,7 +252,7 @@ export default function Onboarding() {
         }
       }
 
-      // Update profile with verification status based on whitelist
+      // Update profile with verification status based on whitelist or volunteer role
       const profileUpdate: any = {
         first_name: formData.first_name.trim(),
         last_name: formData.last_name.trim(),
@@ -247,6 +263,11 @@ export default function Onboarding() {
         postal_code: formData.postal_code?.trim() || null,
         onboarding_completed: true,
       };
+
+      // Volunteers are auto-verified
+      if (isVolunteer) {
+        profileUpdate.verification_status = 'verified';
+      }
 
       // If in whitelist (participant), auto-verify and copy TG data
       if (isInWhitelist && authorizedData) {
@@ -299,12 +320,14 @@ export default function Onboarding() {
       // Small delay to ensure React processes the new auth state
       await new Promise(resolve => setTimeout(resolve, 150));
 
-      if (wasVerified || isInWhitelist) {
+      if (wasVerified || isInWhitelist || isVolunteer) {
         toast({
           title: '¡Bienvenida!',
           description: 'Tu cuenta ha sido verificada correctamente.',
         });
-        navigate('/dashboard', { replace: true });
+        // Volunteers go to their specific dashboard
+        const redirectPath = isVolunteer ? '/voluntario/dashboard' : '/dashboard';
+        navigate(redirectPath, { replace: true });
       } else {
         toast({
           title: 'Registro completado',
@@ -442,6 +465,9 @@ export default function Onboarding() {
                       {formData.role === 'judge' && 
                         'Los jueces evalúan los proyectos de las estudiantes en eventos regionales y nacionales.'
                       }
+                      {formData.role === 'volunteer' && 
+                        'Los voluntarios apoyan en la logística y organización de eventos.'
+                      }
                     </p>
                   </div>
 
@@ -456,33 +482,47 @@ export default function Onboarding() {
                 </>
               ) : (
                 <>
-                  <div className="space-y-2">
-                    <Label htmlFor="tg_email">
-                      {formData.role === 'participant' 
-                        ? 'Email en Technovation Global'
-                        : 'Email de contacto'
-                      }
-                    </Label>
-                    <div className="relative">
-                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                      <Input
-                        id="tg_email"
-                        type="email"
-                        placeholder="email@technovation.org"
-                        value={formData.tg_email}
-                        onChange={(e) => updateField('tg_email', e.target.value)}
-                        className="pl-10"
-                      />
+                  {/* TG Email - Only show for roles that require it */}
+                  {currentRoleConfig.requiresTGEmail && (
+                    <div className="space-y-2">
+                      <Label htmlFor="tg_email">
+                        {formData.role === 'participant' 
+                          ? 'Email en Technovation Global'
+                          : 'Email de contacto'
+                        }
+                      </Label>
+                      <div className="relative">
+                        <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          id="tg_email"
+                          type="email"
+                          placeholder="email@technovation.org"
+                          value={formData.tg_email}
+                          onChange={(e) => updateField('tg_email', e.target.value)}
+                          className="pl-10"
+                        />
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {formData.role === 'participant'
+                          ? 'Si ya estás registrada en Technovation Global, introduce el email que usaste allí.'
+                          : 'Email donde podemos contactarte para coordinación de eventos.'}
+                      </p>
+                      {errors.tg_email && (
+                        <p className="text-sm text-destructive">{errors.tg_email}</p>
+                      )}
                     </div>
-                    <p className="text-xs text-muted-foreground">
-                      {formData.role === 'participant'
-                        ? 'Si ya estás registrada en Technovation Global, introduce el email que usaste allí.'
-                        : 'Email donde podemos contactarte para coordinación de eventos.'}
-                    </p>
-                    {errors.tg_email && (
-                      <p className="text-sm text-destructive">{errors.tg_email}</p>
-                    )}
-                  </div>
+                  )}
+
+                  {/* Volunteer info message */}
+                  {formData.role === 'volunteer' && (
+                    <div className="rounded-lg bg-accent/10 border border-accent/20 p-4">
+                      <p className="text-sm text-muted-foreground">
+                        <Heart className="inline h-4 w-4 mr-1 text-accent" />
+                        ¡Gracias por querer ser voluntario/a! Tu cuenta será verificada automáticamente 
+                        y podrás apuntarte a eventos desde tu dashboard.
+                      </p>
+                    </div>
+                  )}
 
                   {/* Hub selector - optional */}
                   {hubs && hubs.length > 0 && (

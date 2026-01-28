@@ -20,6 +20,10 @@ import RegisterSelect from "./pages/register/RegisterSelect";
 import RegisterStudent from "./pages/register/RegisterStudent";
 import RegisterMentor from "./pages/register/RegisterMentor";
 import RegisterJudge from "./pages/register/RegisterJudge";
+import RegisterVolunteer from "./pages/register/RegisterVolunteer";
+
+// Volunteer Pages
+import VolunteerDashboard from "./pages/volunteer/VolunteerDashboard";
 
 // Admin Pages
 import AdminDashboard from "./pages/admin/AdminDashboard";
@@ -65,6 +69,15 @@ const App = () => (
             <Route path="/register/mentor" element={<RegisterMentor />} />
             <Route path="/register/judge" element={<RegisterJudge />} />
             
+            {/* Volunteer registration (public) */}
+            <Route path="/voluntario" element={<RegisterVolunteer />} />
+            
+            {/* Volunteer dashboard (protected) */}
+            <Route path="/voluntario/dashboard" element={
+              <ProtectedRoute requiredRoles={["volunteer", "admin"]}>
+                <VolunteerDashboard />
+              </ProtectedRoute>
+            } />
             {/* Protected routes */}
             <Route path="/onboarding" element={
               <ProtectedRoute>
