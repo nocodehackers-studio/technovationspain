@@ -29,7 +29,7 @@ import AdminHubs from "./pages/admin/AdminHubs";
 import AdminEvents from "./pages/admin/AdminEvents";
 import AdminEventEditor from "./pages/admin/AdminEventEditor";
 import AdminWorkshops from "./pages/admin/AdminWorkshops";
-import AdminImportCSV from "./pages/admin/AdminImportCSV";
+import AdminImportUnified from "./pages/admin/AdminImportUnified";
 import AdminReports from "./pages/admin/AdminReports";
 import AdminSettings from "./pages/admin/AdminSettings";
 
@@ -114,7 +114,7 @@ const App = () => (
             } />
             <Route path="/admin/import-csv" element={
               <ProtectedRoute requiredRoles={["admin"]}>
-                <AdminImportCSV />
+                <AdminImportUnified />
               </ProtectedRoute>
             } />
             <Route path="/admin/reports" element={

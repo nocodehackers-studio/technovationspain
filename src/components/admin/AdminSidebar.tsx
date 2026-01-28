@@ -37,7 +37,7 @@ const menuItems = [
   { title: "Hubs", url: "/admin/hubs", icon: Building2 },
   { title: "Eventos", url: "/admin/events", icon: Calendar },
   { title: "Talleres", url: "/admin/workshops", icon: GraduationCap },
-  { title: "Importar CSV", url: "/admin/import-csv", icon: Upload },
+  { title: "Importar Usuarios", url: "/admin/import-csv", icon: Upload },
   { title: "Reportes", url: "/admin/reports", icon: BarChart3 },
 ];
 
