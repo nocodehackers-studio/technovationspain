@@ -1,148 +1,131 @@
 
-# Plan: Proteger Datos Sensibles en Validación de QR
+# Plan: Proteger Datos Sensibles en authorized_students y authorized_users
 
 ## Resumen del Problema
 
-Actualmente, los voluntarios con acceso a `/validate` pueden ver datos personales sensibles de TODOS los asistentes registrados:
+Las tablas `authorized_students` y `authorized_users` contienen datos sensibles de menores y adultos que están siendo expuestos a través de las políticas RLS actuales:
 
 | Tabla | Datos Expuestos | Riesgo |
 |-------|-----------------|--------|
-| event_registrations | DNI, email, teléfono, tg_email | CRÍTICO |
-| companions | DNI | CRÍTICO |
-| team_members | user_id de todos los miembros | MEDIO |
-| teams | Todos los equipos | BAJO |
+| authorized_students | email, teléfono, email padres, nombre padres, escuela, edad | CRÍTICO (menores) |
+| authorized_users | email, teléfono, email padres, nombre padres, empresa, escuela | ALTO |
 
-## Solución Propuesta
+### Problema de Seguridad Actual
 
-Migrar la validación de tickets a una **Edge Function** que:
-1. Recibe el código QR
-2. Valida internamente (con acceso admin via service_role)
-3. Devuelve SOLO los datos necesarios para mostrar en pantalla
+La política `"Users can check their own authorization"` permite a los usuarios ver **todas las columnas** de su registro cuando buscan por email:
+
+```sql
+-- Política actual (INSEGURA)
+CREATE POLICY "Users can check their own authorization"
+ON public.authorized_students FOR SELECT
+USING (lower(email) = lower((SELECT profiles.email FROM profiles WHERE profiles.id = auth.uid())));
+```
+
+Un usuario autenticado puede ejecutar:
+```sql
+SELECT * FROM authorized_students WHERE email ILIKE 'mi@email.com'
+-- Devuelve: email, phone, parent_name, parent_email, school_name, age, etc.
+```
 
 ---
 
-## Arquitectura Actual vs Propuesta
+## Solución Propuesta
 
-### Actual (INSEGURO)
+### Enfoque: Vistas Seguras + RLS Restringido
 
-```text
-Voluntario
-    |
-    v
-Supabase Client (con RLS de voluntario)
-    |
-    v
-SELECT * FROM event_registrations  <-- Accede a DNI, email, etc.
-    |
-    v
-Frontend muestra nombre + tipo entrada
-```
+1. **Crear vistas públicas** que solo exponen columnas no sensibles
+2. **Restringir RLS** en tablas base para denegar SELECT directo a no-admins
+3. **Actualizar código** para usar las vistas seguras
+4. **Mantener triggers** que usan `SECURITY DEFINER` (ya tienen acceso admin interno)
 
-### Propuesto (SEGURO)
+---
+
+## Arquitectura
 
 ```text
-Voluntario
-    |
-    v
-Edge Function: validate-ticket
-    |
-    v
-Supabase Admin (service_role) - sin RLS
-    |
-    v
-Devuelve SOLO: { valid, name, ticketType, eventName, error }
+Usuario Normal                    Admin
+     |                              |
+     v                              v
+Vista: authorized_students_safe   Tabla: authorized_students
+(solo: id, email, tg_id,          (acceso completo)
+ matched_profile_id)
 ```
 
 ---
 
 ## Cambios en Base de Datos
 
-### 1. Restringir políticas RLS para voluntarios
-
-Eliminar acceso directo de voluntarios a tablas sensibles:
+### 1. Crear Vistas Seguras
 
 ```sql
--- Eliminar acceso de voluntarios a event_registrations (SELECT general)
-DROP POLICY IF EXISTS "Users can view own registrations" ON public.event_registrations;
+-- Vista segura para authorized_students
+-- Solo expone datos necesarios para verificación
+CREATE VIEW public.authorized_students_safe
+WITH (security_invoker=on) AS
+  SELECT 
+    id,
+    email,
+    tg_id,
+    matched_profile_id
+    -- EXCLUYE: phone, parent_name, parent_email, school_name, age, etc.
+  FROM public.authorized_students;
 
--- Nueva política: solo propietarios o admins
-CREATE POLICY "Users can view own registrations"
-ON public.event_registrations FOR SELECT
-USING (user_id = auth.uid() OR has_role(auth.uid(), 'admin'));
-
--- Eliminar acceso de voluntarios a companions
-DROP POLICY IF EXISTS "Users can view companions of own registrations" ON public.companions;
-
--- Nueva política: solo propietarios de la inscripción o admins
-CREATE POLICY "Users can view companions of own registrations"
-ON public.companions FOR SELECT
-USING (
-  event_registration_id IN (
-    SELECT id FROM event_registrations WHERE user_id = auth.uid()
-  ) 
-  OR has_role(auth.uid(), 'admin')
-);
-
--- Eliminar acceso de voluntarios a team_members
-DROP POLICY IF EXISTS "Users can view team members of their teams" ON public.team_members;
-
-CREATE POLICY "Users can view team members of their teams"
-ON public.team_members FOR SELECT
-USING (
-  team_id IN (SELECT get_user_team_ids(auth.uid()))
-  OR has_role(auth.uid(), 'admin')
-);
-
--- Eliminar acceso de voluntarios a teams
-DROP POLICY IF EXISTS "Team members can view their teams" ON public.teams;
-
-CREATE POLICY "Team members can view their teams"
-ON public.teams FOR SELECT
-USING (
-  id IN (SELECT team_id FROM team_members WHERE user_id = auth.uid())
-  OR has_role(auth.uid(), 'admin')
-);
+-- Vista segura para authorized_users
+CREATE VIEW public.authorized_users_safe
+WITH (security_invoker=on) AS
+  SELECT 
+    id,
+    email,
+    tg_id,
+    profile_type,
+    matched_profile_id
+    -- EXCLUYE: phone, parent_name, parent_email, school_name, company_name, etc.
+  FROM public.authorized_users;
 ```
 
-### 2. Mantener política UPDATE para check-in de voluntarios
-
-Los voluntarios sí necesitan poder hacer UPDATE para registrar el check-in, pero esto NO expone datos porque es solo escritura:
+### 2. Actualizar Políticas RLS en Tablas Base
 
 ```sql
--- Esta política YA EXISTE y es correcta
--- "Volunteers can update registrations for check-in"
--- Solo permite UPDATE, no SELECT
+-- AUTHORIZED_STUDENTS
+-- Eliminar política de usuarios que expone datos sensibles
+DROP POLICY IF EXISTS "Users can check their own authorization" ON public.authorized_students;
+
+-- Nueva política: Solo admins pueden SELECT directamente
+-- Los usuarios normales usarán la vista authorized_students_safe
+CREATE POLICY "Only admins can select authorized_students"
+ON public.authorized_students FOR SELECT
+USING (has_role(auth.uid(), 'admin'));
+
+-- Mantener política de admins para ALL operations
+-- (ya existe: "Admins can manage authorized students")
+
+-- AUTHORIZED_USERS
+DROP POLICY IF EXISTS "Users can check their own authorization" ON public.authorized_users;
+
+CREATE POLICY "Only admins can select authorized_users"
+ON public.authorized_users FOR SELECT
+USING (has_role(auth.uid(), 'admin'));
 ```
 
----
+### 3. Crear Políticas RLS para las Vistas
 
-## Nueva Edge Function: validate-ticket
+```sql
+-- Política para vista authorized_students_safe
+CREATE POLICY "Users can check own authorization via safe view"
+ON public.authorized_students_safe FOR SELECT
+USING (
+  lower(email) = lower((SELECT profiles.email FROM profiles WHERE profiles.id = auth.uid()))
+  OR has_role(auth.uid(), 'admin')
+);
 
-### Archivo: supabase/functions/validate-ticket/index.ts
-
-```typescript
-// Recibe: { qr_code: string }
-// Devuelve: {
-//   valid: boolean,
-//   error?: 'not_found' | 'already_checked_in' | 'wrong_date' | 'cancelled',
-//   registration?: {
-//     id: string,
-//     display_name: string,      // Solo nombre, sin apellidos completos
-//     ticket_type: string,
-//     event_name: string,
-//     team_name?: string
-//   }
-// }
+-- Política para vista authorized_users_safe
+CREATE POLICY "Users can check own authorization via safe view"
+ON public.authorized_users_safe FOR SELECT
+USING (
+  lower(email) = lower((SELECT profiles.email FROM profiles WHERE profiles.id = auth.uid()))
+  OR has_role(auth.uid(), 'admin')
+);
 ```
-
-### Flujo de la Edge Function
-
-1. Verificar JWT del usuario llamante
-2. Verificar que tiene rol `volunteer` o `admin`
-3. Buscar registro por qr_code (usando service_role - sin RLS)
-4. Validar: fecha, estado, check-in previo
-5. Si válido, hacer check-in automático
-6. Devolver respuesta mínima
 
 ---
 
@@ -150,210 +133,46 @@ Los voluntarios sí necesitan poder hacer UPDATE para registrar el check-in, per
 
 | Archivo | Cambio |
 |---------|--------|
-| `supabase/functions/validate-ticket/index.ts` | NUEVO - Edge Function |
-| `src/hooks/useTicketValidation.ts` | Llamar a Edge Function en vez de query directo |
-| `src/pages/validate/ValidatePage.tsx` | Adaptar a nueva respuesta |
+| `src/pages/Onboarding.tsx` | Usar `authorized_students_safe` y `authorized_users_safe` |
+
+**Nota**: Las páginas de admin (`AdminUsers.tsx`, `AdminDashboard.tsx`, `AdminImportCSV.tsx`, etc.) **no necesitan cambios** porque ya requieren rol admin y la política de admin sigue permitiendo acceso completo.
 
 ---
 
-## Implementación de la Edge Function
+## Cambios en Código
 
+### Onboarding.tsx
+
+**Antes (líneas 243-247):**
 ```typescript
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+const { data: authorized } = await supabase
+  .from('authorized_students')
+  .select('*')  // ← INSEGURO: obtiene todos los datos
+  .ilike('email', formData.tg_email.trim())
+  .maybeSingle();
+```
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
-
-interface ValidationResponse {
-  valid: boolean;
-  error?: 'not_found' | 'already_checked_in' | 'wrong_date' | 'cancelled';
-  registration?: {
-    id: string;
-    display_name: string;
-    ticket_type: string;
-    event_name: string;
-    team_name?: string;
-  };
-}
-
-Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
-
-  try {
-    // 1. Verificar autenticación
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: "No authorization header" }), {
-        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" }
-      });
-    }
-
-    // Cliente con token del usuario para verificar identidad
-    const supabaseUser = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_ANON_KEY")!,
-      { global: { headers: { Authorization: authHeader } } }
-    );
-
-    const { data: { user }, error: authError } = await supabaseUser.auth.getUser();
-    if (authError || !user) {
-      return new Response(JSON.stringify({ error: "Invalid token" }), {
-        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" }
-      });
-    }
-
-    // 2. Verificar rol (volunteer o admin)
-    const supabaseAdmin = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-    );
-
-    const { data: roles } = await supabaseAdmin
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", user.id);
-
-    const userRoles = roles?.map(r => r.role) || [];
-    if (!userRoles.includes("volunteer") && !userRoles.includes("admin")) {
-      return new Response(JSON.stringify({ error: "Unauthorized role" }), {
-        status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" }
-      });
-    }
-
-    // 3. Obtener código QR del body
-    const { qr_code } = await req.json();
-    if (!qr_code) {
-      return new Response(JSON.stringify({ valid: false, error: "not_found" }), {
-        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" }
-      });
-    }
-
-    // 4. Buscar registro (con admin client - sin RLS)
-    const { data: registration } = await supabaseAdmin
-      .from("event_registrations")
-      .select(`
-        id, qr_code, first_name, last_name, team_name,
-        checked_in_at, registration_status,
-        event:events(id, name, date),
-        ticket_type:event_ticket_types(name)
-      `)
-      .eq("qr_code", qr_code)
-      .maybeSingle();
-
-    // 5. Validar
-    if (!registration) {
-      return new Response(JSON.stringify({ valid: false, error: "not_found" }), {
-        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" }
-      });
-    }
-
-    if (registration.registration_status === "cancelled") {
-      return new Response(JSON.stringify({ valid: false, error: "cancelled" }), {
-        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" }
-      });
-    }
-
-    if (registration.checked_in_at || registration.registration_status === "checked_in") {
-      return new Response(JSON.stringify({ valid: false, error: "already_checked_in" }), {
-        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" }
-      });
-    }
-
-    // Verificar fecha del evento (Madrid timezone)
-    const eventDate = registration.event?.date;
-    if (eventDate) {
-      const today = new Date().toISOString().split('T')[0];
-      if (eventDate !== today) {
-        return new Response(JSON.stringify({ valid: false, error: "wrong_date" }), {
-          status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" }
-        });
-      }
-    }
-
-    // 6. Realizar check-in
-    await supabaseAdmin
-      .from("event_registrations")
-      .update({
-        checked_in_at: new Date().toISOString(),
-        checked_in_by: user.id,
-        registration_status: "checked_in"
-      })
-      .eq("id", registration.id);
-
-    // 7. Devolver respuesta mínima (SIN DNI, email, teléfono)
-    const response: ValidationResponse = {
-      valid: true,
-      registration: {
-        id: registration.id,
-        display_name: [registration.first_name, registration.last_name]
-          .filter(Boolean).join(" ") || "Asistente",
-        ticket_type: registration.ticket_type?.name || "General",
-        event_name: registration.event?.name || "Evento",
-        team_name: registration.team_name || undefined
-      }
-    };
-
-    return new Response(JSON.stringify(response), {
-      status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" }
-    });
-
-  } catch (error) {
-    console.error("Validation error:", error);
-    return new Response(JSON.stringify({ error: "Internal server error" }), {
-      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" }
-    });
-  }
-});
+**Después:**
+```typescript
+const { data: authorized } = await supabase
+  .from('authorized_students_safe')  // ← Vista segura
+  .select('id, tg_id, matched_profile_id')  // Solo datos necesarios
+  .ilike('email', formData.tg_email.trim())
+  .maybeSingle();
 ```
 
 ---
 
-## Actualización del Hook useTicketValidation
+## Triggers Existentes (No Requieren Cambios)
 
-```typescript
-// Nuevo hook que llama a la Edge Function
-export function useTicketValidation(code: string | undefined) {
-  const { user } = useAuth();
+Los triggers de auto-verificación ya usan `SECURITY DEFINER`, lo que significa que se ejecutan con permisos elevados y no se ven afectados por las políticas RLS:
 
-  return useQuery({
-    queryKey: ['ticket-validation', code],
-    queryFn: async () => {
-      if (!code) return { valid: false, error: 'not_found' as const };
+- `auto_verify_authorized_student_before` - SECURITY DEFINER ✓
+- `auto_verify_authorized_student_after` - SECURITY DEFINER ✓
+- `auto_verify_authorized_user_before` - SECURITY DEFINER ✓
+- `auto_verify_authorized_user_after` - SECURITY DEFINER ✓
 
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/validate-ticket`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session?.access_token}`
-          },
-          body: JSON.stringify({ qr_code: code })
-        }
-      );
-
-      return response.json();
-    },
-    enabled: !!code && !!user
-  });
-}
-```
-
----
-
-## Actualización de ValidatePage
-
-El componente se simplifica porque ya no necesita:
-- Hacer check-in manualmente (la Edge Function lo hace)
-- Validar fecha localmente (la Edge Function lo valida)
-
-Solo muestra el resultado devuelto por la función.
+Estos triggers pueden seguir accediendo a las tablas base directamente.
 
 ---
 
@@ -361,57 +180,41 @@ Solo muestra el resultado devuelto por la función.
 
 | Aspecto | Antes | Después |
 |---------|-------|---------|
-| Voluntarios ven DNI | Sí | No |
-| Voluntarios ven email | Sí | No |
-| Voluntarios ven teléfono | Sí | No |
-| Voluntarios ven equipos | Todos | Solo el suyo |
-| Acceso a tablas | Directo | Via Edge Function |
-| Validación | Cliente | Servidor |
+| Usuario ve email padres | Sí | No |
+| Usuario ve teléfono | Sí | No |
+| Usuario ve escuela | Sí | No |
+| Usuario ve edad | Sí | No |
+| Admin accede a todo | Sí | Sí |
+| Auto-verificación funciona | Sí | Sí |
+| Dashboard admin funciona | Sí | Sí |
 
 ---
 
 ## Orden de Implementación
 
-1. Crear Edge Function `validate-ticket`
-2. Desplegar y probar la función
-3. Actualizar `useTicketValidation.ts` para usar Edge Function
-4. Actualizar `ValidatePage.tsx` para nueva respuesta
-5. Aplicar migración SQL para restringir RLS
-6. Probar flujo completo con usuario voluntario
+1. Crear migración SQL con vistas y políticas actualizadas
+2. Actualizar `Onboarding.tsx` para usar vistas seguras
+3. Actualizar tipos TypeScript (se generarán automáticamente)
+4. Probar flujo de onboarding para participantes
+5. Probar acceso admin a datos completos
+6. Verificar que triggers de auto-verificación siguen funcionando
 
 ---
 
 ## Consideraciones Adicionales
 
-### Companions (Acompañantes)
+### Compatibilidad con Código Existente
 
-Los acompañantes también tienen códigos QR. La Edge Function debe buscar también en la tabla `companions` si no encuentra el código en `event_registrations`:
+Las páginas de admin (`AdminUsers.tsx`, `AdminImportCSV.tsx`, `AdminImportUnified.tsx`, `AdminImportTeams.tsx`, `AdminReports.tsx`, `AdminDashboard.tsx`) seguirán funcionando porque:
 
-```typescript
-// Si no se encuentra en event_registrations, buscar en companions
-const { data: companion } = await supabaseAdmin
-  .from("companions")
-  .select(`
-    id, qr_code, first_name, last_name, relationship,
-    checked_in_at,
-    event_registration:event_registrations(
-      event:events(id, name, date)
-    )
-  `)
-  .eq("qr_code", qr_code)
-  .maybeSingle();
-```
+1. Solo usuarios con rol `admin` pueden acceder a estas páginas
+2. La política `"Admins can manage authorized students/users"` sigue activa
+3. El rol admin puede hacer SELECT, INSERT, UPDATE, DELETE en las tablas base
 
-### Audit Log
+### Datos que Siguen Accesibles para Admins
 
-La Edge Function puede registrar cada validación en `audit_logs` para trazabilidad:
-
-```typescript
-await supabaseAdmin.from("audit_logs").insert({
-  user_id: user.id,
-  action: "check_in",
-  entity_type: "event_registration",
-  entity_id: registration.id,
-  changes: { checked_in_at: new Date().toISOString() }
-});
-```
+Los admins seguirán pudiendo ver y exportar todos los datos sensibles:
+- Listado de estudiantes con emails de padres (AdminImportCSV)
+- Exportación CSV completa (AdminReports)
+- Estadísticas de whitelist (AdminDashboard)
+- Asignación de escuelas a usuarios (AdminUsers)
