@@ -1,70 +1,64 @@
 
-# Plan: Export de Vista Configurada de Usuarios
+# Plan: Configuracion de Campos de Acompanantes por Evento
 
 ## Resumen
 
-Implementar la funcionalidad de exportar solo las columnas visibles y datos filtrados de la tabla de usuarios, respetando la configuración actual de la vista del administrador.
+Implementar la configuracion dinamica de que campos solicitar para acompanantes en el registro de eventos. Esto permitira:
+- Eventos que no piden datos de acompanantes (entradas anonimas)
+- Eventos que piden nombre completo + DNI + parentesco (como el Evento Intermedio)
+- Cualquier combinacion de campos segun necesidad del evento
 
 ---
 
-## Comportamiento Actual vs Propuesto
+## Estado Actual vs Propuesto
 
 | Aspecto | Actual | Propuesto |
 |---------|--------|-----------|
-| Exportar | No implementado (toast) | CSV con datos filtrados |
-| Columnas | N/A | Solo columnas visibles |
-| Filtros | N/A | Respeta búsqueda global y filtros de columna |
-| Datos | N/A | Solo filas que pasan los filtros |
+| Campos | Fijos: nombre, apellidos, parentesco | Configurable por tipo de entrada |
+| Validacion | Siempre requiere todos | Solo campos configurados |
+| DB companions | first_name/last_name NOT NULL | Todos nullable |
+| Sin datos | No soportado | Entradas anonimas permitidas |
 
 ---
 
-## Cambios Necesarios
+## Campos Disponibles para Configurar
 
-### 1. Modificar AirtableDataTable
+| Campo | Clave | Descripcion |
+|-------|-------|-------------|
+| Nombre | `first_name` | Nombre del acompanante |
+| Apellidos | `last_name` | Apellidos del acompanante |
+| DNI | `dni` | Documento de identidad |
+| Parentesco | `relationship` | Relacion con el participante |
 
-Cambiar la firma del callback `onExport` para pasar contexto sobre la vista actual:
+---
 
-```typescript
-// Antes
-onExport?: () => void;
+## Cambios en Base de Datos
 
-// Después
-onExport?: (exportData: {
-  rows: TData[];
-  visibleColumns: { id: string; header: string }[];
-}) => void;
+### 1. Nueva columna en event_ticket_types
+
+```sql
+ALTER TABLE event_ticket_types 
+ADD COLUMN companion_fields_config JSONB DEFAULT '["first_name", "last_name", "relationship"]';
 ```
 
-El componente pasara:
-- `table.getFilteredRowModel().rows` - filas filtradas
-- `table.getVisibleLeafColumns()` - columnas visibles con sus headers
+Valores posibles:
+- `null` o `[]` - No pedir datos (entradas anonimas)
+- `["first_name", "last_name"]` - Solo nombre
+- `["first_name", "last_name", "dni", "relationship"]` - Todos los campos
 
-### 2. Implementar Lógica de Export en AdminUsers
+### 2. Nueva columna en companions
 
-Crear una función que:
-1. Reciba las filas filtradas y columnas visibles
-2. Extraiga los valores de cada columna visible para cada fila
-3. Genere CSV con UTF-8 BOM para compatibilidad con Excel
-4. Descargue el archivo
+```sql
+ALTER TABLE companions ADD COLUMN dni TEXT;
+```
 
----
+### 3. Hacer campos nullable
 
-## Mapeo de Columnas a Valores
-
-El reto principal es extraer el valor correcto de cada columna, ya que algunas usan `accessorKey` y otras `accessorFn`:
-
-| Columna | Accessor | Valor a Exportar |
-|---------|----------|------------------|
-| name | accessorFn | `first_name + last_name` |
-| tg_id | accessorKey | `row.tg_id` |
-| role | accessorKey | `row.role` |
-| verification_status | accessorKey | `row.verification_status` |
-| team_name | accessorKey | `row.team_name` |
-| school_name | accessorKey | `row.school_name` |
-| hub_name | accessorKey | `row.hub_name` |
-| phone | accessorKey | `row.phone` |
-| created_at | accessorKey | Fecha formateada |
-| custom_* | accessorKey | `row.custom_fields[key]` |
+```sql
+ALTER TABLE companions 
+  ALTER COLUMN first_name DROP NOT NULL,
+  ALTER COLUMN last_name DROP NOT NULL;
+```
 
 ---
 
@@ -72,135 +66,174 @@ El reto principal es extraer el valor correcto de cada columna, ya que algunas u
 
 | Archivo | Cambio |
 |---------|--------|
-| `src/components/admin/AirtableDataTable.tsx` | Actualizar tipo de `onExport` y pasar datos |
-| `src/pages/admin/AdminUsers.tsx` | Implementar handler de export con logica CSV |
+| `src/components/admin/events/TicketTypeManager.tsx` | Anadir UI para configurar campos |
+| `src/components/events/CompanionFields.tsx` | Renderizado dinamico segun config |
+| `src/pages/events/EventRegistrationPage.tsx` | Pasar config a CompanionFields |
+| `src/hooks/useEventRegistration.ts` | Incluir dni en insert |
+| `src/types/database.ts` | Actualizar tipos Companion |
 
 ---
 
-## Implementacion Detallada
+## Implementacion del Admin (TicketTypeManager)
 
-### AirtableDataTable.tsx
+Nueva seccion en el dialogo de edicion cuando `max_companions > 0`:
+
+```text
++--------------------------------------------------+
+|  Datos requeridos de acompanantes                |
+|                                                  |
+|  [ ] Sin datos (entradas anonimas)               |
+|                                                  |
+|  Campos a solicitar:                             |
+|  [x] Nombre                                      |
+|  [x] Apellidos                                   |
+|  [ ] DNI                                         |
+|  [x] Parentesco                                  |
++--------------------------------------------------+
+```
+
+Si "Sin datos" esta marcado, se deshabilitan los checkboxes de campos y se guarda `[]` en la DB.
+
+---
+
+## Implementacion del CompanionFields
+
+### Props actualizados
 
 ```typescript
-interface AirtableDataTableProps<TData, TValue> {
-  // ... existing props
-  onExport?: (exportData: {
-    rows: TData[];
-    visibleColumns: { id: string; header: string }[];
-  }) => void;
+interface CompanionFieldsProps {
+  form: UseFormReturn<any>;
+  maxCompanions: number;
+  companions: CompanionData[];
+  requiredFields: string[]; // Nuevo: ['first_name', 'last_name', 'dni', 'relationship']
+  onAddCompanion: () => void;
+  onRemoveCompanion: (index: number) => void;
+  onUpdateCompanion: (index: number, field: keyof CompanionData, value: string) => void;
+}
+```
+
+### Logica de renderizado
+
+```typescript
+// Si no hay campos requeridos, mostrar version simplificada
+if (requiredFields.length === 0) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Acompanantes</CardTitle>
+        <CardDescription>
+          Puedes anadir hasta {maxCompanions} acompanante(s). 
+          Cada uno recibira su propia entrada con codigo QR.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <p>Tienes {companions.length} acompanante(s)</p>
+        {/* Botones +/- para anadir/quitar sin formulario */}
+      </CardContent>
+    </Card>
+  );
 }
 
-// En el boton de Export:
-onClick={() => {
-  const visibleColumns = table.getVisibleLeafColumns().map(col => ({
-    id: col.id,
-    header: typeof col.columnDef.header === 'string' 
-      ? col.columnDef.header 
-      : col.id,
-  }));
-  const rows = table.getFilteredRowModel().rows.map(row => row.original);
-  onExport?.({ rows, visibleColumns });
-}}
+// Renderizar solo los campos configurados
+{requiredFields.includes('first_name') && (
+  <Input placeholder="Nombre" ... />
+)}
+{requiredFields.includes('dni') && (
+  <Input placeholder="DNI/NIE" ... />
+)}
 ```
 
-### AdminUsers.tsx - Funcion de Export
+---
+
+## Flujo de Validacion Actualizado
+
+### En EventRegistrationPage
 
 ```typescript
-const handleExport = useCallback((exportData: {
-  rows: UserWithRole[];
-  visibleColumns: { id: string; header: string }[];
-}) => {
-  const { rows, visibleColumns } = exportData;
+const validateCompanions = (): boolean => {
+  const requiredFields = selectedTicket?.companion_fields_config || [];
   
-  if (rows.length === 0) {
-    toast.error("No hay datos para exportar");
-    return;
-  }
-
-  // Mapear columna ID a extractor de valor
-  const getColumnValue = (row: UserWithRole, colId: string): string => {
-    switch (colId) {
-      case "name":
-        return `${row.first_name || ""} ${row.last_name || ""}`.trim();
-      case "tg_id":
-        return row.tg_id || "";
-      case "role":
-        return row.role || "";
-      // ... resto de columnas
-      default:
-        if (colId.startsWith("custom_")) {
-          const key = colId.replace("custom_", "");
-          return (row.custom_fields?.[key] as string) || "";
-        }
-        return "";
+  // Si no hay campos requeridos, siempre valido
+  if (requiredFields.length === 0) return true;
+  
+  for (const companion of companions) {
+    if (requiredFields.includes('first_name') && !companion.first_name?.trim()) {
+      toast.error('Completa el nombre de todos los acompanantes');
+      return false;
     }
-  };
-
-  // Generar CSV
-  const headers = visibleColumns.map(c => c.header);
-  const csvRows = [
-    headers.join(","),
-    ...rows.map(row =>
-      visibleColumns.map(col => {
-        const val = getColumnValue(row, col.id);
-        // Escapar valores con comas/comillas
-        if (val.includes(",") || val.includes('"') || val.includes("\n")) {
-          return `"${val.replace(/"/g, '""')}"`;
-        }
-        return val;
-      }).join(",")
-    ),
-  ];
-
-  // Descargar
-  const blob = new Blob(["\ufeff" + csvRows.join("\n")], {
-    type: "text/csv;charset=utf-8;",
-  });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `usuarios_${new Date().toISOString().split("T")[0]}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
-
-  toast.success(`Exportados ${rows.length} usuarios`);
-}, []);
+    if (requiredFields.includes('dni') && !companion.dni?.trim()) {
+      toast.error('Completa el DNI de todos los acompanantes');
+      return false;
+    }
+    // ... etc
+  }
+  return true;
+};
 ```
 
 ---
 
-## Flujo de Usuario
+## Actualizacion del Hook useEventRegistration
 
-1. Admin configura la vista:
-   - Oculta columnas no necesarias via "Columnas"
-   - Aplica filtros (Estado: Pendiente, Rol: Mentor)
-   - Busca texto especifico
-
-2. Hace clic en "Exportar"
-
-3. Se descarga CSV con:
-   - Solo las columnas visibles como headers
-   - Solo las filas que coinciden con filtros/busqueda
-   - Valores formateados correctamente
+```typescript
+// En el insert de companions
+const companionsToInsert = formData.companions.map(companion => ({
+  event_registration_id: registration.id,
+  first_name: companion.first_name || null,
+  last_name: companion.last_name || null,
+  dni: companion.dni || null,
+  relationship: companion.relationship || null,
+  qr_code: generateQRCode(),
+}));
+```
 
 ---
 
-## Ejemplo de Salida
+## Ejemplos de Configuracion por Evento
 
-Si el admin tiene visible solo: Nombre, Email, Estado, Equipo
-Y filtro: Estado = "verified"
-
-```csv
-Nombre,Email,Estado,Equipo
-"Juan Perez",juan@example.com,verified,Equipo Alpha
-"Maria Garcia",maria@example.com,verified,Equipo Beta
+### Evento Intermedio (Marzo 2025)
+```json
+{
+  "max_companions": 2,
+  "companion_fields_config": ["first_name", "last_name", "dni", "relationship"]
+}
 ```
+Resultado: Formulario completo con nombre, apellidos, DNI y parentesco.
+
+### Final Regional
+```json
+{
+  "max_companions": 1,
+  "companion_fields_config": []
+}
+```
+Resultado: Solo contador "+1 Acompanante" sin formulario de datos.
+
+### Solo nombre (sin DNI)
+```json
+{
+  "max_companions": 2,
+  "companion_fields_config": ["first_name", "last_name"]
+}
+```
+Resultado: Solo pide nombre y apellidos.
+
+---
+
+## Secuencia de Implementacion
+
+1. **Migracion DB**: Anadir columnas y modificar constraints
+2. **TicketTypeManager**: UI para configurar campos
+3. **CompanionFields**: Renderizado dinamico
+4. **EventRegistrationPage**: Pasar config al componente
+5. **useEventRegistration**: Soportar dni y campos opcionales
+6. **Tipos TypeScript**: Actualizar interfaces
 
 ---
 
 ## Consideraciones
 
-- **UTF-8 BOM**: Incluir `\ufeff` al inicio para que Excel interprete correctamente caracteres especiales
-- **Escapado**: Valores con comas, comillas o saltos de linea se envuelven en comillas
-- **Fechas**: Formatear en formato local (DD/MM/YYYY)
-- **Campos vacios**: Exportar como cadena vacia, no "null" o "undefined"
+- **Retrocompatibilidad**: Si `companion_fields_config` es null, usar los campos actuales por defecto
+- **Email de confirmacion**: Adaptar para mostrar solo los campos que tienen valor
+- **Check-in**: El QR sigue funcionando igual independientemente de los campos solicitados
+- **Validacion servidor**: Aunque los campos sean opcionales en DB, la validacion se hace segun la config del ticket
