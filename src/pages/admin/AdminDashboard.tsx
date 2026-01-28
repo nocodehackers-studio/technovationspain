@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { MetricCard } from "@/components/admin/MetricCard";
+import { WhitelistProgressCard } from "@/components/admin/WhitelistProgressCard";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Users, UserCheck, Clock, UsersRound } from "lucide-react";
 import {
@@ -39,7 +40,40 @@ export default function AdminDashboard() {
     },
   });
 
-  // Fetch role distribution
+  // Fetch whitelist stats
+  const { data: whitelistStats, isLoading: isLoadingWhitelist } = useQuery({
+    queryKey: ["admin-whitelist-stats"],
+    queryFn: async () => {
+      // Get all authorized_users with their registration status
+      const { data: allUsers } = await supabase
+        .from("authorized_users")
+        .select("profile_type, matched_profile_id");
+
+      if (!allUsers) return null;
+
+      const stats = {
+        total: allUsers.length,
+        registered: allUsers.filter(u => u.matched_profile_id !== null).length,
+        byType: {
+          student: { total: 0, registered: 0 },
+          mentor: { total: 0, registered: 0 },
+          judge: { total: 0, registered: 0 },
+        },
+      };
+
+      allUsers.forEach((user) => {
+        const type = user.profile_type as keyof typeof stats.byType;
+        if (type in stats.byType) {
+          stats.byType[type].total++;
+          if (user.matched_profile_id !== null) {
+            stats.byType[type].registered++;
+          }
+        }
+      });
+
+      return stats;
+    },
+  });
   const { data: roleDistribution } = useQuery({
     queryKey: ["admin-role-distribution"],
     queryFn: async () => {
@@ -149,6 +183,9 @@ export default function AdminDashboard() {
             color="info"
           />
         </div>
+
+        {/* Whitelist Progress Card */}
+        <WhitelistProgressCard stats={whitelistStats} isLoading={isLoadingWhitelist} />
 
         {/* Charts Row */}
         <div className="grid gap-6 md:grid-cols-2">
