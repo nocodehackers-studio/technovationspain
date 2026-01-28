@@ -15,6 +15,7 @@ interface EventWithDetails extends Event {
 interface CompanionData {
   first_name: string;
   last_name: string;
+  dni: string;
   relationship: string;
 }
 
@@ -174,13 +175,14 @@ export function useEventRegistration(eventId: string) {
       
       if (error) throw error;
       
-      // 4. Create companions if any
+// 4. Create companions if any
       if (formData.companions && formData.companions.length > 0) {
         const companionsToInsert = formData.companions.map(companion => ({
           event_registration_id: registration.id,
-          first_name: companion.first_name,
-          last_name: companion.last_name,
-          relationship: companion.relationship,
+          first_name: companion.first_name || null,
+          last_name: companion.last_name || null,
+          dni: companion.dni || null,
+          relationship: companion.relationship || null,
           qr_code: generateQRCode(), // Each companion gets their own QR code
         }));
         

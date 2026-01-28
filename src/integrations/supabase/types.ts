@@ -252,30 +252,33 @@ export type Database = {
         Row: {
           checked_in_at: string | null
           created_at: string | null
+          dni: string | null
           event_registration_id: string | null
-          first_name: string
+          first_name: string | null
           id: string
-          last_name: string
+          last_name: string | null
           qr_code: string
           relationship: string | null
         }
         Insert: {
           checked_in_at?: string | null
           created_at?: string | null
+          dni?: string | null
           event_registration_id?: string | null
-          first_name: string
+          first_name?: string | null
           id?: string
-          last_name: string
+          last_name?: string | null
           qr_code: string
           relationship?: string | null
         }
         Update: {
           checked_in_at?: string | null
           created_at?: string | null
+          dni?: string | null
           event_registration_id?: string | null
-          first_name?: string
+          first_name?: string | null
           id?: string
-          last_name?: string
+          last_name?: string | null
           qr_code?: string
           relationship?: string | null
         }
@@ -618,6 +621,7 @@ export type Database = {
       event_ticket_types: {
         Row: {
           allowed_roles: string[] | null
+          companion_fields_config: Json | null
           created_at: string | null
           current_count: number | null
           description: string | null
@@ -633,6 +637,7 @@ export type Database = {
         }
         Insert: {
           allowed_roles?: string[] | null
+          companion_fields_config?: Json | null
           created_at?: string | null
           current_count?: number | null
           description?: string | null
@@ -648,6 +653,7 @@ export type Database = {
         }
         Update: {
           allowed_roles?: string[] | null
+          companion_fields_config?: Json | null
           created_at?: string | null
           current_count?: number | null
           description?: string | null
