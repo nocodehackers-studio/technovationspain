@@ -1,265 +1,204 @@
 
-# Plan: Refactorizar Importacion CSV para Multi-Rol con Gestion de Conflictos
+# Plan: Pagina Dedicada de Importacion de Equipos (Team CSV)
 
 ## Resumen
 
-Adaptar el sistema de importacion para procesar el CSV unificado de Technovation Global que contiene mentores, estudiantes y jueces. El sistema debe:
-- Separar los registros por tipo de perfil (profile_type)
-- Aplicar logica diferente segun el rol
-- Detectar y mostrar conflictos para resolucion manual
-- Nunca sobreescribir datos de usuarios activos en la plataforma
+Crear una nueva pagina `/admin/import-teams` dedicada a la importacion de equipos desde el CSV de Technovation Global. Esta pagina funcionara de forma similar a `AdminImportUnified` pero enfocada en equipos, con la capacidad de:
+- Crear/actualizar equipos por `tg_team_id`
+- Vincular usuarios existentes (estudiantes y mentores) a los equipos
+- Actualizar la whitelist `authorized_users` con informacion de equipo para usuarios pendientes
 
 ---
 
-## Analisis del CSV
+## Analisis del CSV de Equipos
 
-### Columnas Clave
+### Columnas del CSV
 
-| Columna CSV | Proposito | Mapeo |
-|-------------|-----------|-------|
-| `Participant ID` | ID unico de Technovation Global | `tg_id` |
-| `Profile type` | Tipo: student, mentor, judge, chapter_ambassador | Determina el rol |
-| `Email` | Email del usuario | `email` |
-| `Team division` | Solo estudiantes: Beginner, Junior, Senior | `team_division` |
-| `Team name(s)` | Nombre del equipo | `team_name` |
-| `Company name` | Solo mentores/jueces | Nuevo campo |
-| `School name` | Solo estudiantes | `school_name` |
-| `Parent guardian name/email` | Solo estudiantes | `parent_name`, `parent_email` |
+| Columna CSV | Uso | Mapeo |
+|-------------|-----|-------|
+| `Team ID` | ID unico de TG | `tg_team_id` |
+| `Name` | Nombre del equipo | `name` |
+| `Division` | Beginner/Junior/Senior | `category` |
+| `Student emails` | Lista separada por comas | Vincular como `participant` |
+| `Mentor emails` | Lista separada por comas | Vincular como `mentor` |
+| `City` | Ciudad | Informativo |
+| `State` | Comunidad/Estado | Informativo |
+| `Has mentor?` / `Has students?` | Indicadores | Validacion |
+| `Number of students` / `Number of mentors` | Conteos | Validacion |
+| `Qualified` | Estado de calificacion | Informativo |
 
-### Tipos de Perfil Detectados
+### Datos del CSV Proporcionado
 
-| Profile Type | Rol en Plataforma | Cantidad (aprox) |
-|--------------|-------------------|------------------|
-| `student` | participant | ~1,500 |
-| `mentor` | mentor | ~1,800 |
-| `judge` | judge | ~350 |
-| `chapter_ambassador` | mentor (con flag) | ~30 |
+- Total de equipos: ~451
+- Divisiones: Beginner, Junior, Senior
+- Emails separados por comas dentro de cada celda
 
 ---
 
-## Cambios en Base de Datos
-
-### 1. Nueva tabla: `authorized_users` (reemplaza `authorized_students`)
-
-Esta tabla almacenara la whitelist para TODOS los tipos de usuarios, no solo estudiantes.
+## Flujo de Importacion
 
 ```text
-+-------------------------+-------------+--------------------------------------+
-| Columna                 | Tipo        | Descripcion                          |
-+-------------------------+-------------+--------------------------------------+
-| id                      | uuid        | PK                                   |
-| email                   | text        | Email (unico)                        |
-| tg_id                   | text        | ID Technovation Global               |
-| profile_type            | text        | student, mentor, judge               |
-| first_name              | text        | Nombre                               |
-| last_name               | text        | Apellidos                            |
-| phone                   | text        | Telefono                             |
-| company_name            | text        | Empresa (mentores/jueces)            |
-| school_name             | text        | Centro educativo (estudiantes)       |
-| team_name               | text        | Nombre del equipo                    |
-| team_division           | text        | Beginner, Junior, Senior             |
-| parent_name             | text        | Nombre tutor (estudiantes)           |
-| parent_email            | text        | Email tutor (estudiantes)            |
-| city                    | text        | Ciudad                               |
-| state                   | text        | Comunidad/Estado                     |
-| age                     | integer     | Edad                                 |
-| parental_consent        | text        | Estado consentimiento parental       |
-| media_consent           | text        | Estado consentimiento medios         |
-| signed_up_at            | date        | Fecha registro en TG                 |
-| matched_profile_id      | uuid        | FK a profiles si ya se registro      |
-| imported_at             | timestamptz | Fecha de importacion                 |
-| created_at              | timestamptz | Fecha creacion                       |
-| updated_at              | timestamptz | Fecha actualizacion                  |
-+-------------------------+-------------+--------------------------------------+
++------------------+
+|   Subir CSV      |
++--------+---------+
+         |
+         v
++------------------+
+| Validar headers  |
+| Team ID, Name,   |
+| Division         |
++--------+---------+
+         |
+         v
++------------------+
+| Verificar en BD  |
+| - Equipos exist? |
+| - Usuarios exist?|
++--------+---------+
+         |
+         v
++------------------+
+| Preview con      |
+| estadisticas     |
++--------+---------+
+         |
+         v
++------------------+
+| Procesar:        |
+| - Crear/Update   |
+| - Vincular users |
+| - Update whitelist|
++--------+---------+
+         |
+         v
++------------------+
+|   Resultados     |
++------------------+
 ```
-
-### 2. Migracion de datos existentes
-
-Migrar todos los datos de `authorized_students` a `authorized_users` con `profile_type = 'student'`.
 
 ---
 
-## Arquitectura del Sistema de Importacion
+## Logica de Vinculacion de Usuarios
 
-### Flujo General
+### Para cada email en el CSV:
 
 ```text
-                    +------------------+
-                    |  Subir CSV       |
-                    +--------+---------+
-                             |
-                             v
-                    +------------------+
-                    |  Validar         |
-                    |  estructura      |
-                    +--------+---------+
-                             |
-                             v
-                    +------------------+
-                    |  Separar por     |
-                    |  profile_type    |
-                    +--------+---------+
-                             |
-          +------------------+------------------+
-          |                  |                  |
-          v                  v                  v
-   +-----------+      +-----------+      +-----------+
-   | Students  |      | Mentors   |      | Judges    |
-   +-----------+      +-----------+      +-----------+
-          |                  |                  |
-          +------------------+------------------+
-                             |
-                             v
-                    +------------------+
-                    |  Detectar        |
-                    |  Conflictos      |
-                    +--------+---------+
-                             |
-              +--------------+--------------+
-              |                             |
-              v                             v
-     +----------------+            +----------------+
-     | Sin conflictos |            | Con conflictos |
-     | Importar       |            | Mostrar UI     |
-     +----------------+            +----------------+
+1. Buscar en `profiles` por email o tg_email
+   |
+   +-- SI existe:
+   |     - Verificar si ya es miembro del equipo
+   |     - Si no, insertar en `team_members` con member_type correcto
+   |
+   +-- NO existe:
+         - Buscar en `authorized_users` por email
+         - Si existe, actualizar team_name y team_division
+         - (Cuando se registre, el trigger lo asignara)
 ```
 
-### Tipos de Conflicto a Detectar
+### Tipos de miembro
 
-| Tipo | Descripcion | Accion |
-|------|-------------|--------|
-| Duplicado en CSV | Mismo email aparece 2+ veces en el CSV | Mostrar para elegir cual importar |
-| Ya existe en plataforma | Usuario ya registrado y activo | NO importar, mostrar info |
-| Ya en whitelist | Email ya en authorized_users | Opcion de actualizar o ignorar |
-| Email de padre como estudiante | Email de parent coincide con email de estudiante | Alerta |
+| Email Source | member_type |
+|--------------|-------------|
+| Student emails | `participant` |
+| Mentor emails | `mentor` |
 
 ---
 
-## Interfaz de Usuario
+## Estadisticas a Mostrar
 
-### Nueva Pagina: Importacion Unificada
+### Pre-importacion
 
-Reemplazar la pagina actual de importacion de estudiantes por una version que:
+| Metrica | Descripcion |
+|---------|-------------|
+| Total equipos | Cantidad de filas en CSV |
+| Equipos nuevos | No existen en BD por tg_team_id |
+| Equipos a actualizar | Ya existen en BD |
+| Por division | Beginner: X, Junior: Y, Senior: Z |
+| Estudiantes en CSV | Total de emails de estudiantes |
+| Estudiantes encontrados | Cuantos ya tienen perfil |
+| Mentores en CSV | Total de emails de mentores |
+| Mentores encontrados | Cuantos ya tienen perfil |
 
-1. **Paso 1 - Subir CSV**
-   - Zona de drag & drop
-   - Validacion de estructura
+### Post-importacion
 
-2. **Paso 2 - Resumen Pre-importacion**
-   - Mostrar conteo por tipo: X mentores, Y estudiantes, Z jueces
-   - Mostrar conteo de divisiones: X Senior, Y Junior, Z Beginner
-   - Detectar y listar conflictos ANTES de importar
-
-3. **Paso 3 - Resolver Conflictos** (si existen)
-   - Tabla con conflictos agrupados por tipo
-   - Para duplicados: selector de cual version mantener
-   - Para existentes: mostrar "Este usuario ya esta activo" (no editable)
-   - Checkbox "Ignorar todos los existentes"
-
-4. **Paso 4 - Confirmar e Importar**
-   - Barra de progreso
-   - Log en tiempo real
-
-5. **Paso 5 - Resultados**
-   - Resumen: creados, actualizados, ignorados, errores
-   - Descarga de errores como CSV
-
-### Componentes a Crear
-
-| Componente | Funcion |
-|------------|---------|
-| `ImportSummaryCard` | Muestra resumen antes de importar |
-| `ConflictResolver` | UI para resolver conflictos |
-| `ConflictTable` | Tabla con filas conflictivas |
-| `ProfileTypeBadge` | Badge para student/mentor/judge |
+| Metrica | Descripcion |
+|---------|-------------|
+| Equipos creados | Nuevos equipos insertados |
+| Equipos actualizados | Equipos existentes modificados |
+| Miembros vinculados | Registros nuevos en team_members |
+| Whitelist actualizada | Registros de authorized_users modificados |
+| Errores | Lista de problemas encontrados |
 
 ---
 
-## Logica de Negocio
-
-### Regla Principal: Nunca Sobreescribir Usuarios Activos
-
-```text
-Para cada registro del CSV:
-  1. Buscar en profiles por email o tg_email
-  2. Si existe Y tiene matched_profile_id:
-     -> NUNCA actualizar el profile
-     -> Solo actualizar whitelist si hay datos nuevos de TG
-  3. Si existe en whitelist pero no en profiles:
-     -> Actualizar whitelist con nuevos datos
-  4. Si no existe en ninguno:
-     -> Crear en whitelist
-```
-
-### Asignacion de Rol
-
-| profile_type CSV | Rol Asignado | Notas |
-|------------------|--------------|-------|
-| `student` | `participant` | Division se guarda en authorized_users |
-| `mentor` | `mentor` | |
-| `judge` | `judge` | |
-| `chapter_ambassador` | `mentor` | Se trata como mentor |
-
-### Triggers de Base de Datos
-
-Adaptar los triggers existentes de auto-verificacion para que:
-- Funcionen con la nueva tabla `authorized_users`
-- Asignen el rol correcto segun `profile_type`
-- Asocien al equipo si `team_name` coincide
-
----
-
-## Archivos a Modificar/Crear
+## Archivos a Crear/Modificar
 
 ### Nuevos Archivos
 
 | Archivo | Proposito |
 |---------|-----------|
-| `src/pages/admin/AdminImportUnified.tsx` | Nueva pagina de importacion |
-| `src/components/admin/import/ImportSummaryCard.tsx` | Resumen pre-importacion |
-| `src/components/admin/import/ConflictResolver.tsx` | UI resolucion conflictos |
-| `src/components/admin/import/ConflictTable.tsx` | Tabla de conflictos |
-| `src/components/admin/import/ProfileTypeBadge.tsx` | Badge visual por tipo |
+| `src/pages/admin/AdminImportTeams.tsx` | Nueva pagina de importacion de equipos |
 
 ### Archivos a Modificar
 
-| Archivo | Cambios |
-|---------|---------|
-| `src/pages/admin/AdminImportCSV.tsx` | Redirigir a nueva pagina o eliminar |
-| `src/components/admin/AdminSidebar.tsx` | Actualizar enlace de importacion |
-| `src/hooks/useAuth.tsx` | Sin cambios (judge ya existe en AppRole) |
-| `supabase/migrations/` | Migracion para nueva tabla |
-
-### Migraciones SQL
-
-1. Crear tabla `authorized_users`
-2. Migrar datos de `authorized_students`
-3. Actualizar triggers de auto-verificacion
-4. Actualizar RLS policies
+| Archivo | Cambio |
+|---------|--------|
+| `src/App.tsx` | Agregar ruta `/admin/import-teams` |
+| `src/components/admin/AdminSidebar.tsx` | Agregar enlace "Importar Equipos" |
 
 ---
 
-## Secuencia de Implementacion
+## Estructura de la Nueva Pagina
 
-### Fase 1: Base de Datos
-1. Crear migracion para `authorized_users`
-2. Migrar datos existentes
-3. Actualizar triggers
+### Pasos de la UI
 
-### Fase 2: Backend (Logica)
-4. Crear funcion de parsing del CSV
-5. Crear detector de conflictos
-6. Crear logica de importacion por tipo
+1. **Upload** - Zona de drag & drop para CSV
+2. **Preview** - Resumen estadistico y tabla con equipos
+3. **Processing** - Barra de progreso
+4. **Results** - Resumen final con errores si los hay
 
-### Fase 3: Frontend
-7. Crear componentes de UI
-8. Crear pagina de importacion unificada
-9. Integrar con sidebar
+### Componentes a Reutilizar
 
-### Fase 4: Pruebas
-10. Probar con CSV proporcionado
-11. Verificar deteccion de conflictos
-12. Verificar que no se sobreescriben usuarios
+- `AdminLayout` - Layout de admin
+- `Card`, `Button`, `Progress` - UI basica
+- `Table` - Vista previa de equipos
+- `Badge` - Categorias (Beginner/Junior/Senior)
+- `ScrollArea` - Lista de errores
+
+---
+
+## Validaciones
+
+### Estructura del CSV
+
+- Columnas requeridas: `Team ID`, `Name`, `Division`
+- Limite de filas: 1,000 equipos
+- Team ID: no vacio, alfanumerico
+
+### Datos
+
+- Division valida: Beginner, Junior, Senior
+- Emails con formato correcto
+- Duplicados de Team ID en CSV (advertencia)
+
+---
+
+## Actualizacion del Sidebar
+
+Agregar nuevo item en la seccion "Gestion":
+
+```text
+Gestion:
+  - Dashboard
+  - Usuarios
+  - Equipos
+  - Hubs
+  - Eventos
+  - Talleres
+  - Importar Usuarios    <-- existente
+  - Importar Equipos     <-- NUEVO
+  - Reportes
+```
 
 ---
 
@@ -267,18 +206,34 @@ Adaptar los triggers existentes de auto-verificacion para que:
 
 ### Rendimiento
 
-- El CSV tiene ~3,679 filas
-- Procesar en lotes de 50 registros para evitar timeouts
+- Procesar en lotes de 50 equipos
+- Consultas batch para buscar perfiles
 - Mostrar progreso en tiempo real
-
-### Validacion de Datos
-
-- Email: validar formato basico
-- Division: solo Beginner, Junior, Senior
-- Profile type: solo student, mentor, judge, chapter_ambassador
 
 ### Seguridad
 
 - Solo admins pueden acceder
-- RLS en authorized_users igual que authorized_students
-- Logs de auditoria para cada importacion
+- Validacion de estructura antes de procesar
+- Logs de auditoria en `csv_imports`
+
+### Tablas Afectadas
+
+| Tabla | Operacion |
+|-------|-----------|
+| `teams` | INSERT / UPDATE |
+| `team_members` | INSERT |
+| `authorized_users` | UPDATE (team_name, team_division) |
+| `csv_imports` | INSERT (log) |
+
+---
+
+## Diferencias con TeamCSVImport Existente
+
+| Aspecto | Modal Existente | Nueva Pagina |
+|---------|-----------------|--------------|
+| Ubicacion | Dialog en AdminTeams | Pagina dedicada |
+| Navegacion | Desde boton en Teams | Desde sidebar |
+| Espacio | Limitado | Pantalla completa |
+| Consistencia | Diferente a importacion usuarios | Mismo estilo |
+
+La nueva pagina reemplazara la funcionalidad del modal pero con mejor UX y consistencia visual con la importacion de usuarios.
