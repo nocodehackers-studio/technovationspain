@@ -137,8 +137,9 @@ export interface EventRegistration {
 export interface Companion {
   id: string;
   event_registration_id: string;
-  first_name: string;
-  last_name: string;
+  first_name?: string | null;
+  last_name?: string | null;
+  dni?: string | null;
   relationship?: string | null;
   qr_code: string;
   checked_in_at?: string | null;

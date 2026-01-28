@@ -85,18 +85,19 @@ export default function EventRegistrationPage() {
     }
   }, [profile, form]);
   
-  const selectedTicketId = form.watch('ticket_type_id');
+const selectedTicketId = form.watch('ticket_type_id');
   const selectedTicket = event?.ticket_types?.find(t => t.id === selectedTicketId);
   const requiresTeam = selectedTicket?.requires_team;
   const maxCompanions = selectedTicket?.max_companions || 0;
+  const companionFieldsConfig: string[] = (selectedTicket as any)?.companion_fields_config || ['first_name', 'last_name', 'relationship'];
   
   // Determine number of steps based on whether companions are allowed
   const totalSteps = maxCompanions > 0 ? 4 : 3;
   
-  // Companion management functions
+// Companion management functions
   const handleAddCompanion = () => {
     if (companions.length < maxCompanions) {
-      setCompanions([...companions, { first_name: '', last_name: '', relationship: '' }]);
+      setCompanions([...companions, { first_name: '', last_name: '', dni: '', relationship: '' }]);
     }
   };
   
@@ -110,11 +111,26 @@ export default function EventRegistrationPage() {
     setCompanions(updated);
   };
   
-  // Validate companions
+// Validate companions based on configured fields
   const validateCompanions = (): boolean => {
+    // If anonymous companions (no required fields), always valid
+    if (companionFieldsConfig.length === 0) return true;
+    
     for (const companion of companions) {
-      if (!companion.first_name.trim() || !companion.last_name.trim() || !companion.relationship) {
-        toast.error('Por favor, completa todos los datos de los acompañantes');
+      if (companionFieldsConfig.includes('first_name') && !companion.first_name.trim()) {
+        toast.error('Por favor, completa el nombre de todos los acompañantes');
+        return false;
+      }
+      if (companionFieldsConfig.includes('last_name') && !companion.last_name.trim()) {
+        toast.error('Por favor, completa los apellidos de todos los acompañantes');
+        return false;
+      }
+      if (companionFieldsConfig.includes('dni') && !companion.dni.trim()) {
+        toast.error('Por favor, completa el DNI de todos los acompañantes');
+        return false;
+      }
+      if (companionFieldsConfig.includes('relationship') && !companion.relationship) {
+        toast.error('Por favor, selecciona el parentesco de todos los acompañantes');
         return false;
       }
     }
@@ -542,12 +558,13 @@ export default function EventRegistrationPage() {
               </Card>
             )}
             
-            {/* Step 3: Companions (only if allowed) */}
+{/* Step 3: Companions (only if allowed) */}
             {step === 3 && maxCompanions > 0 && (
               <CompanionFields
                 form={form}
                 maxCompanions={maxCompanions}
                 companions={companions}
+                requiredFields={companionFieldsConfig}
                 onAddCompanion={handleAddCompanion}
                 onRemoveCompanion={handleRemoveCompanion}
                 onUpdateCompanion={handleUpdateCompanion}
@@ -583,7 +600,7 @@ export default function EventRegistrationPage() {
                       </div>
                     </div>
                     
-                    {companions.length > 0 && (
+{companions.length > 0 && (
                       <>
                         <Separator />
                         <div>
@@ -592,11 +609,16 @@ export default function EventRegistrationPage() {
                             {companions.map((companion, index) => (
                               <div key={index} className="flex justify-between items-center text-sm p-2 bg-muted/50 rounded">
                                 <span className="font-medium">
-                                  {companion.first_name} {companion.last_name}
+                                  {companionFieldsConfig.length === 0 
+                                    ? `Acompañante ${index + 1}`
+                                    : `${companion.first_name || ''} ${companion.last_name || ''}`.trim() || `Acompañante ${index + 1}`
+                                  }
                                 </span>
-                                <span className="text-muted-foreground">
-                                  {getRelationshipLabel(companion.relationship)}
-                                </span>
+                                {companion.relationship && (
+                                  <span className="text-muted-foreground">
+                                    {getRelationshipLabel(companion.relationship)}
+                                  </span>
+                                )}
                               </div>
                             ))}
                           </div>

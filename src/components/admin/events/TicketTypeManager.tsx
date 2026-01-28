@@ -28,12 +28,20 @@ interface TicketType {
   max_capacity: number;
   current_count: number | null;
   max_companions: number;
+  companion_fields_config: string[] | null;
   allowed_roles: string[] | null;
   requires_verification: boolean | null;
   requires_team: boolean | null;
   is_active: boolean | null;
   sort_order: number | null;
 }
+
+const COMPANION_FIELDS = [
+  { value: "first_name", label: "Nombre" },
+  { value: "last_name", label: "Apellidos" },
+  { value: "dni", label: "DNI/NIE" },
+  { value: "relationship", label: "Parentesco" },
+];
 
 interface TicketTypeManagerProps {
   eventId: string;
@@ -51,11 +59,13 @@ export function TicketTypeManager({ eventId }: TicketTypeManagerProps) {
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<TicketType | null>(null);
-  const [formData, setFormData] = useState({
+const [formData, setFormData] = useState({
     name: "",
     description: "",
     max_capacity: 100,
     max_companions: 0,
+    companion_fields_config: ["first_name", "last_name", "relationship"] as string[],
+    anonymous_companions: false,
     allowed_roles: [] as string[],
     requires_verification: true,
     requires_team: false,
@@ -77,14 +87,16 @@ export function TicketTypeManager({ eventId }: TicketTypeManagerProps) {
     enabled: !!eventId,
   });
 
-  const createMutation = useMutation({
+const createMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
+      const companionConfig = data.anonymous_companions ? [] : data.companion_fields_config;
       const { error } = await supabase.from("event_ticket_types").insert({
         event_id: eventId,
         name: data.name,
         description: data.description || null,
         max_capacity: data.max_capacity,
         max_companions: data.max_companions,
+        companion_fields_config: companionConfig,
         allowed_roles: data.allowed_roles.length > 0 ? data.allowed_roles : null,
         requires_verification: data.requires_verification,
         requires_team: data.requires_team,
@@ -104,8 +116,9 @@ export function TicketTypeManager({ eventId }: TicketTypeManagerProps) {
     },
   });
 
-  const updateMutation = useMutation({
+const updateMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: typeof formData }) => {
+      const companionConfig = data.anonymous_companions ? [] : data.companion_fields_config;
       const { error } = await supabase
         .from("event_ticket_types")
         .update({
@@ -113,6 +126,7 @@ export function TicketTypeManager({ eventId }: TicketTypeManagerProps) {
           description: data.description || null,
           max_capacity: data.max_capacity,
           max_companions: data.max_companions,
+          companion_fields_config: companionConfig,
           allowed_roles: data.allowed_roles.length > 0 ? data.allowed_roles : null,
           requires_verification: data.requires_verification,
           requires_team: data.requires_team,
@@ -147,12 +161,14 @@ export function TicketTypeManager({ eventId }: TicketTypeManagerProps) {
     },
   });
 
-  const resetForm = () => {
+const resetForm = () => {
     setFormData({
       name: "",
       description: "",
       max_capacity: 100,
       max_companions: 0,
+      companion_fields_config: ["first_name", "last_name", "relationship"],
+      anonymous_companions: false,
       allowed_roles: [],
       requires_verification: true,
       requires_team: false,
@@ -161,14 +177,18 @@ export function TicketTypeManager({ eventId }: TicketTypeManagerProps) {
     setSelectedTicket(null);
   };
 
-  const openEditDialog = (ticket?: TicketType) => {
+const openEditDialog = (ticket?: TicketType) => {
     if (ticket) {
       setSelectedTicket(ticket);
+      const configArray = ticket.companion_fields_config || ["first_name", "last_name", "relationship"];
+      const isAnonymous = Array.isArray(configArray) && configArray.length === 0;
       setFormData({
         name: ticket.name,
         description: ticket.description || "",
         max_capacity: ticket.max_capacity,
         max_companions: ticket.max_companions,
+        companion_fields_config: isAnonymous ? ["first_name", "last_name", "relationship"] : configArray,
+        anonymous_companions: isAnonymous,
         allowed_roles: ticket.allowed_roles || [],
         requires_verification: ticket.requires_verification ?? true,
         requires_team: ticket.requires_team ?? false,
@@ -178,6 +198,15 @@ export function TicketTypeManager({ eventId }: TicketTypeManagerProps) {
       resetForm();
     }
     setEditDialogOpen(true);
+  };
+
+  const toggleCompanionField = (field: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      companion_fields_config: prev.companion_fields_config.includes(field)
+        ? prev.companion_fields_config.filter((f) => f !== field)
+        : [...prev.companion_fields_config, field],
+    }));
   };
 
   const handleSubmit = () => {
@@ -355,6 +384,42 @@ export function TicketTypeManager({ eventId }: TicketTypeManagerProps) {
                 />
               </div>
             </div>
+
+            {formData.max_companions > 0 && (
+              <div className="space-y-3 p-4 border rounded-lg bg-muted/30">
+                <Label>Datos requeridos de acompañantes</Label>
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="anonymous-companions"
+                    checked={formData.anonymous_companions}
+                    onCheckedChange={(checked) => setFormData({ ...formData, anonymous_companions: !!checked })}
+                  />
+                  <Label htmlFor="anonymous-companions" className="font-normal">
+                    Sin datos (entradas anónimas)
+                  </Label>
+                </div>
+                
+                {!formData.anonymous_companions && (
+                  <div className="space-y-2 pt-2">
+                    <p className="text-sm text-muted-foreground">Campos a solicitar:</p>
+                    <div className="flex flex-wrap gap-x-4 gap-y-2">
+                      {COMPANION_FIELDS.map((field) => (
+                        <div key={field.value} className="flex items-center space-x-2">
+                          <Checkbox
+                            id={`companion-field-${field.value}`}
+                            checked={formData.companion_fields_config.includes(field.value)}
+                            onCheckedChange={() => toggleCompanionField(field.value)}
+                          />
+                          <Label htmlFor={`companion-field-${field.value}`} className="font-normal">
+                            {field.label}
+                          </Label>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="space-y-2">
               <Label>Roles permitidos</Label>
