@@ -4,7 +4,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ColumnDef } from "@tanstack/react-table";
 import { supabase } from "@/integrations/supabase/client";
 import { AdminLayout } from "@/components/admin/AdminLayout";
-import { AirtableDataTable, FilterableColumn } from "@/components/admin/AirtableDataTable";
+import { AirtableDataTable, FilterableColumn, ExportData } from "@/components/admin/AirtableDataTable";
+import { format } from "date-fns";
 import { StatusBadge } from "@/components/admin/StatusBadge";
 import { RoleBadge } from "@/components/admin/RoleBadge";
 import { ConfirmDialog } from "@/components/admin/ConfirmDialog";
@@ -448,6 +449,76 @@ export default function AdminUsers() {
     addColumnMutation.mutate(newFieldLabel.trim());
   };
 
+  // Export handler - exports only visible columns and filtered rows
+  const handleExport = useCallback((exportData: ExportData<UserWithRole>) => {
+    const { rows, visibleColumns } = exportData;
+
+    if (rows.length === 0) {
+      toast.error("No hay datos para exportar");
+      return;
+    }
+
+    // Map column ID to value extractor
+    const getColumnValue = (row: UserWithRole, colId: string): string => {
+      switch (colId) {
+        case "name":
+          return `${row.first_name || ""} ${row.last_name || ""}`.trim();
+        case "tg_id":
+          return row.tg_id || "";
+        case "role":
+          return row.role || "";
+        case "verification_status":
+          return row.verification_status || "";
+        case "team_name":
+          return row.team_name || "";
+        case "school_name":
+          return row.school_name || "";
+        case "hub_name":
+          return row.hub_name || "";
+        case "phone":
+          return row.phone || "";
+        case "created_at":
+          return row.created_at ? format(new Date(row.created_at), "dd/MM/yyyy") : "";
+        default:
+          if (colId.startsWith("custom_")) {
+            const key = colId.replace("custom_", "");
+            return (row.custom_fields?.[key] as string) || "";
+          }
+          return "";
+      }
+    };
+
+    // Escape CSV value
+    const escapeCSV = (val: string): string => {
+      if (val.includes(",") || val.includes('"') || val.includes("\n")) {
+        return `"${val.replace(/"/g, '""')}"`;
+      }
+      return val;
+    };
+
+    // Generate CSV
+    const headers = visibleColumns.map(c => escapeCSV(c.header));
+    const csvRows = [
+      headers.join(","),
+      ...rows.map(row =>
+        visibleColumns.map(col => escapeCSV(getColumnValue(row, col.id))).join(",")
+      ),
+    ];
+
+    // Download
+    const blob = new Blob(["\ufeff" + csvRows.join("\n")], {
+      type: "text/csv;charset=utf-8;",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `usuarios_${new Date().toISOString().split("T")[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    toast.success(`Exportados ${rows.length} usuarios`);
+  }, []);
+
   return (
     <AdminLayout title="Gestión de Usuarios">
       <div className="space-y-4 min-w-0 overflow-hidden">
@@ -479,10 +550,7 @@ export default function AdminUsers() {
             setSelectedUser(user as UserWithRole);
             setEditSheetOpen(true);
           }}
-          onExport={() => {
-            // TODO: Implement CSV export
-            toast.info("Exportación en desarrollo");
-          }}
+          onExport={handleExport}
         />
       </div>
 
