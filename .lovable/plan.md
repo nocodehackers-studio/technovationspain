@@ -1,94 +1,69 @@
 
-# Plan: Trigger de Vinculación Automática a Equipos + Estadísticas en Admin
+# Plan: Métrica de Whitelist en el Dashboard
 
 ## Resumen
 
-Implementar dos mejoras:
-1. **Trigger automático**: Cuando un usuario de la whitelist se registra, vincularlo automáticamente a su equipo (si existe en la BD)
-2. **Estadísticas en Admin**: Mostrar en la tabla de equipos cuántos miembros están en la whitelist vs cuántos ya se han registrado
+Añadir una nueva tarjeta de métricas al dashboard de admin que muestre el progreso de registro de usuarios de la whitelist: cuántos se han registrado vs el total en Technovation Global.
 
 ---
 
-## Parte 1: Trigger de Base de Datos
+## Visualización Propuesta
 
-### Lógica a Implementar
-
-Modificar la función `auto_verify_authorized_user_after()` para que, además de asignar el rol, también:
-
-1. Buscar si `authorized_record.team_name` tiene valor
-2. Si tiene valor, buscar el equipo en la tabla `teams` por nombre (case-insensitive)
-3. Si el equipo existe, insertar un registro en `team_members` con:
-   - `team_id`: ID del equipo encontrado
-   - `user_id`: ID del perfil recién creado (NEW.id)
-   - `member_type`: 'participant' si es estudiante, 'mentor' si es mentor
-
-### Pseudocódigo del Trigger
+### Nueva MetricCard
 
 ```text
--- Después de asignar el rol...
-
--- Si el usuario tiene un equipo asignado en la whitelist
-IF authorized_record.team_name IS NOT NULL THEN
-  -- Buscar el equipo por nombre
-  SELECT id INTO team_id 
-  FROM teams 
-  WHERE lower(name) = lower(authorized_record.team_name)
-  LIMIT 1;
-  
-  IF FOUND THEN
-    -- Determinar member_type según profile_type
-    IF authorized_record.profile_type = 'student' THEN
-      member_type := 'participant';
-    ELSE
-      member_type := 'mentor';
-    END IF;
-    
-    -- Insertar en team_members
-    INSERT INTO team_members (team_id, user_id, member_type)
-    VALUES (team_id, NEW.id, member_type)
-    ON CONFLICT DO NOTHING;
-  END IF;
-END IF;
++---------------------------+
+|  📋  Whitelist            |
+|                           |
+|       12 / 499            |
+|    "Registrados"          |
+|                           |
+|  [████████░░░░░░░] 2.4%   |
++---------------------------+
 ```
-
----
-
-## Parte 2: Estadísticas en la Vista de Equipos
 
 ### Datos a Mostrar
 
-Para cada equipo, mostrar:
-- **Whitelist**: Total de usuarios en `authorized_users` con ese `team_name`
-- **Registrados**: Cuántos de esos tienen `matched_profile_id` (ya se registraron)
+| Métrica | Descripción | Consulta |
+|---------|-------------|----------|
+| Total Whitelist | Usuarios en `authorized_users` | `COUNT(*)` |
+| Registrados | Con `matched_profile_id IS NOT NULL` | `COUNT(*) WHERE matched_profile_id IS NOT NULL` |
+| Pendientes | Sin registro | Total - Registrados |
 
-### Visualización Propuesta
+---
 
-En la columna "Miembros" de la tabla, cambiar de:
+## Cambios en el Dashboard
 
-```text
-👥 3
+### Nueva Query
+
+Añadir al fetch de métricas:
+
+```typescript
+const [
+  { count: whitelistTotal },
+  { count: whitelistRegistered },
+] = await Promise.all([
+  supabase.from("authorized_users").select("*", { count: "exact", head: true }),
+  supabase.from("authorized_users").select("*", { count: "exact", head: true }).not("matched_profile_id", "is", null),
+]);
 ```
 
-A:
+### Grid de Métricas Actualizado
+
+Cambiar de 4 columnas a 5, o reorganizar para incluir la nueva métrica de whitelist en una posición destacada.
+
+**Opción recomendada**: Mostrar como tarjeta especial más grande con barra de progreso:
 
 ```text
-👥 2/5  (registrados/whitelist)
-```
-
-Con indicador visual:
-- Barra de progreso pequeña mostrando el porcentaje
-- Color verde cuando todos están registrados
-- Tooltip con detalle: "2 de 5 miembros registrados"
-
-### Consulta SQL Necesaria
-
-```sql
-SELECT 
-  t.*,
-  (SELECT COUNT(*) FROM team_members WHERE team_id = t.id) as actual_members,
-  (SELECT COUNT(*) FROM authorized_users WHERE lower(team_name) = lower(t.name)) as whitelist_count,
-  (SELECT COUNT(*) FROM authorized_users WHERE lower(team_name) = lower(t.name) AND matched_profile_id IS NOT NULL) as registered_from_whitelist
-FROM teams t
++------------+------------+------------+------------+
+| Total      | Verificados| Pendientes | Equipos    |
+| Usuarios   |            |            |            |
++------------+------------+------------+------------+
+|                    Whitelist                      |
+|              12 / 499 registrados                 |
+|          [████░░░░░░░░░░░░░░░░░░] 2.4%           |
+|            487 pendientes de registro            |
++--------------------------------------------------+
 ```
 
 ---
@@ -97,66 +72,54 @@ FROM teams t
 
 | Archivo | Cambio |
 |---------|--------|
-| Nueva migración SQL | Actualizar trigger `auto_verify_authorized_user_after` |
-| `src/pages/admin/AdminTeams.tsx` | Modificar consulta y columna de miembros |
+| `src/pages/admin/AdminDashboard.tsx` | Añadir query de whitelist y nueva tarjeta |
 
 ---
 
-## Detalles de Implementación
+## Implementación
 
-### 1. Migración SQL
+### 1. Extender la Query de Métricas
 
-Crear una nueva migración que:
-- Actualice la función `auto_verify_authorized_user_after()`
-- Añada la lógica de vinculación a equipos
+Añadir conteos de `authorized_users`:
+- Total en whitelist
+- Registrados (matched_profile_id NOT NULL)
 
-### 2. Cambios en AdminTeams.tsx
+### 2. Nueva Sección Visual
 
-**Query modificado:**
-- Agregar subconsulta para contar usuarios en whitelist por team_name
-- Agregar subconsulta para contar registrados
+Crear una Card especial debajo de las métricas actuales que muestre:
+- Número de registrados / Total whitelist
+- Barra de progreso visual
+- Número de pendientes destacado
+- Posibilidad de hacer clic para ir a la página de importación
 
-**Nueva columna "Miembros":**
-- Mostrar formato "X/Y" donde X = registrados, Y = en whitelist
-- Si whitelist_count = 0, mostrar solo los miembros actuales (team_members)
-- Añadir barra de progreso mini
-- Tooltip explicativo
+### 3. Información Adicional (Opcional)
 
-### 3. Componente Visual
+Desglose por tipo de perfil:
+- Estudiantes: X/Y registrados
+- Mentores: X/Y registrados
+- Jueces: X/Y registrados
+
+---
+
+## Diseño Visual Propuesto
 
 ```text
-+----------------+
-|    Miembros    |
-+----------------+
-| 👥 2/5         |
-| [████░░░░] 40% |
-+----------------+
++--------------------------------------------------+
+|  📋  Progreso de Registro - Whitelist            |
++--------------------------------------------------+
+|                                                  |
+|    12 / 499 usuarios registrados                 |
+|                                                  |
+|    [████░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 2.4%      |
+|                                                  |
+|    ⚠️ 487 usuarios pendientes de registro        |
+|                                                  |
+|    Por tipo:                                     |
+|    • Estudiantes: 8/420                          |
+|    • Mentores: 3/65                              |
+|    • Jueces: 1/14                                |
+|                                                  |
++--------------------------------------------------+
 ```
 
----
-
-## Consideraciones Técnicas
-
-### Rendimiento de la Consulta
-
-- Las subconsultas pueden ser costosas con muchos equipos
-- Alternativa: usar una vista materializada o consulta separada
-
-### Casos Especiales
-
-1. **Equipo sin whitelist**: Mostrar solo miembros actuales (sin barra)
-2. **Whitelist sin equipo**: Usuarios que tienen team_name pero el equipo no existe aún
-3. **Múltiples equipos mismo nombre**: Usar LIMIT 1 y log de advertencia
-
-### Constraint de team_members
-
-El trigger debe usar `ON CONFLICT DO NOTHING` para evitar duplicados si el usuario ya fue añadido manualmente.
-
----
-
-## Secuencia de Implementación
-
-1. Crear migración SQL con el trigger actualizado
-2. Modificar la consulta en AdminTeams.tsx para obtener estadísticas
-3. Actualizar la columna "Miembros" con el nuevo formato visual
-4. Añadir tooltip con información detallada
+Esta tarjeta sería clicable para navegar a `/admin/import-users` o mostrar más detalles.
