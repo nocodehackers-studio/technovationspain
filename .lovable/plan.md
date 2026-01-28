@@ -1,220 +1,380 @@
 
-# Plan: Proteger Datos Sensibles en authorized_students y authorized_users
+# Plan: Dashboard para Mentores
 
-## Resumen del Problema
+## Resumen
 
-Las tablas `authorized_students` y `authorized_users` contienen datos sensibles de menores y adultos que están siendo expuestos a través de las políticas RLS actuales:
+Crear un dashboard específico para mentores que muestre todos sus equipos (pueden tener varios), las participantes de cada equipo, y acceso a eventos disponibles. La experiencia será diferente a la del participante porque:
 
-| Tabla | Datos Expuestos | Riesgo |
-|-------|-----------------|--------|
-| authorized_students | email, teléfono, email padres, nombre padres, escuela, edad | CRÍTICO (menores) |
-| authorized_users | email, teléfono, email padres, nombre padres, empresa, escuela | ALTO |
-
-### Problema de Seguridad Actual
-
-La política `"Users can check their own authorization"` permite a los usuarios ver **todas las columnas** de su registro cuando buscan por email:
-
-```sql
--- Política actual (INSEGURA)
-CREATE POLICY "Users can check their own authorization"
-ON public.authorized_students FOR SELECT
-USING (lower(email) = lower((SELECT profiles.email FROM profiles WHERE profiles.id = auth.uid())));
-```
-
-Un usuario autenticado puede ejecutar:
-```sql
-SELECT * FROM authorized_students WHERE email ILIKE 'mi@email.com'
--- Devuelve: email, phone, parent_name, parent_email, school_name, age, etc.
-```
+1. Un mentor puede tener **múltiples equipos**
+2. Necesita ver las **participantes de cada equipo**
+3. Tiene que poder **inscribirse a eventos** como mentor
 
 ---
 
-## Solución Propuesta
+## Arquitectura de Redirección
 
-### Enfoque: Vistas Seguras + RLS Restringido
-
-1. **Crear vistas públicas** que solo exponen columnas no sensibles
-2. **Restringir RLS** en tablas base para denegar SELECT directo a no-admins
-3. **Actualizar código** para usar las vistas seguras
-4. **Mantener triggers** que usan `SECURITY DEFINER` (ya tienen acceso admin interno)
-
----
-
-## Arquitectura
+### Actual
 
 ```text
-Usuario Normal                    Admin
-     |                              |
-     v                              v
-Vista: authorized_students_safe   Tabla: authorized_students
-(solo: id, email, tg_id,          (acceso completo)
- matched_profile_id)
+Usuario login
+    |
+    v
+¿Es admin? --> Sí --> /admin
+    |
+    No
+    v
+¿Necesita onboarding? --> Sí --> /onboarding
+    |
+    No
+    v
+¿Está verificado? --> No --> /pending-verification
+    |
+    Sí
+    v
+/dashboard (todos los roles no-admin)
+```
+
+### Propuesta
+
+```text
+Usuario login
+    |
+    v
+¿Es admin? --> Sí --> /admin
+    |
+    No
+    v
+¿Necesita onboarding? --> Sí --> /onboarding
+    |
+    No
+    v
+¿Está verificado? --> No --> /pending-verification
+    |
+    Sí
+    v
+¿Es voluntario? --> Sí --> /voluntario/dashboard
+    |
+    No
+    v
+¿Es mentor? --> Sí --> /mentor/dashboard (NUEVO)
+    |
+    No
+    v
+¿Es juez? --> Sí --> /judge/dashboard (futuro)
+    |
+    No
+    v
+/dashboard (participantes)
+```
+
+---
+
+## Nuevo Dashboard de Mentor
+
+### Secciones Principales
+
+| Sección | Descripción |
+|---------|-------------|
+| **Cabecera** | Nombre, avatar, botón logout |
+| **Mis Equipos** | Lista de todos los equipos del mentor con tarjetas expandibles |
+| **Participantes por Equipo** | Al expandir un equipo, ver miembros (nombre, email) |
+| **Próximos Eventos** | Eventos publicados con botón de registro |
+| **Mis Inscripciones** | Entradas ya registradas |
+
+### Wireframe Conceptual
+
+```text
++--------------------------------------------------+
+| Logo   Hola, [Nombre]!            [Logout]       |
++--------------------------------------------------+
+|                                                  |
+|  +----------------+  +------------------------+  |
+|  | MI PERFIL      |  | MIS EQUIPOS (2)        |  |
+|  | Nombre: X      |  |                        |  |
+|  | Email: X       |  | [v] Equipo Alpha       |  |
+|  | Rol: Mentor/a  |  |     - María (12 años)  |  |
+|  | Hub: Madrid    |  |     - Lucía (13 años)  |  |
+|  +----------------+  |     - Ana (12 años)    |  |
+|                      |                        |  |
+|                      | [>] Equipo Beta        |  |
+|                      +------------------------+  |
+|                                                  |
+|  +-----------------------------------------+     |
+|  | MIS ENTRADAS                            |     |
+|  | - Evento Intermedio Madrid (Confirmada) |     |
+|  +-----------------------------------------+     |
+|                                                  |
+|  +-----------------------------------------+     |
+|  | PRÓXIMOS EVENTOS                        |     |
+|  | [Evento 1]  [Evento 2]  [Evento 3]      |     |
+|  +-----------------------------------------+     |
++--------------------------------------------------+
 ```
 
 ---
 
 ## Cambios en Base de Datos
 
-### 1. Crear Vistas Seguras
+**No se requieren cambios de esquema**. Las tablas existentes ya soportan:
 
-```sql
--- Vista segura para authorized_students
--- Solo expone datos necesarios para verificación
-CREATE VIEW public.authorized_students_safe
-WITH (security_invoker=on) AS
-  SELECT 
-    id,
-    email,
-    tg_id,
-    matched_profile_id
-    -- EXCLUYE: phone, parent_name, parent_email, school_name, age, etc.
-  FROM public.authorized_students;
-
--- Vista segura para authorized_users
-CREATE VIEW public.authorized_users_safe
-WITH (security_invoker=on) AS
-  SELECT 
-    id,
-    email,
-    tg_id,
-    profile_type,
-    matched_profile_id
-    -- EXCLUYE: phone, parent_name, parent_email, school_name, company_name, etc.
-  FROM public.authorized_users;
-```
-
-### 2. Actualizar Políticas RLS en Tablas Base
-
-```sql
--- AUTHORIZED_STUDENTS
--- Eliminar política de usuarios que expone datos sensibles
-DROP POLICY IF EXISTS "Users can check their own authorization" ON public.authorized_students;
-
--- Nueva política: Solo admins pueden SELECT directamente
--- Los usuarios normales usarán la vista authorized_students_safe
-CREATE POLICY "Only admins can select authorized_students"
-ON public.authorized_students FOR SELECT
-USING (has_role(auth.uid(), 'admin'));
-
--- Mantener política de admins para ALL operations
--- (ya existe: "Admins can manage authorized students")
-
--- AUTHORIZED_USERS
-DROP POLICY IF EXISTS "Users can check their own authorization" ON public.authorized_users;
-
-CREATE POLICY "Only admins can select authorized_users"
-ON public.authorized_users FOR SELECT
-USING (has_role(auth.uid(), 'admin'));
-```
-
-### 3. Crear Políticas RLS para las Vistas
-
-```sql
--- Política para vista authorized_students_safe
-CREATE POLICY "Users can check own authorization via safe view"
-ON public.authorized_students_safe FOR SELECT
-USING (
-  lower(email) = lower((SELECT profiles.email FROM profiles WHERE profiles.id = auth.uid()))
-  OR has_role(auth.uid(), 'admin')
-);
-
--- Política para vista authorized_users_safe
-CREATE POLICY "Users can check own authorization via safe view"
-ON public.authorized_users_safe FOR SELECT
-USING (
-  lower(email) = lower((SELECT profiles.email FROM profiles WHERE profiles.id = auth.uid()))
-  OR has_role(auth.uid(), 'admin')
-);
-```
+- `team_members`: Un mentor puede tener múltiples registros con `member_type = 'mentor'`
+- `event_registrations`: Mentores pueden registrarse a eventos
+- `profiles`: Datos del perfil
 
 ---
+
+## Archivos a Crear
+
+| Archivo | Descripción |
+|---------|-------------|
+| `src/pages/mentor/MentorDashboard.tsx` | Nuevo dashboard para mentores |
+| `src/hooks/useMentorTeams.ts` | Hook para obtener equipos del mentor con miembros |
 
 ## Archivos a Modificar
 
 | Archivo | Cambio |
 |---------|--------|
-| `src/pages/Onboarding.tsx` | Usar `authorized_students_safe` y `authorized_users_safe` |
-
-**Nota**: Las páginas de admin (`AdminUsers.tsx`, `AdminDashboard.tsx`, `AdminImportCSV.tsx`, etc.) **no necesitan cambios** porque ya requieren rol admin y la política de admin sigue permitiendo acceso completo.
+| `src/App.tsx` | Agregar ruta `/mentor/dashboard` protegida |
+| `src/pages/Index.tsx` | Actualizar lógica de redirección post-login |
+| `src/pages/AuthCallback.tsx` | Actualizar lógica de redirección |
+| `src/pages/PendingVerification.tsx` | Redirigir mentores verificados a `/mentor/dashboard` |
 
 ---
 
-## Cambios en Código
+## Implementación del Hook useMentorTeams
 
-### Onboarding.tsx
-
-**Antes (líneas 243-247):**
 ```typescript
-const { data: authorized } = await supabase
-  .from('authorized_students')
-  .select('*')  // ← INSEGURO: obtiene todos los datos
-  .ilike('email', formData.tg_email.trim())
-  .maybeSingle();
+// Obtiene todos los equipos donde el usuario es mentor
+// junto con los miembros de cada equipo
+export function useMentorTeams(userId: string | undefined) {
+  return useQuery({
+    queryKey: ['mentor-teams', userId],
+    queryFn: async () => {
+      if (!userId) return [];
+      
+      // Obtener equipos donde es mentor
+      const { data: teamMemberships, error } = await supabase
+        .from('team_members')
+        .select(`
+          team_id,
+          team:teams(
+            id, name, category,
+            hub:hubs(name, location)
+          )
+        `)
+        .eq('user_id', userId)
+        .eq('member_type', 'mentor');
+      
+      if (error) throw error;
+      if (!teamMemberships?.length) return [];
+      
+      // Para cada equipo, obtener sus miembros
+      const teamsWithMembers = await Promise.all(
+        teamMemberships.map(async (tm) => {
+          const { data: members } = await supabase
+            .from('team_members')
+            .select(`
+              member_type,
+              user:profiles(id, first_name, last_name, email)
+            `)
+            .eq('team_id', tm.team_id);
+          
+          return {
+            ...tm.team,
+            members: members || []
+          };
+        })
+      );
+      
+      return teamsWithMembers;
+    },
+    enabled: !!userId,
+  });
+}
 ```
 
-**Después:**
+---
+
+## Lógica de Redirección Actualizada
+
+### Index.tsx (post-login automático)
+
 ```typescript
-const { data: authorized } = await supabase
-  .from('authorized_students_safe')  // ← Vista segura
-  .select('id, tg_id, matched_profile_id')  // Solo datos necesarios
-  .ilike('email', formData.tg_email.trim())
-  .maybeSingle();
+// Dentro de la verificación de usuario autenticado
+if (user) {
+  if (role === "admin") {
+    return <Navigate to="/admin" replace />;
+  }
+  if (needsOnboarding) {
+    return <Navigate to="/onboarding" replace />;
+  }
+  if (!isVerified) {
+    return <Navigate to="/pending-verification" replace />;
+  }
+  
+  // Redirección por rol
+  if (role === "volunteer") {
+    return <Navigate to="/voluntario/dashboard" replace />;
+  }
+  if (role === "mentor") {
+    return <Navigate to="/mentor/dashboard" replace />;
+  }
+  // Participantes y jueces van al dashboard genérico
+  return <Navigate to="/dashboard" replace />;
+}
+```
+
+### AuthCallback.tsx (post-verificación OTP)
+
+Misma lógica aplicada después de verificar el token.
+
+---
+
+## Diseño del MentorDashboard
+
+### Estructura del Componente
+
+```typescript
+export default function MentorDashboard() {
+  const { user, profile, role, signOut, isVerified } = useAuth();
+  const { data: myTeams, isLoading: teamsLoading } = useMentorTeams(user?.id);
+  const { data: upcomingEvents, isLoading: eventsLoading } = useQuery(...);
+  const { data: myRegistrations, isLoading: registrationsLoading } = useQuery(...);
+  
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-background via-background to-muted/30">
+      {/* Header con gradiente */}
+      <header className="bg-gradient-to-r from-secondary to-secondary/80 text-secondary-foreground">
+        ...
+      </header>
+      
+      <main className="max-w-6xl mx-auto px-4 py-8">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Columna izquierda: Perfil */}
+          <div className="space-y-6">
+            <ProfileCard profile={profile} role={role} />
+          </div>
+          
+          {/* Columna derecha: Equipos y Eventos */}
+          <div className="lg:col-span-2 space-y-6">
+            {/* Sección de Equipos */}
+            <TeamsSection teams={myTeams} isLoading={teamsLoading} />
+            
+            {/* Mis Inscripciones */}
+            <RegistrationsSection registrations={myRegistrations} />
+            
+            {/* Próximos Eventos */}
+            <EventsSection events={upcomingEvents} />
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}
+```
+
+### Componente de Equipo Expandible
+
+```typescript
+// Usando Collapsible de shadcn/ui
+<Collapsible>
+  <CollapsibleTrigger className="w-full">
+    <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
+      <div className="flex items-center gap-3">
+        <Users className="h-5 w-5 text-secondary" />
+        <div className="text-left">
+          <p className="font-medium">{team.name}</p>
+          <p className="text-sm text-muted-foreground">
+            {team.members.length} miembro(s)
+          </p>
+        </div>
+      </div>
+      <ChevronDown className="h-4 w-4" />
+    </div>
+  </CollapsibleTrigger>
+  <CollapsibleContent>
+    <div className="p-4 border-l-2 border-secondary/30 ml-6 space-y-2">
+      {team.members
+        .filter(m => m.member_type === 'participant')
+        .map(member => (
+          <div key={member.user.id} className="flex items-center gap-2">
+            <Avatar className="h-8 w-8">
+              <AvatarFallback>{member.user.first_name?.[0]}</AvatarFallback>
+            </Avatar>
+            <div>
+              <p className="text-sm font-medium">
+                {member.user.first_name} {member.user.last_name}
+              </p>
+              <p className="text-xs text-muted-foreground">{member.user.email}</p>
+            </div>
+          </div>
+        ))}
+    </div>
+  </CollapsibleContent>
+</Collapsible>
 ```
 
 ---
 
-## Triggers Existentes (No Requieren Cambios)
+## Rutas en App.tsx
 
-Los triggers de auto-verificación ya usan `SECURITY DEFINER`, lo que significa que se ejecutan con permisos elevados y no se ven afectados por las políticas RLS:
+```typescript
+// Mentor Pages
+import MentorDashboard from "./pages/mentor/MentorDashboard";
 
-- `auto_verify_authorized_student_before` - SECURITY DEFINER ✓
-- `auto_verify_authorized_student_after` - SECURITY DEFINER ✓
-- `auto_verify_authorized_user_before` - SECURITY DEFINER ✓
-- `auto_verify_authorized_user_after` - SECURITY DEFINER ✓
-
-Estos triggers pueden seguir accediendo a las tablas base directamente.
+// Dentro de Routes
+<Route path="/mentor/dashboard" element={
+  <ProtectedRoute requiredRoles={["mentor", "admin"]}>
+    <MentorDashboard />
+  </ProtectedRoute>
+} />
+```
 
 ---
 
-## Resumen de Seguridad
+## Consideraciones de Seguridad
 
-| Aspecto | Antes | Después |
-|---------|-------|---------|
-| Usuario ve email padres | Sí | No |
-| Usuario ve teléfono | Sí | No |
-| Usuario ve escuela | Sí | No |
-| Usuario ve edad | Sí | No |
-| Admin accede a todo | Sí | Sí |
-| Auto-verificación funciona | Sí | Sí |
-| Dashboard admin funciona | Sí | Sí |
+### RLS Existente (Suficiente)
+
+Las políticas RLS actuales ya protegen adecuadamente:
+
+- **team_members**: Los mentores solo pueden ver miembros de sus propios equipos via `get_user_team_ids(auth.uid())`
+- **teams**: Solo pueden ver equipos donde son miembros
+- **profiles**: Los admins pueden ver todos; usuarios normales solo el suyo
+
+### Protección de Datos de Menores
+
+Los mentores verán datos limitados de sus participantes:
+- Nombre y apellidos
+- Email (necesario para comunicación)
+
+NO verán:
+- DNI
+- Teléfono
+- Fecha de nacimiento
+- Datos de los padres
 
 ---
 
 ## Orden de Implementación
 
-1. Crear migración SQL con vistas y políticas actualizadas
-2. Actualizar `Onboarding.tsx` para usar vistas seguras
-3. Actualizar tipos TypeScript (se generarán automáticamente)
-4. Probar flujo de onboarding para participantes
-5. Probar acceso admin a datos completos
-6. Verificar que triggers de auto-verificación siguen funcionando
+1. Crear hook `useMentorTeams.ts`
+2. Crear página `MentorDashboard.tsx`
+3. Agregar ruta en `App.tsx`
+4. Actualizar redirecciones en `Index.tsx`
+5. Actualizar redirecciones en `AuthCallback.tsx`
+6. Actualizar redirecciones en `PendingVerification.tsx`
+7. Probar flujo completo con usuario mentor
 
 ---
 
-## Consideraciones Adicionales
+## Diferencias con ParticipantDashboard
 
-### Compatibilidad con Código Existente
-
-Las páginas de admin (`AdminUsers.tsx`, `AdminImportCSV.tsx`, `AdminImportUnified.tsx`, `AdminImportTeams.tsx`, `AdminReports.tsx`, `AdminDashboard.tsx`) seguirán funcionando porque:
-
-1. Solo usuarios con rol `admin` pueden acceder a estas páginas
-2. La política `"Admins can manage authorized students/users"` sigue activa
-3. El rol admin puede hacer SELECT, INSERT, UPDATE, DELETE en las tablas base
-
-### Datos que Siguen Accesibles para Admins
-
-Los admins seguirán pudiendo ver y exportar todos los datos sensibles:
-- Listado de estudiantes con emails de padres (AdminImportCSV)
-- Exportación CSV completa (AdminReports)
-- Estadísticas de whitelist (AdminDashboard)
-- Asignación de escuelas a usuarios (AdminUsers)
+| Aspecto | Participante | Mentor |
+|---------|--------------|--------|
+| Equipos | Uno solo | Múltiples (expandibles) |
+| Ver miembros | No | Sí (sus participantes) |
+| Color header | Primary (rosa) | Secondary (verde) |
+| Hub editable | No | No |
+| Eventos | Ver y registrar | Ver y registrar |
+| Inscripciones | Propias | Propias |
