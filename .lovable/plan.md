@@ -1,124 +1,148 @@
 
-# Plan: Portal de Voluntarios
+# Plan: Proteger Datos Sensibles en Validación de QR
 
-## Resumen
+## Resumen del Problema
 
-Implementar un portal completo para voluntarios que incluye:
-1. Pagina de registro especifica en `/voluntario` (sin verificacion Technovation)
-2. Dashboard de voluntario con lista de eventos disponibles
-3. Sistema de inscripcion a eventos como voluntario (sin generar entrada)
-4. Vista en admin para ver y gestionar voluntarios asignados a eventos
-5. Capacidad de asignar rol "Validador QR" a voluntarios
+Actualmente, los voluntarios con acceso a `/validate` pueden ver datos personales sensibles de TODOS los asistentes registrados:
+
+| Tabla | Datos Expuestos | Riesgo |
+|-------|-----------------|--------|
+| event_registrations | DNI, email, teléfono, tg_email | CRÍTICO |
+| companions | DNI | CRÍTICO |
+| team_members | user_id de todos los miembros | MEDIO |
+| teams | Todos los equipos | BAJO |
+
+## Solución Propuesta
+
+Migrar la validación de tickets a una **Edge Function** que:
+1. Recibe el código QR
+2. Valida internamente (con acceso admin via service_role)
+3. Devuelve SOLO los datos necesarios para mostrar en pantalla
 
 ---
 
-## Arquitectura del Sistema
+## Arquitectura Actual vs Propuesta
 
-### Flujo del Voluntario
+### Actual (INSEGURO)
 
 ```text
-/voluntario (registro)
-     |
-     v
-Onboarding (simplificado, sin TG email)
-     |
-     v
-Auto-verificado como voluntario
-     |
-     v
-/voluntario/dashboard
-     |
-     v
-Ver eventos y apuntarse
+Voluntario
+    |
+    v
+Supabase Client (con RLS de voluntario)
+    |
+    v
+SELECT * FROM event_registrations  <-- Accede a DNI, email, etc.
+    |
+    v
+Frontend muestra nombre + tipo entrada
 ```
 
-### Modelo de Datos
+### Propuesto (SEGURO)
 
-Nueva tabla `event_volunteers` para inscripciones de voluntarios:
-
-| Campo | Tipo | Descripcion |
-|-------|------|-------------|
-| id | UUID | Primary key |
-| event_id | UUID | FK a events |
-| user_id | UUID | FK a profiles |
-| notes | TEXT | Notas opcionales |
-| created_at | TIMESTAMP | Fecha inscripcion |
+```text
+Voluntario
+    |
+    v
+Edge Function: validate-ticket
+    |
+    v
+Supabase Admin (service_role) - sin RLS
+    |
+    v
+Devuelve SOLO: { valid, name, ticketType, eventName, error }
+```
 
 ---
 
 ## Cambios en Base de Datos
 
-### Nueva tabla event_volunteers
+### 1. Restringir políticas RLS para voluntarios
+
+Eliminar acceso directo de voluntarios a tablas sensibles:
 
 ```sql
-CREATE TABLE public.event_volunteers (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  event_id UUID REFERENCES public.events(id) ON DELETE CASCADE NOT NULL,
-  user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
-  notes TEXT,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  UNIQUE(event_id, user_id)
-);
+-- Eliminar acceso de voluntarios a event_registrations (SELECT general)
+DROP POLICY IF EXISTS "Users can view own registrations" ON public.event_registrations;
 
--- RLS
-ALTER TABLE public.event_volunteers ENABLE ROW LEVEL SECURITY;
-
--- Voluntarios pueden ver sus inscripciones
-CREATE POLICY "Volunteers can view own signups"
-ON public.event_volunteers FOR SELECT
+-- Nueva política: solo propietarios o admins
+CREATE POLICY "Users can view own registrations"
+ON public.event_registrations FOR SELECT
 USING (user_id = auth.uid() OR has_role(auth.uid(), 'admin'));
 
--- Voluntarios pueden inscribirse
-CREATE POLICY "Volunteers can sign up"
-ON public.event_volunteers FOR INSERT
-WITH CHECK (user_id = auth.uid() AND has_role(auth.uid(), 'volunteer'));
+-- Eliminar acceso de voluntarios a companions
+DROP POLICY IF EXISTS "Users can view companions of own registrations" ON public.companions;
 
--- Voluntarios pueden cancelar su inscripcion
-CREATE POLICY "Volunteers can cancel own signup"
-ON public.event_volunteers FOR DELETE
-USING (user_id = auth.uid());
+-- Nueva política: solo propietarios de la inscripción o admins
+CREATE POLICY "Users can view companions of own registrations"
+ON public.companions FOR SELECT
+USING (
+  event_registration_id IN (
+    SELECT id FROM event_registrations WHERE user_id = auth.uid()
+  ) 
+  OR has_role(auth.uid(), 'admin')
+);
 
--- Admins pueden gestionar todo
-CREATE POLICY "Admins manage all"
-ON public.event_volunteers FOR ALL
-USING (has_role(auth.uid(), 'admin'));
+-- Eliminar acceso de voluntarios a team_members
+DROP POLICY IF EXISTS "Users can view team members of their teams" ON public.team_members;
+
+CREATE POLICY "Users can view team members of their teams"
+ON public.team_members FOR SELECT
+USING (
+  team_id IN (SELECT get_user_team_ids(auth.uid()))
+  OR has_role(auth.uid(), 'admin')
+);
+
+-- Eliminar acceso de voluntarios a teams
+DROP POLICY IF EXISTS "Team members can view their teams" ON public.teams;
+
+CREATE POLICY "Team members can view their teams"
+ON public.teams FOR SELECT
+USING (
+  id IN (SELECT team_id FROM team_members WHERE user_id = auth.uid())
+  OR has_role(auth.uid(), 'admin')
+);
 ```
 
-### Modificar user_roles RLS
+### 2. Mantener política UPDATE para check-in de voluntarios
 
-Permitir auto-asignacion del rol `volunteer` durante registro:
+Los voluntarios sí necesitan poder hacer UPDATE para registrar el check-in, pero esto NO expone datos porque es solo escritura:
 
 ```sql
--- Actualizar politica existente para incluir 'volunteer'
-DROP POLICY IF EXISTS "Users can insert own allowed role" ON public.user_roles;
-
-CREATE POLICY "Users can insert own allowed role"
-ON public.user_roles FOR INSERT
-WITH CHECK (
-  auth.uid() = user_id 
-  AND role IN ('participant', 'mentor', 'judge', 'volunteer')
-  AND (
-    NOT EXISTS (SELECT 1 FROM user_roles WHERE user_id = auth.uid())
-    OR EXISTS (
-      SELECT 1 FROM profiles 
-      WHERE id = auth.uid() 
-      AND verification_status = 'verified'
-    )
-  )
-);
+-- Esta política YA EXISTE y es correcta
+-- "Volunteers can update registrations for check-in"
+-- Solo permite UPDATE, no SELECT
 ```
 
 ---
 
-## Nuevos Archivos
+## Nueva Edge Function: validate-ticket
 
-| Archivo | Proposito |
-|---------|-----------|
-| `src/pages/register/RegisterVolunteer.tsx` | Pagina registro voluntarios |
-| `src/pages/volunteer/VolunteerDashboard.tsx` | Dashboard del voluntario |
-| `src/pages/volunteer/VolunteerEventSignup.tsx` | Detalle evento e inscripcion |
-| `src/hooks/useVolunteerEvents.ts` | Hook para eventos de voluntarios |
-| `src/components/admin/events/EventVolunteersView.tsx` | Vista admin de voluntarios por evento |
+### Archivo: supabase/functions/validate-ticket/index.ts
+
+```typescript
+// Recibe: { qr_code: string }
+// Devuelve: {
+//   valid: boolean,
+//   error?: 'not_found' | 'already_checked_in' | 'wrong_date' | 'cancelled',
+//   registration?: {
+//     id: string,
+//     display_name: string,      // Solo nombre, sin apellidos completos
+//     ticket_type: string,
+//     event_name: string,
+//     team_name?: string
+//   }
+// }
+```
+
+### Flujo de la Edge Function
+
+1. Verificar JWT del usuario llamante
+2. Verificar que tiene rol `volunteer` o `admin`
+3. Buscar registro por qr_code (usando service_role - sin RLS)
+4. Validar: fecha, estado, check-in previo
+5. Si válido, hacer check-in automático
+6. Devolver respuesta mínima
 
 ---
 
@@ -126,244 +150,268 @@ WITH CHECK (
 
 | Archivo | Cambio |
 |---------|--------|
-| `src/App.tsx` | Nuevas rutas `/voluntario/*` |
-| `src/pages/Onboarding.tsx` | Flujo simplificado para voluntarios |
-| `src/pages/admin/AdminEventEditor.tsx` | Nueva pestana "Voluntarios" |
-| `src/types/database.ts` | Nuevo tipo EventVolunteer |
-| `src/hooks/useAuth.tsx` | Redireccion post-login para voluntarios |
+| `supabase/functions/validate-ticket/index.ts` | NUEVO - Edge Function |
+| `src/hooks/useTicketValidation.ts` | Llamar a Edge Function en vez de query directo |
+| `src/pages/validate/ValidatePage.tsx` | Adaptar a nueva respuesta |
 
 ---
 
-## Implementacion Detallada
-
-### 1. Pagina de Registro (/voluntario)
-
-Similar a RegisterMentor pero:
-- Sin requisito de Technovation Global
-- Rol asignado: `volunteer`
-- Auto-verificacion inmediata (no requiere whitelist)
-- Texto adaptado a voluntarios
+## Implementación de la Edge Function
 
 ```typescript
-// RegisterVolunteer.tsx
-// Usa signInWithOtp con emailRedirectTo: `/auth/callback?role=volunteer`
-// El callback redirige a onboarding con ?role=volunteer
-```
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-### 2. Onboarding Simplificado para Voluntarios
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
 
-Modificar Onboarding.tsx:
-- Detectar `role=volunteer` en URL
-- Omitir paso de Technovation Global email
-- Auto-verificar el perfil
-- Redirigir a `/voluntario/dashboard`
-
-```typescript
-// En roleConfig, anadir:
-volunteer: {
-  label: 'Voluntario/a',
-  icon: Heart, // o HandHeart
-  ageMin: 18,
-  ageMax: null,
-  ageLabel: '18+ anos',
-  color: 'text-accent',
+interface ValidationResponse {
+  valid: boolean;
+  error?: 'not_found' | 'already_checked_in' | 'wrong_date' | 'cancelled';
+  registration?: {
+    id: string;
+    display_name: string;
+    ticket_type: string;
+    event_name: string;
+    team_name?: string;
+  };
 }
 
-// En handleSubmit, si role === 'volunteer':
-// - verification_status = 'verified' (auto)
-// - No buscar en whitelist
-// - Navegar a /voluntario/dashboard
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  try {
+    // 1. Verificar autenticación
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return new Response(JSON.stringify({ error: "No authorization header" }), {
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
+
+    // Cliente con token del usuario para verificar identidad
+    const supabaseUser = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_ANON_KEY")!,
+      { global: { headers: { Authorization: authHeader } } }
+    );
+
+    const { data: { user }, error: authError } = await supabaseUser.auth.getUser();
+    if (authError || !user) {
+      return new Response(JSON.stringify({ error: "Invalid token" }), {
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
+
+    // 2. Verificar rol (volunteer o admin)
+    const supabaseAdmin = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+    );
+
+    const { data: roles } = await supabaseAdmin
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", user.id);
+
+    const userRoles = roles?.map(r => r.role) || [];
+    if (!userRoles.includes("volunteer") && !userRoles.includes("admin")) {
+      return new Response(JSON.stringify({ error: "Unauthorized role" }), {
+        status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
+
+    // 3. Obtener código QR del body
+    const { qr_code } = await req.json();
+    if (!qr_code) {
+      return new Response(JSON.stringify({ valid: false, error: "not_found" }), {
+        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
+
+    // 4. Buscar registro (con admin client - sin RLS)
+    const { data: registration } = await supabaseAdmin
+      .from("event_registrations")
+      .select(`
+        id, qr_code, first_name, last_name, team_name,
+        checked_in_at, registration_status,
+        event:events(id, name, date),
+        ticket_type:event_ticket_types(name)
+      `)
+      .eq("qr_code", qr_code)
+      .maybeSingle();
+
+    // 5. Validar
+    if (!registration) {
+      return new Response(JSON.stringify({ valid: false, error: "not_found" }), {
+        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
+
+    if (registration.registration_status === "cancelled") {
+      return new Response(JSON.stringify({ valid: false, error: "cancelled" }), {
+        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
+
+    if (registration.checked_in_at || registration.registration_status === "checked_in") {
+      return new Response(JSON.stringify({ valid: false, error: "already_checked_in" }), {
+        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
+
+    // Verificar fecha del evento (Madrid timezone)
+    const eventDate = registration.event?.date;
+    if (eventDate) {
+      const today = new Date().toISOString().split('T')[0];
+      if (eventDate !== today) {
+        return new Response(JSON.stringify({ valid: false, error: "wrong_date" }), {
+          status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      }
+    }
+
+    // 6. Realizar check-in
+    await supabaseAdmin
+      .from("event_registrations")
+      .update({
+        checked_in_at: new Date().toISOString(),
+        checked_in_by: user.id,
+        registration_status: "checked_in"
+      })
+      .eq("id", registration.id);
+
+    // 7. Devolver respuesta mínima (SIN DNI, email, teléfono)
+    const response: ValidationResponse = {
+      valid: true,
+      registration: {
+        id: registration.id,
+        display_name: [registration.first_name, registration.last_name]
+          .filter(Boolean).join(" ") || "Asistente",
+        ticket_type: registration.ticket_type?.name || "General",
+        event_name: registration.event?.name || "Evento",
+        team_name: registration.team_name || undefined
+      }
+    };
+
+    return new Response(JSON.stringify(response), {
+      status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" }
+    });
+
+  } catch (error) {
+    console.error("Validation error:", error);
+    return new Response(JSON.stringify({ error: "Internal server error" }), {
+      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" }
+    });
+  }
+});
 ```
 
-### 3. Dashboard de Voluntario
+---
 
-Nueva pagina con:
-- Perfil basico del voluntario
-- Lista de eventos disponibles (publicados)
-- Eventos a los que ya esta inscrito
-- Boton para apuntarse/desapuntarse
+## Actualización del Hook useTicketValidation
 
 ```typescript
-// VolunteerDashboard.tsx
-interface VolunteerDashboardProps {}
+// Nuevo hook que llama a la Edge Function
+export function useTicketValidation(code: string | undefined) {
+  const { user } = useAuth();
 
-// Queries:
-// 1. Eventos publicados: supabase.from('events').select('*').eq('status', 'published')
-// 2. Mis inscripciones: supabase.from('event_volunteers').select('*, event:events(*)').eq('user_id', userId)
-
-// UI:
-// - Header con avatar y nombre
-// - Seccion "Mis eventos" (donde estoy inscrito)
-// - Seccion "Eventos disponibles" (donde puedo apuntarme)
-// - Boton "Apuntarse" / "Cancelar inscripcion"
-```
-
-### 4. Hook useVolunteerEvents
-
-```typescript
-export function useVolunteerEvents(userId: string | undefined) {
-  // Query: eventos con inscripcion del usuario
-  const { data: mySignups } = useQuery({
-    queryKey: ['volunteer-signups', userId],
+  return useQuery({
+    queryKey: ['ticket-validation', code],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('event_volunteers')
-        .select('*, event:events(*)')
-        .eq('user_id', userId);
-      if (error) throw error;
-      return data;
+      if (!code) return { valid: false, error: 'not_found' as const };
+
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/validate-ticket`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session?.access_token}`
+          },
+          body: JSON.stringify({ qr_code: code })
+        }
+      );
+
+      return response.json();
     },
-    enabled: !!userId,
+    enabled: !!code && !!user
   });
-
-  // Mutation: inscribirse
-  const signupMutation = useMutation({...});
-  
-  // Mutation: cancelar inscripcion
-  const cancelMutation = useMutation({...});
-
-  return { mySignups, signUp, cancelSignup };
 }
 ```
 
-### 5. Vista Admin de Voluntarios por Evento
+---
 
-Nueva pestana en AdminEventEditor:
+## Actualización de ValidatePage
+
+El componente se simplifica porque ya no necesita:
+- Hacer check-in manualmente (la Edge Function lo hace)
+- Validar fecha localmente (la Edge Function lo valida)
+
+Solo muestra el resultado devuelto por la función.
+
+---
+
+## Resumen de Seguridad
+
+| Aspecto | Antes | Después |
+|---------|-------|---------|
+| Voluntarios ven DNI | Sí | No |
+| Voluntarios ven email | Sí | No |
+| Voluntarios ven teléfono | Sí | No |
+| Voluntarios ven equipos | Todos | Solo el suyo |
+| Acceso a tablas | Directo | Via Edge Function |
+| Validación | Cliente | Servidor |
+
+---
+
+## Orden de Implementación
+
+1. Crear Edge Function `validate-ticket`
+2. Desplegar y probar la función
+3. Actualizar `useTicketValidation.ts` para usar Edge Function
+4. Actualizar `ValidatePage.tsx` para nueva respuesta
+5. Aplicar migración SQL para restringir RLS
+6. Probar flujo completo con usuario voluntario
+
+---
+
+## Consideraciones Adicionales
+
+### Companions (Acompañantes)
+
+Los acompañantes también tienen códigos QR. La Edge Function debe buscar también en la tabla `companions` si no encuentra el código en `event_registrations`:
 
 ```typescript
-// EventVolunteersView.tsx
-// Muestra tabla con:
-// - Nombre del voluntario
-// - Email
-// - Fecha inscripcion
-// - Acciones: Asignar como Validador QR, Eliminar inscripcion
-
-// Query:
-supabase
-  .from('event_volunteers')
-  .select('*, profile:profiles(*)')
-  .eq('event_id', eventId)
+// Si no se encuentra en event_registrations, buscar en companions
+const { data: companion } = await supabaseAdmin
+  .from("companions")
+  .select(`
+    id, qr_code, first_name, last_name, relationship,
+    checked_in_at,
+    event_registration:event_registrations(
+      event:events(id, name, date)
+    )
+  `)
+  .eq("qr_code", qr_code)
+  .maybeSingle();
 ```
 
-### 6. Rutas en App.tsx
+### Audit Log
+
+La Edge Function puede registrar cada validación en `audit_logs` para trazabilidad:
 
 ```typescript
-// Registro voluntario (publico)
-<Route path="/voluntario" element={<RegisterVolunteer />} />
-
-// Dashboard voluntario (protegido)
-<Route path="/voluntario/dashboard" element={
-  <ProtectedRoute requiredRoles={["volunteer", "admin"]}>
-    <VolunteerDashboard />
-  </ProtectedRoute>
-} />
+await supabaseAdmin.from("audit_logs").insert({
+  user_id: user.id,
+  action: "check_in",
+  entity_type: "event_registration",
+  entity_id: registration.id,
+  changes: { checked_in_at: new Date().toISOString() }
+});
 ```
-
----
-
-## Flujo de Usuario Completo
-
-### Registro como Voluntario
-
-1. Usuario accede a `/voluntario`
-2. Introduce email y acepta terminos
-3. Recibe magic link / OTP
-4. Verifica y llega a Onboarding
-5. Completa datos basicos (nombre, fecha nacimiento)
-6. Se crea perfil con `verification_status: 'verified'` y `role: 'volunteer'`
-7. Redirige a `/voluntario/dashboard`
-
-### Apuntarse a Evento
-
-1. Voluntario ve lista de eventos en su dashboard
-2. Hace clic en "Apuntarme" en un evento
-3. Se crea registro en `event_volunteers`
-4. El evento aparece en "Mis eventos"
-5. Puede cancelar su inscripcion
-
-### Admin Gestiona Voluntarios
-
-1. Admin abre evento en editor
-2. Va a pestana "Voluntarios"
-3. Ve lista de voluntarios inscritos
-4. Puede asignar rol "Validador QR" a cualquiera
-5. Puede eliminar inscripciones
-
-### Validador QR en Accion
-
-1. Voluntario con rol adicional `volunteer` puede acceder a `/validate`
-2. Escanea codigos QR de entradas
-3. El sistema ya permite acceso a usuarios con rol `volunteer`
-
----
-
-## UI/UX del Dashboard Voluntario
-
-```text
-+--------------------------------------------------+
-|  [Avatar]  Hola, Juan!                    [Salir]|
-|  Voluntario/a de Technovation Espana             |
-+--------------------------------------------------+
-
-+--------------------------------------------------+
-|  MIS EVENTOS                                     |
-|  +--------------------------------------------+  |
-|  | Evento Intermedio Madrid                   |  |
-|  | 7 Mar 2025 | IFEMA                         |  |
-|  | [Cancelar inscripcion]                     |  |
-|  +--------------------------------------------+  |
-+--------------------------------------------------+
-
-+--------------------------------------------------+
-|  EVENTOS DISPONIBLES                             |
-|  +--------------------------------------------+  |
-|  | Final Regional Norte                       |  |
-|  | 15 May 2025 | Bilbao                       |  |
-|  | [Apuntarme como voluntario]                |  |
-|  +--------------------------------------------+  |
-|  +--------------------------------------------+  |
-|  | Workshop IA Barcelona                      |  |
-|  | 20 Abr 2025 | Barcelona                    |  |
-|  | [Apuntarme como voluntario]                |  |
-|  +--------------------------------------------+  |
-+--------------------------------------------------+
-
-|  Tienes rol de Validador QR?                     |
-|  [Ir al escaner de entradas]                     |
-+--------------------------------------------------+
-```
-
----
-
-## Consideraciones de Seguridad
-
-1. **RLS estricto**: Voluntarios solo ven/modifican sus propias inscripciones
-2. **Auto-verificacion controlada**: Solo usuarios que vienen de `/voluntario` pueden auto-verificarse como voluntarios
-3. **Rol separado**: El rol `volunteer` es distinto de `participant`, no da acceso a funcionalidades de participante
-4. **Validador QR adicional**: El rol de validador se asigna explicitamente, no viene por defecto
-
----
-
-## Orden de Implementacion
-
-1. Migracion DB: crear tabla `event_volunteers` y actualizar RLS
-2. `RegisterVolunteer.tsx`: pagina de registro
-3. Modificar `Onboarding.tsx`: soporte para rol voluntario
-4. Modificar `useAuth.tsx`: redireccion post-login
-5. `useVolunteerEvents.ts`: hook de datos
-6. `VolunteerDashboard.tsx`: dashboard principal
-7. Rutas en `App.tsx`
-8. `EventVolunteersView.tsx`: vista admin
-9. Modificar `AdminEventEditor.tsx`: nueva pestana
-
----
-
-## Diferencias Clave vs Otros Roles
-
-| Aspecto | Participante/Mentor/Juez | Voluntario |
-|---------|--------------------------|------------|
-| Verificacion | Contra Technovation Global | Automatica |
-| Dashboard | `/dashboard` | `/voluntario/dashboard` |
-| Eventos | Sacar entrada con QR | Solo apuntarse (sin entrada) |
-| Registro a eventos | `event_registrations` | `event_volunteers` |
-| Acceso a validacion | Solo admin | Con rol adicional |
