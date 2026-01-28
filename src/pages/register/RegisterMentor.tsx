@@ -9,6 +9,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { toast } from 'sonner';
 import { Users, Mail, ArrowLeft, Loader2, Info, KeyRound } from 'lucide-react';
 import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp';
+import { LegalConsentCheckboxes } from '@/components/auth/LegalConsentCheckboxes';
 
 const LOGO_TECHNOVATION = "https://orvkqnbshkxzyhqpjsdw.supabase.co/storage/v1/object/public/Assets/LOGO_Technovation_Girls_Transparente.png";
 const LOGO_POWER_TO_CODE = "https://orvkqnbshkxzyhqpjsdw.supabase.co/storage/v1/object/public/Assets/Logo%20transparente%20PowerToCode.png";
@@ -20,12 +21,19 @@ export default function RegisterMentor() {
   const [emailSent, setEmailSent] = useState(false);
   const [otpCode, setOtpCode] = useState('');
   const [verifyingOtp, setVerifyingOtp] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [privacyAccepted, setPrivacyAccepted] = useState(false);
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!email) {
       toast.error('Por favor, introduce tu email');
+      return;
+    }
+
+    if (!termsAccepted || !privacyAccepted) {
+      toast.error('Debes aceptar los términos y condiciones y la política de privacidad');
       return;
     }
 
@@ -218,7 +226,14 @@ export default function RegisterMentor() {
               </p>
             </div>
 
-            <Button type="submit" className="w-full" disabled={loading}>
+            <LegalConsentCheckboxes
+              termsAccepted={termsAccepted}
+              privacyAccepted={privacyAccepted}
+              onTermsChange={setTermsAccepted}
+              onPrivacyChange={setPrivacyAccepted}
+            />
+
+            <Button type="submit" className="w-full" disabled={loading || !termsAccepted || !privacyAccepted}>
               {loading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
