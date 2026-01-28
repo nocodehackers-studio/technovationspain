@@ -43,7 +43,14 @@ export default function Index() {
     if (!isVerified) {
       return <Navigate to="/pending-verification" replace />;
     }
-    // Verified user - go to dashboard
+    // Role-based redirect for verified users
+    if (role === "volunteer") {
+      return <Navigate to="/voluntario/dashboard" replace />;
+    }
+    if (role === "mentor") {
+      return <Navigate to="/mentor/dashboard" replace />;
+    }
+    // Participants and judges go to generic dashboard
     return <Navigate to="/dashboard" replace />;
   }
 
@@ -125,6 +132,10 @@ export default function Index() {
           navigate('/admin', { replace: true });
         } else if (profile?.verification_status !== 'verified') {
           navigate('/pending-verification', { replace: true });
+        } else if (highestRole === 'volunteer') {
+          navigate('/voluntario/dashboard', { replace: true });
+        } else if (highestRole === 'mentor') {
+          navigate('/mentor/dashboard', { replace: true });
         } else {
           navigate('/dashboard', { replace: true });
         }
