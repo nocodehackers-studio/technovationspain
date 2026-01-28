@@ -1,16 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Html5QrcodeScanner } from 'html5-qrcode';
-import { Check, X, Camera } from 'lucide-react';
+import { Check, X, Camera, AlertTriangle, CalendarX, UserX } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { LoadingPage } from '@/components/ui/loading-spinner';
 import { useAuth } from '@/hooks/useAuth';
-import { toast } from 'sonner';
-import {
-  useTicketLookup,
-  useCheckIn,
-  validateTicket,
-} from '@/hooks/useTicketValidation';
+import { useTicketValidation, type ValidationError } from '@/hooks/useTicketValidation';
 
 export default function ValidatePage() {
   const { code } = useParams<{ code?: string }>();
@@ -96,7 +91,6 @@ function ScannerMode() {
       scanner.render(onScanSuccess, onScanError);
 
       // Listen for permission denied errors from the scanner
-      // The library fires a state change that we can catch
       const checkForPermissionError = () => {
         const errorElement = document.querySelector('#qr-reader__status_span');
         if (errorElement?.textContent?.toLowerCase().includes('permission')) {
@@ -159,64 +153,75 @@ function ScannerMode() {
   );
 }
 
+// Error display configuration
+const ERROR_CONFIG: Record<ValidationError, { icon: typeof X; title: string; description: string; bgClass: string; textClass: string }> = {
+  not_found: {
+    icon: UserX,
+    title: 'No encontrado',
+    description: 'Este código QR no corresponde a ninguna entrada registrada.',
+    bgClass: 'bg-amber-50',
+    textClass: 'text-amber-700'
+  },
+  already_checked_in: {
+    icon: AlertTriangle,
+    title: 'Ya registrado',
+    description: 'Esta entrada ya ha sido utilizada anteriormente.',
+    bgClass: 'bg-amber-50',
+    textClass: 'text-amber-700'
+  },
+  wrong_date: {
+    icon: CalendarX,
+    title: 'Fecha incorrecta',
+    description: 'Esta entrada no corresponde al evento de hoy.',
+    bgClass: 'bg-amber-50',
+    textClass: 'text-amber-700'
+  },
+  cancelled: {
+    icon: X,
+    title: 'Cancelada',
+    description: 'Esta inscripción ha sido cancelada.',
+    bgClass: 'bg-red-50',
+    textClass: 'text-red-700'
+  }
+};
+
 // Result Mode Component
 function ResultMode({ code }: { code: string }) {
   const navigate = useNavigate();
-  const { user } = useAuth();
-  const hasCheckedInRef = useRef(false);
-  const [checkInSuccess, setCheckInSuccess] = useState(false);
-  const [checkInError, setCheckInError] = useState(false);
-
-  const { data: registration, isLoading } = useTicketLookup(code);
-  const { checkIn, isChecking } = useCheckIn();
-
-  const validation = validateTicket(registration ?? null);
-
-  // Auto check-in with guards
-  useEffect(() => {
-    // Guard 1: Must be valid ticket
-    // Guard 2: Must not have already triggered check-in
-    // Guard 3: Must have user loaded
-    // Guard 4: Must have registration data
-    if (
-      validation.isValid &&
-      !hasCheckedInRef.current &&
-      user?.id &&
-      registration?.id
-    ) {
-      hasCheckedInRef.current = true;
-      checkIn({ registrationId: registration.id })
-        .then(() => {
-          setCheckInSuccess(true);
-        })
-        .catch((error) => {
-          // Surface error to user
-          hasCheckedInRef.current = false;
-          setCheckInError(true);
-          toast.error('Error al registrar entrada. Por favor, inténtalo de nuevo.');
-          console.error('Check-in error:', error);
-        });
-    }
-  }, [validation.isValid, registration?.id, user?.id, checkIn]);
-
-  // Reset state when code changes
-  useEffect(() => {
-    hasCheckedInRef.current = false;
-    setCheckInSuccess(false);
-    setCheckInError(false);
-  }, [code]);
+  const { data, isLoading, error } = useTicketValidation(code);
 
   const handleBackToScanner = () => {
     navigate('/validate');
   };
 
   // Loading state
-  if (isLoading || isChecking) {
+  if (isLoading) {
     return <LoadingPage message="Verificando entrada..." />;
   }
 
-  // Success state - use checkInSuccess state to avoid race condition
-  if (validation.isValid || checkInSuccess) {
+  // Network/API error
+  if (error) {
+    return (
+      <div className="min-h-screen bg-red-50 flex flex-col items-center justify-center px-4" role="alert">
+        <X className="h-24 w-24 text-red-600 mb-4" aria-hidden="true" />
+        <h1 className="text-3xl font-bold text-red-700 mb-4">Error de conexión</h1>
+        <p className="text-red-600 mb-8 text-center max-w-sm">
+          No se pudo verificar la entrada. Comprueba tu conexión e inténtalo de nuevo.
+        </p>
+        <Button
+          variant="outline"
+          className="border-red-300 text-red-700 hover:bg-red-100"
+          onClick={handleBackToScanner}
+        >
+          Volver al scanner
+        </Button>
+      </div>
+    );
+  }
+
+  // Valid ticket - Success state
+  if (data?.valid && data.registration) {
+    const reg = data.registration;
     return (
       <div className="min-h-screen bg-green-50 flex flex-col items-center justify-center px-4" role="status" aria-live="polite">
         <Check className="h-24 w-24 text-green-600 mb-4" aria-hidden="true" />
@@ -228,15 +233,16 @@ function ResultMode({ code }: { code: string }) {
         <div className="w-full max-w-sm space-y-3 text-center">
           <div className="border-t border-green-200 pt-4">
             <p className="text-lg font-medium text-green-800">
-              {registration?.first_name} {registration?.last_name}
+              {reg.display_name}
             </p>
             <p className="text-sm text-green-600">
-              {registration?.ticket_type?.name || 'General'}
+              {reg.ticket_type}
+              {reg.is_companion && ' (Acompañante)'}
             </p>
-            <p className="text-sm text-green-600">{registration?.event?.name}</p>
-            {registration?.team_name && (
+            <p className="text-sm text-green-600">{reg.event_name}</p>
+            {reg.team_name && (
               <p className="text-sm text-green-600 mt-1">
-                Equipo: {registration.team_name}
+                Equipo: {reg.team_name}
               </p>
             )}
           </div>
@@ -253,24 +259,24 @@ function ResultMode({ code }: { code: string }) {
     );
   }
 
-  // Error state (including check-in network errors)
+  // Invalid ticket - Error state
+  const validationError = data?.error || 'not_found';
+  const config = ERROR_CONFIG[validationError];
+  const ErrorIcon = config.icon;
+
   return (
-    <div className="min-h-screen bg-amber-50 flex flex-col items-center justify-center px-4" role="alert" aria-live="assertive">
-      <X className="h-24 w-24 text-amber-600 mb-4" aria-hidden="true" />
-      <h1 className="text-4xl font-bold text-amber-700 mb-8">
+    <div className={`min-h-screen ${config.bgClass} flex flex-col items-center justify-center px-4`} role="alert" aria-live="assertive">
+      <ErrorIcon className={`h-24 w-24 ${config.textClass.replace('text-', 'text-')} mb-4`} aria-hidden="true" />
+      <h1 className={`text-3xl font-bold ${config.textClass} mb-4`}>
         <span className="sr-only">Error: </span>
-        {checkInError ? 'Error de conexión' : 'Código inválido'}
+        {config.title}
       </h1>
-
-      {checkInError && (
-        <p className="text-amber-600 mb-4 text-center">
-          No se pudo registrar la entrada. Verifica tu conexión e inténtalo de nuevo.
-        </p>
-      )}
-
+      <p className={`${config.textClass.replace('-700', '-600')} mb-8 text-center max-w-sm`}>
+        {config.description}
+      </p>
       <Button
         variant="outline"
-        className="mt-8 border-amber-300 text-amber-700 hover:bg-amber-100"
+        className={`border-${config.textClass.replace('text-', '')}-300 ${config.textClass} hover:${config.bgClass.replace('bg-', 'bg-')}`}
         onClick={handleBackToScanner}
       >
         Volver al scanner

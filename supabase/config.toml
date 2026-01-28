@@ -1,5 +1,8 @@
 project_id = "orvkqnbshkxzyhqpjsdw"
 
+[functions.validate-ticket]
+verify_jwt = false
+
 [functions.send-registration-confirmation]
 verify_jwt = false
 
