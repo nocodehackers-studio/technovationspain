@@ -235,16 +235,18 @@ export default function Onboarding() {
       // Volunteers are auto-verified (no Technovation Global check needed)
       const isVolunteer = formData.role === 'volunteer';
       
-      // Check if tg_email is in authorized_students (whitelist) - only for participants
+      // Check if tg_email is in authorized whitelist - use safe views to protect PII
       let isInWhitelist = false;
-      let authorizedData: any = null;
+      let authorizedData: { id: string; tg_id: string | null; matched_profile_id: string | null } | null = null;
       
       if (formData.role === 'participant' && formData.tg_email?.trim()) {
+        // Use safe view - only returns id, email, tg_id, matched_profile_id
+        // Cast needed as views aren't in generated types
         const { data: authorized } = await supabase
-          .from('authorized_students')
-          .select('*')
+          .from('authorized_students_safe')
+          .select('id, tg_id, matched_profile_id')
           .ilike('email', formData.tg_email.trim())
-          .maybeSingle();
+          .maybeSingle() as { data: { id: string; tg_id: string | null; matched_profile_id: string | null } | null };
         
         if (authorized && (!authorized.matched_profile_id || authorized.matched_profile_id === user.id)) {
           isInWhitelist = true;

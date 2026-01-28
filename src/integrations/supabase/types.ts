@@ -1154,9 +1154,77 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      authorized_students_safe: {
+        Row: {
+          email: string | null
+          id: string | null
+          matched_profile_id: string | null
+          tg_id: string | null
+        }
+        Insert: {
+          email?: string | null
+          id?: string | null
+          matched_profile_id?: string | null
+          tg_id?: string | null
+        }
+        Update: {
+          email?: string | null
+          id?: string | null
+          matched_profile_id?: string | null
+          tg_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "authorized_students_matched_profile_id_fkey"
+            columns: ["matched_profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      authorized_users_safe: {
+        Row: {
+          email: string | null
+          id: string | null
+          matched_profile_id: string | null
+          profile_type: string | null
+          tg_id: string | null
+        }
+        Insert: {
+          email?: string | null
+          id?: string | null
+          matched_profile_id?: string | null
+          profile_type?: string | null
+          tg_id?: string | null
+        }
+        Update: {
+          email?: string | null
+          id?: string | null
+          matched_profile_id?: string | null
+          profile_type?: string | null
+          tg_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "authorized_users_matched_profile_id_fkey"
+            columns: ["matched_profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
+      can_access_authorized_student: {
+        Args: { student_email: string }
+        Returns: boolean
+      }
+      can_access_authorized_user: {
+        Args: { user_email: string }
+        Returns: boolean
+      }
       decrement_registration_count:
         | {
             Args: { p_event_id: string; p_ticket_type_id: string }
