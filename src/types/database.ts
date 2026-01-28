@@ -210,3 +210,16 @@ export interface EventRegistrationWithDetails extends EventRegistration {
   companions?: Companion[];
   profile?: Profile;
 }
+
+export interface EventVolunteer {
+  id: string;
+  event_id: string;
+  user_id: string;
+  notes?: string | null;
+  created_at: string;
+}
+
+export interface EventVolunteerWithDetails extends EventVolunteer {
+  event?: Event;
+  profile?: Profile;
+}

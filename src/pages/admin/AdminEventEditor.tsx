@@ -6,7 +6,7 @@ import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { ArrowLeft, Save, Info, MapPin, Ticket, Calendar, Eye, Mail, BarChart3 } from "lucide-react";
+import { ArrowLeft, Save, Info, MapPin, Ticket, Calendar, Eye, Mail, BarChart3, Heart } from "lucide-react";
 import { EventBasicInfoForm } from "@/components/admin/events/EventBasicInfoForm";
 import { EventLocationForm } from "@/components/admin/events/EventLocationForm";
 import { TicketTypeManager } from "@/components/admin/events/TicketTypeManager";
@@ -14,6 +14,7 @@ import { AgendaManager } from "@/components/admin/events/AgendaManager";
 import { EventPublishSection } from "@/components/admin/events/EventPublishSection";
 import { EventEmailManager } from "@/components/admin/events/EventEmailManager";
 import { EventStatsView } from "@/components/admin/events/EventStatsView";
+import { EventVolunteersView } from "@/components/admin/events/EventVolunteersView";
 import { Event, EventType } from "@/types/database";
 
 interface EventFormData {
@@ -305,14 +306,14 @@ export default function AdminEventEditor() {
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-7">
+          <TabsList className="grid w-full grid-cols-8">
             <TabsTrigger value="basic" className="gap-2">
               <Info className="h-4 w-4" />
-              <span className="hidden sm:inline">Información</span>
+              <span className="hidden sm:inline">Info</span>
             </TabsTrigger>
             <TabsTrigger value="location" className="gap-2">
               <MapPin className="h-4 w-4" />
-              <span className="hidden sm:inline">Fecha y Lugar</span>
+              <span className="hidden sm:inline">Lugar</span>
             </TabsTrigger>
             <TabsTrigger value="tickets" className="gap-2" disabled={!isEditing}>
               <Ticket className="h-4 w-4" />
@@ -322,13 +323,17 @@ export default function AdminEventEditor() {
               <Calendar className="h-4 w-4" />
               <span className="hidden sm:inline">Agenda</span>
             </TabsTrigger>
+            <TabsTrigger value="volunteers" className="gap-2" disabled={!isEditing}>
+              <Heart className="h-4 w-4" />
+              <span className="hidden sm:inline">Voluntarios</span>
+            </TabsTrigger>
             <TabsTrigger value="emails" className="gap-2" disabled={!isEditing}>
               <Mail className="h-4 w-4" />
               <span className="hidden sm:inline">Emails</span>
             </TabsTrigger>
             <TabsTrigger value="stats" className="gap-2" disabled={!isEditing}>
               <BarChart3 className="h-4 w-4" />
-              <span className="hidden sm:inline">Estadísticas</span>
+              <span className="hidden sm:inline">Stats</span>
             </TabsTrigger>
             <TabsTrigger value="publish" className="gap-2" disabled={!isEditing}>
               <Eye className="h-4 w-4" />
@@ -368,6 +373,10 @@ export default function AdminEventEditor() {
 
             <TabsContent value="agenda">
               {eventId && <AgendaManager eventId={eventId} />}
+            </TabsContent>
+
+            <TabsContent value="volunteers">
+              {eventId && <EventVolunteersView eventId={eventId} />}
             </TabsContent>
 
             <TabsContent value="emails">
