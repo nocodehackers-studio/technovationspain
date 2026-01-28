@@ -1,239 +1,162 @@
 
-# Plan: Pagina Dedicada de Importacion de Equipos (Team CSV)
+# Plan: Trigger de Vinculación Automática a Equipos + Estadísticas en Admin
 
 ## Resumen
 
-Crear una nueva pagina `/admin/import-teams` dedicada a la importacion de equipos desde el CSV de Technovation Global. Esta pagina funcionara de forma similar a `AdminImportUnified` pero enfocada en equipos, con la capacidad de:
-- Crear/actualizar equipos por `tg_team_id`
-- Vincular usuarios existentes (estudiantes y mentores) a los equipos
-- Actualizar la whitelist `authorized_users` con informacion de equipo para usuarios pendientes
+Implementar dos mejoras:
+1. **Trigger automático**: Cuando un usuario de la whitelist se registra, vincularlo automáticamente a su equipo (si existe en la BD)
+2. **Estadísticas en Admin**: Mostrar en la tabla de equipos cuántos miembros están en la whitelist vs cuántos ya se han registrado
 
 ---
 
-## Analisis del CSV de Equipos
+## Parte 1: Trigger de Base de Datos
 
-### Columnas del CSV
+### Lógica a Implementar
 
-| Columna CSV | Uso | Mapeo |
-|-------------|-----|-------|
-| `Team ID` | ID unico de TG | `tg_team_id` |
-| `Name` | Nombre del equipo | `name` |
-| `Division` | Beginner/Junior/Senior | `category` |
-| `Student emails` | Lista separada por comas | Vincular como `participant` |
-| `Mentor emails` | Lista separada por comas | Vincular como `mentor` |
-| `City` | Ciudad | Informativo |
-| `State` | Comunidad/Estado | Informativo |
-| `Has mentor?` / `Has students?` | Indicadores | Validacion |
-| `Number of students` / `Number of mentors` | Conteos | Validacion |
-| `Qualified` | Estado de calificacion | Informativo |
+Modificar la función `auto_verify_authorized_user_after()` para que, además de asignar el rol, también:
 
-### Datos del CSV Proporcionado
+1. Buscar si `authorized_record.team_name` tiene valor
+2. Si tiene valor, buscar el equipo en la tabla `teams` por nombre (case-insensitive)
+3. Si el equipo existe, insertar un registro en `team_members` con:
+   - `team_id`: ID del equipo encontrado
+   - `user_id`: ID del perfil recién creado (NEW.id)
+   - `member_type`: 'participant' si es estudiante, 'mentor' si es mentor
 
-- Total de equipos: ~451
-- Divisiones: Beginner, Junior, Senior
-- Emails separados por comas dentro de cada celda
-
----
-
-## Flujo de Importacion
+### Pseudocódigo del Trigger
 
 ```text
-+------------------+
-|   Subir CSV      |
-+--------+---------+
-         |
-         v
-+------------------+
-| Validar headers  |
-| Team ID, Name,   |
-| Division         |
-+--------+---------+
-         |
-         v
-+------------------+
-| Verificar en BD  |
-| - Equipos exist? |
-| - Usuarios exist?|
-+--------+---------+
-         |
-         v
-+------------------+
-| Preview con      |
-| estadisticas     |
-+--------+---------+
-         |
-         v
-+------------------+
-| Procesar:        |
-| - Crear/Update   |
-| - Vincular users |
-| - Update whitelist|
-+--------+---------+
-         |
-         v
-+------------------+
-|   Resultados     |
-+------------------+
+-- Después de asignar el rol...
+
+-- Si el usuario tiene un equipo asignado en la whitelist
+IF authorized_record.team_name IS NOT NULL THEN
+  -- Buscar el equipo por nombre
+  SELECT id INTO team_id 
+  FROM teams 
+  WHERE lower(name) = lower(authorized_record.team_name)
+  LIMIT 1;
+  
+  IF FOUND THEN
+    -- Determinar member_type según profile_type
+    IF authorized_record.profile_type = 'student' THEN
+      member_type := 'participant';
+    ELSE
+      member_type := 'mentor';
+    END IF;
+    
+    -- Insertar en team_members
+    INSERT INTO team_members (team_id, user_id, member_type)
+    VALUES (team_id, NEW.id, member_type)
+    ON CONFLICT DO NOTHING;
+  END IF;
+END IF;
 ```
 
 ---
 
-## Logica de Vinculacion de Usuarios
+## Parte 2: Estadísticas en la Vista de Equipos
 
-### Para cada email en el CSV:
+### Datos a Mostrar
+
+Para cada equipo, mostrar:
+- **Whitelist**: Total de usuarios en `authorized_users` con ese `team_name`
+- **Registrados**: Cuántos de esos tienen `matched_profile_id` (ya se registraron)
+
+### Visualización Propuesta
+
+En la columna "Miembros" de la tabla, cambiar de:
 
 ```text
-1. Buscar en `profiles` por email o tg_email
-   |
-   +-- SI existe:
-   |     - Verificar si ya es miembro del equipo
-   |     - Si no, insertar en `team_members` con member_type correcto
-   |
-   +-- NO existe:
-         - Buscar en `authorized_users` por email
-         - Si existe, actualizar team_name y team_division
-         - (Cuando se registre, el trigger lo asignara)
+👥 3
 ```
 
-### Tipos de miembro
+A:
 
-| Email Source | member_type |
-|--------------|-------------|
-| Student emails | `participant` |
-| Mentor emails | `mentor` |
+```text
+👥 2/5  (registrados/whitelist)
+```
 
----
+Con indicador visual:
+- Barra de progreso pequeña mostrando el porcentaje
+- Color verde cuando todos están registrados
+- Tooltip con detalle: "2 de 5 miembros registrados"
 
-## Estadisticas a Mostrar
+### Consulta SQL Necesaria
 
-### Pre-importacion
-
-| Metrica | Descripcion |
-|---------|-------------|
-| Total equipos | Cantidad de filas en CSV |
-| Equipos nuevos | No existen en BD por tg_team_id |
-| Equipos a actualizar | Ya existen en BD |
-| Por division | Beginner: X, Junior: Y, Senior: Z |
-| Estudiantes en CSV | Total de emails de estudiantes |
-| Estudiantes encontrados | Cuantos ya tienen perfil |
-| Mentores en CSV | Total de emails de mentores |
-| Mentores encontrados | Cuantos ya tienen perfil |
-
-### Post-importacion
-
-| Metrica | Descripcion |
-|---------|-------------|
-| Equipos creados | Nuevos equipos insertados |
-| Equipos actualizados | Equipos existentes modificados |
-| Miembros vinculados | Registros nuevos en team_members |
-| Whitelist actualizada | Registros de authorized_users modificados |
-| Errores | Lista de problemas encontrados |
+```sql
+SELECT 
+  t.*,
+  (SELECT COUNT(*) FROM team_members WHERE team_id = t.id) as actual_members,
+  (SELECT COUNT(*) FROM authorized_users WHERE lower(team_name) = lower(t.name)) as whitelist_count,
+  (SELECT COUNT(*) FROM authorized_users WHERE lower(team_name) = lower(t.name) AND matched_profile_id IS NOT NULL) as registered_from_whitelist
+FROM teams t
+```
 
 ---
 
-## Archivos a Crear/Modificar
-
-### Nuevos Archivos
-
-| Archivo | Proposito |
-|---------|-----------|
-| `src/pages/admin/AdminImportTeams.tsx` | Nueva pagina de importacion de equipos |
-
-### Archivos a Modificar
+## Archivos a Modificar
 
 | Archivo | Cambio |
 |---------|--------|
-| `src/App.tsx` | Agregar ruta `/admin/import-teams` |
-| `src/components/admin/AdminSidebar.tsx` | Agregar enlace "Importar Equipos" |
+| Nueva migración SQL | Actualizar trigger `auto_verify_authorized_user_after` |
+| `src/pages/admin/AdminTeams.tsx` | Modificar consulta y columna de miembros |
 
 ---
 
-## Estructura de la Nueva Pagina
+## Detalles de Implementación
 
-### Pasos de la UI
+### 1. Migración SQL
 
-1. **Upload** - Zona de drag & drop para CSV
-2. **Preview** - Resumen estadistico y tabla con equipos
-3. **Processing** - Barra de progreso
-4. **Results** - Resumen final con errores si los hay
+Crear una nueva migración que:
+- Actualice la función `auto_verify_authorized_user_after()`
+- Añada la lógica de vinculación a equipos
 
-### Componentes a Reutilizar
+### 2. Cambios en AdminTeams.tsx
 
-- `AdminLayout` - Layout de admin
-- `Card`, `Button`, `Progress` - UI basica
-- `Table` - Vista previa de equipos
-- `Badge` - Categorias (Beginner/Junior/Senior)
-- `ScrollArea` - Lista de errores
+**Query modificado:**
+- Agregar subconsulta para contar usuarios en whitelist por team_name
+- Agregar subconsulta para contar registrados
 
----
+**Nueva columna "Miembros":**
+- Mostrar formato "X/Y" donde X = registrados, Y = en whitelist
+- Si whitelist_count = 0, mostrar solo los miembros actuales (team_members)
+- Añadir barra de progreso mini
+- Tooltip explicativo
 
-## Validaciones
-
-### Estructura del CSV
-
-- Columnas requeridas: `Team ID`, `Name`, `Division`
-- Limite de filas: 1,000 equipos
-- Team ID: no vacio, alfanumerico
-
-### Datos
-
-- Division valida: Beginner, Junior, Senior
-- Emails con formato correcto
-- Duplicados de Team ID en CSV (advertencia)
-
----
-
-## Actualizacion del Sidebar
-
-Agregar nuevo item en la seccion "Gestion":
+### 3. Componente Visual
 
 ```text
-Gestion:
-  - Dashboard
-  - Usuarios
-  - Equipos
-  - Hubs
-  - Eventos
-  - Talleres
-  - Importar Usuarios    <-- existente
-  - Importar Equipos     <-- NUEVO
-  - Reportes
++----------------+
+|    Miembros    |
++----------------+
+| 👥 2/5         |
+| [████░░░░] 40% |
++----------------+
 ```
 
 ---
 
-## Consideraciones Tecnicas
+## Consideraciones Técnicas
 
-### Rendimiento
+### Rendimiento de la Consulta
 
-- Procesar en lotes de 50 equipos
-- Consultas batch para buscar perfiles
-- Mostrar progreso en tiempo real
+- Las subconsultas pueden ser costosas con muchos equipos
+- Alternativa: usar una vista materializada o consulta separada
 
-### Seguridad
+### Casos Especiales
 
-- Solo admins pueden acceder
-- Validacion de estructura antes de procesar
-- Logs de auditoria en `csv_imports`
+1. **Equipo sin whitelist**: Mostrar solo miembros actuales (sin barra)
+2. **Whitelist sin equipo**: Usuarios que tienen team_name pero el equipo no existe aún
+3. **Múltiples equipos mismo nombre**: Usar LIMIT 1 y log de advertencia
 
-### Tablas Afectadas
+### Constraint de team_members
 
-| Tabla | Operacion |
-|-------|-----------|
-| `teams` | INSERT / UPDATE |
-| `team_members` | INSERT |
-| `authorized_users` | UPDATE (team_name, team_division) |
-| `csv_imports` | INSERT (log) |
+El trigger debe usar `ON CONFLICT DO NOTHING` para evitar duplicados si el usuario ya fue añadido manualmente.
 
 ---
 
-## Diferencias con TeamCSVImport Existente
+## Secuencia de Implementación
 
-| Aspecto | Modal Existente | Nueva Pagina |
-|---------|-----------------|--------------|
-| Ubicacion | Dialog en AdminTeams | Pagina dedicada |
-| Navegacion | Desde boton en Teams | Desde sidebar |
-| Espacio | Limitado | Pantalla completa |
-| Consistencia | Diferente a importacion usuarios | Mismo estilo |
-
-La nueva pagina reemplazara la funcionalidad del modal pero con mejor UX y consistencia visual con la importacion de usuarios.
+1. Crear migración SQL con el trigger actualizado
+2. Modificar la consulta en AdminTeams.tsx para obtener estadísticas
+3. Actualizar la columna "Miembros" con el nuevo formato visual
+4. Añadir tooltip con información detallada
