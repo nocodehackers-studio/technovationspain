@@ -29,7 +29,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { MoreHorizontal, Plus, Edit, Trash2, Users, Upload, Mail, UserCircle, MapPin } from "lucide-react";
+import { MoreHorizontal, Plus, Edit, Trash2, Users, Upload, Mail, UserCircle, MapPin, CheckCircle2 } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Progress } from "@/components/ui/progress";
 import { Team, TeamCategory } from "@/types/database";
 import {
   Select,
@@ -51,6 +53,13 @@ interface TeamMember {
   } | null;
 }
 
+interface TeamWithStats extends Team {
+  team_members: { count: number }[];
+  hub: { id: string; name: string } | null;
+  whitelist_count: number;
+  registered_count: number;
+}
+
 export default function AdminTeams() {
   const queryClient = useQueryClient();
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
@@ -62,17 +71,42 @@ export default function AdminTeams() {
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [hubFilter, setHubFilter] = useState<string>("all");
 
-  // Fetch teams with member counts and hub info
+  // Fetch teams with member counts, hub info, and whitelist stats
   const { data: teams, isLoading } = useQuery({
     queryKey: ["admin-teams"],
     queryFn: async () => {
+      // First get teams with basic info
       const { data: teamsData, error } = await supabase
         .from("teams")
         .select("*, team_members(count), hub:hubs(id, name)")
         .order("created_at", { ascending: false });
 
       if (error) throw error;
-      return teamsData as (Team & { team_members: { count: number }[]; hub: { id: string; name: string } | null })[];
+      
+      // Get whitelist stats for all teams
+      const teamNames = teamsData?.map(t => t.name) || [];
+      const { data: whitelistStats } = await supabase
+        .from("authorized_users")
+        .select("team_name, matched_profile_id");
+      
+      // Calculate stats per team
+      const statsMap = new Map<string, { whitelist_count: number; registered_count: number }>();
+      whitelistStats?.forEach(record => {
+        if (record.team_name) {
+          const key = record.team_name.toLowerCase();
+          const current = statsMap.get(key) || { whitelist_count: 0, registered_count: 0 };
+          current.whitelist_count++;
+          if (record.matched_profile_id) current.registered_count++;
+          statsMap.set(key, current);
+        }
+      });
+      
+      // Merge stats with teams
+      return teamsData?.map(team => ({
+        ...team,
+        whitelist_count: statsMap.get(team.name.toLowerCase())?.whitelist_count || 0,
+        registered_count: statsMap.get(team.name.toLowerCase())?.registered_count || 0,
+      })) as TeamWithStats[];
     },
   });
 
@@ -172,7 +206,7 @@ export default function AdminTeams() {
     senior: "bg-category-senior/10 text-category-senior border-category-senior/20",
   };
 
-  const columns: ColumnDef<Team & { team_members: { count: number }[]; hub: { id: string; name: string } | null }>[] = [
+  const columns: ColumnDef<TeamWithStats>[] = [
     {
       accessorKey: "name",
       header: "Nombre",
@@ -210,12 +244,56 @@ export default function AdminTeams() {
     {
       accessorKey: "team_members",
       header: "Miembros",
-      cell: ({ row }) => (
-        <div className="flex items-center gap-2">
-          <Users className="h-4 w-4 text-muted-foreground" />
-          <span>{row.original.team_members?.[0]?.count || 0}</span>
-        </div>
-      ),
+      cell: ({ row }) => {
+        const actualMembers = row.original.team_members?.[0]?.count || 0;
+        const whitelistCount = row.original.whitelist_count || 0;
+        const registeredCount = row.original.registered_count || 0;
+        const percentage = whitelistCount > 0 ? Math.round((registeredCount / whitelistCount) * 100) : 0;
+        const isComplete = whitelistCount > 0 && registeredCount === whitelistCount;
+        
+        // If no whitelist, show only actual members
+        if (whitelistCount === 0) {
+          return (
+            <div className="flex items-center gap-2">
+              <Users className="h-4 w-4 text-muted-foreground" />
+              <span>{actualMembers}</span>
+            </div>
+          );
+        }
+        
+        return (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="flex flex-col gap-1 min-w-[80px]">
+                  <div className="flex items-center gap-2">
+                    {isComplete ? (
+                      <CheckCircle2 className="h-4 w-4 text-secondary" />
+                    ) : (
+                      <Users className="h-4 w-4 text-muted-foreground" />
+                    )}
+                    <span className={isComplete ? "text-secondary font-medium" : ""}>
+                      {registeredCount}/{whitelistCount}
+                    </span>
+                  </div>
+                  <Progress 
+                    value={percentage} 
+                    className="h-1.5"
+                  />
+                </div>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>{registeredCount} de {whitelistCount} miembros registrados</p>
+                {actualMembers !== registeredCount && (
+                  <p className="text-xs text-muted-foreground">
+                    ({actualMembers} miembros vinculados actualmente)
+                  </p>
+                )}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        );
+      },
     },
     {
       id: "hub",
