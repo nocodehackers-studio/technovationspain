@@ -62,8 +62,12 @@ export default function AuthCallback() {
 
           if (highestRole === 'admin') {
             navigate('/admin', { replace: true });
+          } else if (highestRole === 'volunteer') {
+            navigate('/voluntario/dashboard', { replace: true });
+          } else if (highestRole === 'mentor') {
+            navigate('/mentor/dashboard', { replace: true });
           } else {
-            // Redirect to dashboard for other users
+            // Redirect to dashboard for participants and judges
             navigate('/dashboard', { replace: true });
           }
         } else {

@@ -7,11 +7,19 @@ import { LoadingPage } from '@/components/ui/loading-spinner';
 
 export default function PendingVerification() {
   const navigate = useNavigate();
-  const { profile, isLoading, signOut, isVerified } = useAuth();
+  const { profile, isLoading, signOut, isVerified, role } = useAuth();
 
-  // Redirect if already verified
+  // Redirect if already verified - use role-based redirect
   if (!isLoading && isVerified) {
-    navigate('/dashboard', { replace: true });
+    if (role === 'admin') {
+      navigate('/admin', { replace: true });
+    } else if (role === 'volunteer') {
+      navigate('/voluntario/dashboard', { replace: true });
+    } else if (role === 'mentor') {
+      navigate('/mentor/dashboard', { replace: true });
+    } else {
+      navigate('/dashboard', { replace: true });
+    }
     return null;
   }
 

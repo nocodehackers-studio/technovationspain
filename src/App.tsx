@@ -25,6 +25,9 @@ import RegisterVolunteer from "./pages/register/RegisterVolunteer";
 // Volunteer Pages
 import VolunteerDashboard from "./pages/volunteer/VolunteerDashboard";
 
+// Mentor Pages
+import MentorDashboard from "./pages/mentor/MentorDashboard";
+
 // Admin Pages
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import AdminUsers from "./pages/admin/AdminUsers";
@@ -76,6 +79,13 @@ const App = () => (
             <Route path="/voluntario/dashboard" element={
               <ProtectedRoute requiredRoles={["volunteer", "admin"]}>
                 <VolunteerDashboard />
+              </ProtectedRoute>
+            } />
+            
+            {/* Mentor dashboard (protected) */}
+            <Route path="/mentor/dashboard" element={
+              <ProtectedRoute requiredRoles={["mentor", "admin"]}>
+                <MentorDashboard />
               </ProtectedRoute>
             } />
             {/* Protected routes */}
