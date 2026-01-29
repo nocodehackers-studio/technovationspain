@@ -12,6 +12,31 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.1"
   }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
       admin_table_preferences: {
@@ -875,6 +900,7 @@ export type Database = {
           id: string
           last_name: string | null
           onboarding_completed: boolean | null
+          parent_email: string | null
           phone: string | null
           postal_code: string | null
           tg_email: string | null
@@ -894,6 +920,7 @@ export type Database = {
           id: string
           last_name?: string | null
           onboarding_completed?: boolean | null
+          parent_email?: string | null
           phone?: string | null
           postal_code?: string | null
           tg_email?: string | null
@@ -913,6 +940,7 @@ export type Database = {
           id?: string
           last_name?: string | null
           onboarding_completed?: boolean | null
+          parent_email?: string | null
           phone?: string | null
           postal_code?: string | null
           tg_email?: string | null
@@ -1396,6 +1424,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
       app_role: ["participant", "mentor", "judge", "volunteer", "admin"],

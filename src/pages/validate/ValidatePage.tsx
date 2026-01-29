@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Html5QrcodeScanner } from 'html5-qrcode';
-import { Check, X, Camera, AlertTriangle, CalendarX, UserX } from 'lucide-react';
+import { Html5Qrcode } from 'html5-qrcode';
+import { Check, X, Camera, AlertTriangle, CalendarX, UserX, SwitchCamera, Flashlight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { LoadingPage } from '@/components/ui/loading-spinner';
 import { useAuth } from '@/hooks/useAuth';
@@ -41,92 +41,90 @@ export default function ValidatePage() {
 function ScannerMode() {
   const navigate = useNavigate();
   const [scannerError, setScannerError] = useState<string | null>(null);
-  const scannerRef = useRef<Html5QrcodeScanner | null>(null);
+  const [isStarting, setIsStarting] = useState(true);
+  const scannerRef = useRef<Html5Qrcode | null>(null);
   const isInitializedRef = useRef(false);
+  const hasNavigatedRef = useRef(false);
+
+  const extractCode = useCallback((decodedText: string): string => {
+    try {
+      const url = new URL(decodedText);
+      const pathParts = url.pathname.split('/').filter(Boolean);
+      const validateIndex = pathParts.indexOf('validate');
+      if (validateIndex !== -1 && pathParts.length > validateIndex + 1) {
+        return pathParts[validateIndex + 1];
+      }
+    } catch {
+      // Not a URL, use as-is
+    }
+    return decodedText;
+  }, []);
 
   useEffect(() => {
-    // Prevent double initialization in strict mode
     if (isInitializedRef.current) return;
     isInitializedRef.current = true;
 
-    const config = {
-      fps: 10,
-      qrbox: { width: 250, height: 250 },
-      rememberLastUsedCamera: true,
+    const startScanner = async () => {
+      try {
+        const scanner = new Html5Qrcode('qr-reader-video');
+        scannerRef.current = scanner;
+
+        await scanner.start(
+          { facingMode: 'environment' },
+          { fps: 10, qrbox: { width: 250, height: 250 } },
+          (decodedText) => {
+            if (hasNavigatedRef.current) return;
+            hasNavigatedRef.current = true;
+
+            const code = extractCode(decodedText);
+            scanner.stop().then(() => {
+              navigate(`/validate/${code}`);
+            }).catch(() => {
+              navigate(`/validate/${code}`);
+            });
+          },
+          () => {
+            // Ignore continuous scan errors
+          }
+        );
+
+        setIsStarting(false);
+      } catch (err: any) {
+        const msg = err?.message || String(err);
+        if (msg.includes('Permission') || msg.includes('NotAllowed')) {
+          setScannerError('No se pudo acceder a la cámara. Por favor, permite el acceso en los ajustes del navegador.');
+        } else if (msg.includes('NotFound') || msg.includes('Requested device not found')) {
+          setScannerError('No se encontró ninguna cámara en este dispositivo.');
+        } else {
+          setScannerError('No se pudo inicializar el escáner. Verifica los permisos de la cámara.');
+        }
+        setIsStarting(false);
+      }
     };
 
-    try {
-      const scanner = new Html5QrcodeScanner('qr-reader', config, false);
-      scannerRef.current = scanner;
+    startScanner();
 
-      const onScanSuccess = (decodedText: string) => {
-        // Extract code from URL (e.g., https://example.com/validate/TGM-2026-XXXXXXXX)
-        let extractedCode = decodedText;
-
-        try {
-          const url = new URL(decodedText);
-          const pathParts = url.pathname.split('/').filter(Boolean);
-          // Get the last part after /validate/
-          const validateIndex = pathParts.indexOf('validate');
-          if (validateIndex !== -1 && pathParts.length > validateIndex + 1) {
-            extractedCode = pathParts[validateIndex + 1];
-          }
-        } catch {
-          // Not a URL, use as-is (might be just the code)
-        }
-
-        // Clear scanner before navigating to release camera
-        scanner.clear().then(() => {
-          navigate(`/validate/${extractedCode}`);
-        }).catch(() => {
-          // Navigate anyway even if clear fails
-          navigate(`/validate/${extractedCode}`);
-        });
-      };
-
-      const onScanError = () => {
-        // Ignore scan errors (continuous scanning)
-      };
-
-      scanner.render(onScanSuccess, onScanError);
-
-      // Listen for permission denied errors from the scanner
-      const checkForPermissionError = () => {
-        const errorElement = document.querySelector('#qr-reader__status_span');
-        if (errorElement?.textContent?.toLowerCase().includes('permission')) {
-          setScannerError('No se pudo acceder a la cámara. Por favor, permite el acceso.');
-        }
-      };
-
-      // Check after a delay to allow scanner to initialize
-      const permissionCheckTimeout = setTimeout(checkForPermissionError, 3000);
-
-      return () => {
-        clearTimeout(permissionCheckTimeout);
-        if (scannerRef.current) {
-          scannerRef.current.clear().catch(() => {
-            // Ignore cleanup errors
-          });
-        }
-      };
-    } catch (error) {
-      // Handle scanner initialization errors
-      setScannerError('No se pudo inicializar el escáner. Por favor, verifica los permisos de la cámara.');
-      return;
-    }
-  }, [navigate]);
+    return () => {
+      if (scannerRef.current) {
+        scannerRef.current.stop().catch(() => {});
+      }
+    };
+  }, [navigate, extractCode]);
 
   const handleRetry = () => {
     setScannerError(null);
     isInitializedRef.current = false;
+    hasNavigatedRef.current = false;
     window.location.reload();
   };
 
   if (scannerError) {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center px-4">
-        <Camera className="h-16 w-16 text-muted-foreground mb-4" aria-hidden="true" />
-        <p className="text-lg text-center text-muted-foreground mb-6" role="alert">
+        <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
+          <Camera className="h-8 w-8 text-muted-foreground" aria-hidden="true" />
+        </div>
+        <p className="text-lg text-center text-muted-foreground mb-6 max-w-sm" role="alert">
           {scannerError}
         </p>
         <Button onClick={handleRetry}>Reintentar</Button>
@@ -135,19 +133,51 @@ function ScannerMode() {
   }
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
-      <div className="p-4 text-center">
-        <h1 className="text-xl font-semibold">Escanear entrada</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Apunta la cámara al código QR
-        </p>
-      </div>
-      <div className="flex-1 flex items-center justify-center px-4">
-        <div
-          id="qr-reader"
-          className="w-full max-w-md"
-          aria-label="Escáner de código QR"
-        />
+    <div className="min-h-screen bg-black flex flex-col relative">
+      {/* Camera viewfinder */}
+      <div className="flex-1 relative overflow-hidden">
+        <div id="qr-reader-video" className="w-full h-full [&>video]:w-full [&>video]:h-full [&>video]:object-cover" />
+
+        {/* Overlay with cutout */}
+        <div className="absolute inset-0 pointer-events-none">
+          {/* Top bar */}
+          <div className="bg-black/60 backdrop-blur-sm px-4 py-6 text-center">
+            <h1 className="text-lg font-semibold text-white">Escanear entrada</h1>
+            <p className="text-sm text-white/70 mt-1">
+              Apunta la cámara al código QR
+            </p>
+          </div>
+
+          {/* Scan frame centered */}
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="w-64 h-64 relative">
+              {/* Corner markers */}
+              <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-white rounded-tl-lg" />
+              <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-white rounded-tr-lg" />
+              <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-white rounded-bl-lg" />
+              <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-white rounded-br-lg" />
+
+              {/* Scanning line animation */}
+              {!isStarting && (
+                <div className="absolute left-2 right-2 h-0.5 bg-green-400 shadow-[0_0_8px_rgba(74,222,128,0.6)] animate-scan-line" />
+              )}
+            </div>
+          </div>
+
+          {/* Bottom area */}
+          <div className="absolute bottom-0 left-0 right-0 bg-black/60 backdrop-blur-sm px-4 py-8 text-center">
+            {isStarting ? (
+              <div className="flex items-center justify-center gap-2 text-white/70">
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/70 border-t-transparent" />
+                <span className="text-sm">Iniciando cámara...</span>
+              </div>
+            ) : (
+              <p className="text-sm text-white/50">
+                La entrada se validará automáticamente
+              </p>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );

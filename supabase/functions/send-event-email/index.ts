@@ -1,7 +1,10 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
-const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
+const BREVO_API_KEY = Deno.env.get("BREVO_API_KEY");
+const BREVO_SENDER_EMAIL = Deno.env.get("BREVO_SENDER_EMAIL") || "hola@pruebas.nocodehackers.es";
+const BREVO_SENDER_NAME = Deno.env.get("BREVO_SENDER_NAME") || "Technovation España";
+const BREVO_REPLY_TO_EMAIL = Deno.env.get("BREVO_REPLY_TO_EMAIL") || "soporte@powertocode.org";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -271,10 +274,10 @@ const handler = async (req: Request): Promise<Response> => {
           .join("");
 
         const emailPayload: Record<string, unknown> = {
-          from: "Technovation España <hola@pruebas.nocodehackers.es>",
-          to: [registration.email],
+          sender: { name: BREVO_SENDER_NAME, email: BREVO_SENDER_EMAIL },
+          to: [{ email: registration.email }],
           subject: emailSubject,
-          html: `
+          htmlContent: `
           <!DOCTYPE html>
           <html>
           <head>
@@ -336,15 +339,14 @@ const handler = async (req: Request): Promise<Response> => {
         `,
         };
 
-        if (replyToEmail) {
-          emailPayload.reply_to = replyToEmail;
-        }
+        const effectiveReplyTo = replyToEmail || BREVO_REPLY_TO_EMAIL;
+        emailPayload.replyTo = { email: effectiveReplyTo };
 
-        const emailResponse = await fetch("https://api.resend.com/emails", {
+        const emailResponse = await fetch("https://api.brevo.com/v3/smtp/email", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${RESEND_API_KEY}`,
+            "api-key": BREVO_API_KEY!,
           },
           body: JSON.stringify(emailPayload),
         });

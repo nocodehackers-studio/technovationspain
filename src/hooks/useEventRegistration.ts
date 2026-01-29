@@ -204,7 +204,7 @@ export function useEventRegistration(eventId: string) {
         p_companions_count: companionsCreated,
       });
       
-      // 6. Send confirmation email
+      // 6. Send confirmation email (QR ticket)
       try {
         await supabase.functions.invoke('send-registration-confirmation', {
           body: { registrationId: registration.id },
@@ -213,7 +213,29 @@ export function useEventRegistration(eventId: string) {
         console.error('Error sending confirmation email:', emailError);
         // Don't throw - registration was successful, email is secondary
       }
-      
+
+      // 7. Send event consent email
+      try {
+        const consentResult = await supabase.functions.invoke('send-event-consent', {
+          body: { registrationId: registration.id },
+        });
+
+        // Check for compliance warning and log prominently
+        if (consentResult.data?.compliance_warning) {
+          console.warn('COMPLIANCE: Event consent sent to minor user email (missing parent_email)', {
+            registrationId: registration.id,
+            userId: user?.id
+          });
+        }
+      } catch (consentError) {
+        // Log failure prominently for manual follow-up
+        console.error('CONSENT_EMAIL_FAILED: Manual intervention required', {
+          registrationId: registration.id,
+          error: consentError
+        });
+        // Don't throw - registration was successful, but admin should resend consent
+      }
+
       return registration;
     },
     onSuccess: () => {

@@ -1,12 +1,14 @@
 import { Webhook } from "https://esm.sh/standardwebhooks@1.0.0";
-import { Resend } from "https://esm.sh/resend@2.0.0";
 
 // Declare EdgeRuntime for background tasks
 declare const EdgeRuntime: {
   waitUntil: (promise: Promise<unknown>) => void;
 };
 
-const resend = new Resend(Deno.env.get("RESEND_API_KEY") as string);
+const BREVO_API_KEY = Deno.env.get("BREVO_API_KEY") as string;
+const BREVO_SENDER_EMAIL = Deno.env.get("BREVO_SENDER_EMAIL") || "hola@pruebas.nocodehackers.es";
+const BREVO_SENDER_NAME = Deno.env.get("BREVO_SENDER_NAME") || "Technovation Spain";
+const BREVO_REPLY_TO_EMAIL = Deno.env.get("BREVO_REPLY_TO_EMAIL") || "soporte@powertocode.org";
 let hookSecret = Deno.env.get("SEND_EMAIL_HOOK_SECRET") as string;
 
 // Supabase provides: "v1,whsec_<base64>". standardwebhooks expects ONLY the base64 part.
@@ -23,22 +25,33 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// Background task to send email - runs after response is sent
+// Background task to send email via Brevo - runs after response is sent
 async function sendEmailInBackground(
   email: string,
   subject: string,
   html: string
 ): Promise<void> {
   try {
-    const { error } = await resend.emails.send({
-      from: "Technovation Spain <hola@pruebas.nocodehackers.es>",
-      to: [email],
+    const emailPayload = {
+      sender: { name: BREVO_SENDER_NAME, email: BREVO_SENDER_EMAIL },
+      replyTo: { email: BREVO_REPLY_TO_EMAIL },
+      to: [{ email: email }],
       subject: subject,
-      html: html,
+      htmlContent: html,
+    };
+
+    const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "api-key": BREVO_API_KEY,
+      },
+      body: JSON.stringify(emailPayload),
     });
 
-    if (error) {
-      console.error("Background email error:", error);
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error("Brevo email error:", errorData);
     } else {
       console.log(`Email sent successfully to ${email}`);
     }

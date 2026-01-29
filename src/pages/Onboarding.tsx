@@ -70,6 +70,7 @@ const createOnboardingSchema = (role: AllowedRole) => z.object({
   tg_email: z.string().email('Email inválido').optional().or(z.literal('')),
   phone: z.string().max(20).optional(),
   postal_code: z.string().max(10).optional(),
+  parent_email: z.string().email('Email del tutor inválido').optional().or(z.literal('')),
 });
 
 type OnboardingData = {
@@ -81,6 +82,7 @@ type OnboardingData = {
   hub_id: string;
   phone: string;
   postal_code: string;
+  parent_email: string;
 };
 
 export default function Onboarding() {
@@ -108,6 +110,7 @@ export default function Onboarding() {
     hub_id: '',
     phone: '',
     postal_code: '',
+    parent_email: '',
   });
 
   // Fetch available hubs
@@ -176,6 +179,17 @@ export default function Onboarding() {
         if (ageMax !== null && age > ageMax) {
           newErrors.date_of_birth = `Para registrarte como ${currentRoleConfig.label.toLowerCase()} debes tener entre ${ageMin} y ${ageMax} años`;
         }
+      }
+    }
+
+    // Validate parent_email for minors
+    if (formData.role === 'participant' && isMinor()) {
+      if (!formData.parent_email?.trim()) {
+        newErrors.parent_email = 'El email del padre/madre/tutor es obligatorio para menores de 14 años';
+      } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.parent_email)) {
+        newErrors.parent_email = 'Email inválido';
+      } else if (formData.parent_email.trim().toLowerCase() === user?.email?.toLowerCase()) {
+        newErrors.parent_email = 'El email del tutor debe ser diferente al tuyo';
       }
     }
 
@@ -264,6 +278,7 @@ export default function Onboarding() {
         phone: formData.phone?.trim() || null,
         postal_code: formData.postal_code?.trim() || null,
         onboarding_completed: true,
+        parent_email: isMinor() && formData.parent_email?.trim() ? formData.parent_email.trim() : null,
       };
 
       // Volunteers are auto-verified
@@ -316,9 +331,33 @@ export default function Onboarding() {
 
       const wasVerified = updatedProfile?.verification_status === 'verified';
 
+      // Send platform consent email only for minors (users with parent_email)
+      // Adults don't need parental consent for platform usage
+      if (isMinor() && formData.parent_email?.trim()) {
+        try {
+          const consentResult = await supabase.functions.invoke('send-platform-consent', {
+            body: { userId: user.id },
+          });
+
+          // Check for compliance warning
+          if (consentResult.data?.compliance_warning) {
+            console.warn('COMPLIANCE: Platform consent sent to user email (expected parent)', {
+              userId: user.id
+            });
+          }
+        } catch (consentError) {
+          // Log failure prominently for manual follow-up
+          console.error('CONSENT_EMAIL_FAILED: Manual intervention required', {
+            userId: user.id,
+            error: consentError
+          });
+          // Don't throw - onboarding was successful, but admin should resend consent
+        }
+      }
+
       // Wait for profile refresh to complete before navigation
       await refreshProfile();
-      
+
       // Small delay to ensure React processes the new auth state
       await new Promise(resolve => setTimeout(resolve, 150));
 
@@ -444,6 +483,30 @@ export default function Onboarding() {
                       </p>
                     )}
                   </div>
+
+                  {formData.role === 'participant' && isMinor() && (
+                    <div className="space-y-2">
+                      <Label htmlFor="parent_email">Email del padre/madre/tutor *</Label>
+                      <div className="relative">
+                        <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          id="parent_email"
+                          type="email"
+                          placeholder="email@ejemplo.com"
+                          value={formData.parent_email}
+                          onChange={(e) => updateField('parent_email', e.target.value)}
+                          className="pl-10"
+                          required
+                        />
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Se enviará una solicitud de consentimiento a este email.
+                      </p>
+                      {errors.parent_email && (
+                        <p className="text-sm text-destructive">{errors.parent_email}</p>
+                      )}
+                    </div>
+                  )}
 
                   {/* Role display - shows selected role from registration */}
                   <div className="rounded-lg bg-muted p-4">
