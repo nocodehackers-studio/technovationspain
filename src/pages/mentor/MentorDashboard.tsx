@@ -110,7 +110,7 @@ export default function MentorDashboard() {
   const getRoleBadge = (role: string | null) => {
     const roleConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'outline' }> = {
       participant: { label: 'Participante', variant: 'default' },
-      mentor: { label: 'Mentor/a', variant: 'secondary' },
+      mentor: { label: 'Mentor', variant: 'secondary' },
       judge: { label: 'Juez/a', variant: 'secondary' },
       volunteer: { label: 'Voluntario/a', variant: 'outline' },
       admin: { label: 'Admin', variant: 'secondary' },
@@ -133,10 +133,10 @@ export default function MentorDashboard() {
               </Avatar>
               <div>
                 <h1 className="text-2xl font-bold">
-                  ¡Hola, {profile?.first_name || 'Mentor/a'}!
+                  ¡Hola, {profile?.first_name || 'Mentor'}!
                 </h1>
                 <p className="text-secondary-foreground/80 text-sm">
-                  Panel de Mentor/a - Technovation Spain
+                  Panel de Mentor - Technovation Spain
                 </p>
               </div>
             </div>
