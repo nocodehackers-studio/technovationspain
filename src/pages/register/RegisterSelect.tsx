@@ -46,13 +46,13 @@ export default function RegisterSelect() {
             <img 
               src={LOGO_TECHNOVATION} 
               alt="Technovation Girls" 
-              className="h-14 w-auto"
+              className="h-14 w-auto mix-blend-multiply"
             />
             <div className="h-10 w-px bg-border" />
             <img 
               src={LOGO_POWER_TO_CODE} 
               alt="Power to Code" 
-              className="h-12 w-auto"
+              className="h-12 w-auto mix-blend-multiply"
             />
           </div>
           <div className="inline-flex items-center justify-center gap-2">
