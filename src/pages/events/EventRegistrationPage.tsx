@@ -32,13 +32,39 @@ import {
 } from '@/components/ui/collapsible';
 import { CompanionFields, CompanionData } from '@/components/events/CompanionFields';
 
+// Spanish DNI/NIE validation
+const validateSpanishDNI = (value: string): boolean => {
+  if (!value) return true; // Optional field
+  const cleanValue = value.toUpperCase().replace(/\s|-/g, '');
+  // DNI: 8 digits + letter
+  const dniRegex = /^[0-9]{8}[A-Z]$/;
+  // NIE: X/Y/Z + 7 digits + letter
+  const nieRegex = /^[XYZ][0-9]{7}[A-Z]$/;
+  return dniRegex.test(cleanValue) || nieRegex.test(cleanValue);
+};
+
+// Spanish phone validation (9 digits, starting with 6, 7, or 9)
+const validateSpanishPhone = (value: string): boolean => {
+  if (!value) return true; // Optional field
+  const cleanValue = value.replace(/\s|-|\+34/g, '');
+  // 9 digits starting with 6, 7 or 9
+  const phoneRegex = /^[679][0-9]{8}$/;
+  return phoneRegex.test(cleanValue);
+};
+
 const registrationSchema = z.object({
   ticket_type_id: z.string().min(1, 'Selecciona un tipo de entrada'),
   first_name: z.string().min(2, 'El nombre debe tener al menos 2 caracteres'),
   last_name: z.string().min(2, 'Los apellidos deben tener al menos 2 caracteres'),
   email: z.string().email('Introduce un email válido'),
-  dni: z.string().optional(),
-  phone: z.string().optional(),
+  dni: z.string().optional().refine(
+    (val) => !val || validateSpanishDNI(val),
+    'Formato inválido. Usa 8 números + letra (DNI) o X/Y/Z + 7 números + letra (NIE)'
+  ),
+  phone: z.string().optional().refine(
+    (val) => !val || validateSpanishPhone(val),
+    'Formato inválido. Introduce 9 dígitos (ej: 612345678)'
+  ),
   team_name: z.string().optional(),
   tg_email: z.string().email('Introduce un email válido').optional().or(z.literal('')),
   image_consent: z.boolean().default(false),
@@ -484,9 +510,13 @@ const selectedTicketId = form.watch('ticket_type_id');
                         <FormItem>
                           <FormLabel>DNI / NIE</FormLabel>
                           <FormControl>
-                            <Input placeholder="12345678A" {...field} />
+                            <Input 
+                              placeholder="12345678A" 
+                              {...field}
+                              onChange={(e) => field.onChange(e.target.value.toUpperCase())}
+                            />
                           </FormControl>
-                          <FormDescription>Necesario para el acceso al evento</FormDescription>
+                          <FormDescription>DNI (8 números + letra) o NIE (X/Y/Z + 7 números + letra)</FormDescription>
                           <FormMessage />
                         </FormItem>
                       )}
@@ -499,9 +529,17 @@ const selectedTicketId = form.watch('ticket_type_id');
                         <FormItem>
                           <FormLabel>Teléfono</FormLabel>
                           <FormControl>
-                            <Input placeholder="+34 600 000 000" {...field} />
+                            <Input 
+                              placeholder="612345678" 
+                              {...field}
+                              onChange={(e) => {
+                                // Only allow digits
+                                const cleaned = e.target.value.replace(/[^\d]/g, '').slice(0, 9);
+                                field.onChange(cleaned);
+                              }}
+                            />
                           </FormControl>
-                          <FormMessage />
+                          <FormDescription>9 dígitos (sin prefijo)</FormDescription>
                         </FormItem>
                       )}
                     />
