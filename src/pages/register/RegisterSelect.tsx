@@ -18,8 +18,8 @@ const roles = [
   },
   {
     id: 'mentor',
-    title: 'Mentora',
-    description: 'Adulta que guía y apoya a un equipo de estudiantes',
+    title: 'Mentor',
+    description: 'Adulto que guía y apoya a un equipo de estudiantes',
     icon: Users,
     ageRange: '18+ años',
     href: '/register/mentor',
