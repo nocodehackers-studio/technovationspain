@@ -1,5 +1,5 @@
-import { useCallback, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useState, useEffect } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import {
   Sheet,
@@ -16,11 +16,12 @@ import { Separator } from "@/components/ui/separator";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusBadge } from "@/components/admin/StatusBadge";
 import { RoleBadge } from "@/components/admin/RoleBadge";
+import { TeamLinkSection } from "@/components/admin/TeamLinkSection";
 import { toast } from "sonner";
 import { UserCheck, UserX, Trash2, QrCode, Shield } from "lucide-react";
 import { Profile, AppRole, VerificationStatus, TableCustomColumn } from "@/types/database";
 
-type UserWithRole = Profile & { role?: AppRole };
+type UserWithRole = Profile & { role?: AppRole; team_name?: string | null };
 
 interface UserEditSheetProps {
   user: UserWithRole | null;
@@ -40,7 +41,32 @@ export function UserEditSheet({
   const queryClient = useQueryClient();
   const [selectedRole, setSelectedRole] = useState<AppRole | undefined>(undefined);
 
+  // Fetch user's team membership
+  const { data: teamMembership } = useQuery({
+    queryKey: ["user-team-membership", user?.id],
+    queryFn: async () => {
+      if (!user?.id) return null;
+      const { data, error } = await supabase
+        .from("team_members")
+        .select(`
+          id,
+          member_type,
+          team:teams(id, name)
+        `)
+        .eq("user_id", user.id)
+        .maybeSingle();
+      
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!user?.id && open,
+  });
+
   // Reset selected role when user changes
+  useEffect(() => {
+    setSelectedRole(undefined);
+  }, [user?.id]);
+
   const currentRole = selectedRole ?? user?.role;
 
   // Update user mutation
@@ -385,7 +411,7 @@ export function UserEditSheet({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="participant">Participante</SelectItem>
-                  <SelectItem value="mentor">Mentora</SelectItem>
+                  <SelectItem value="mentor">Mentor</SelectItem>
                   <SelectItem value="judge">Juez</SelectItem>
                   <SelectItem value="volunteer">Voluntario</SelectItem>
                   <SelectItem value="admin">Administrador</SelectItem>
@@ -407,6 +433,16 @@ export function UserEditSheet({
               Cambiar el rol principal del usuario. Los administradores tienen acceso completo al panel de gestión.
             </p>
           </div>
+
+          <Separator />
+
+          {/* Team Link Section */}
+          <TeamLinkSection
+            userId={user.id}
+            currentTeamId={(teamMembership?.team as { id: string } | null)?.id}
+            currentTeamName={(teamMembership?.team as { name: string } | null)?.name}
+            currentMemberType={teamMembership?.member_type as "participant" | "mentor" | null}
+          />
 
           <Separator />
 

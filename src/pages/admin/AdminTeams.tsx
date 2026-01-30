@@ -26,13 +26,28 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { MoreHorizontal, Plus, Edit, Trash2, Users, Upload, Mail, UserCircle, MapPin, CheckCircle2 } from "lucide-react";
+import { MoreHorizontal, Plus, Edit, Trash2, Users, Upload, Mail, UserCircle, MapPin, CheckCircle2, UserPlus, Check, ChevronDown } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Progress } from "@/components/ui/progress";
-import { Team, TeamCategory } from "@/types/database";
+import { Team, TeamCategory, Profile } from "@/types/database";
+import { cn } from "@/lib/utils";
 import {
   Select,
   SelectContent,
@@ -70,6 +85,12 @@ export default function AdminTeams() {
   const [membersDialogOpen, setMembersDialogOpen] = useState(false);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [hubFilter, setHubFilter] = useState<string>("all");
+  
+  // Add member state
+  const [addMemberOpen, setAddMemberOpen] = useState(false);
+  const [userSearchOpen, setUserSearchOpen] = useState(false);
+  const [selectedUser, setSelectedUser] = useState<Profile | null>(null);
+  const [newMemberType, setNewMemberType] = useState<"participant" | "mentor">("participant");
 
   // Fetch teams with member counts, hub info, and whitelist stats
   const { data: teams, isLoading } = useQuery({
@@ -131,7 +152,24 @@ export default function AdminTeams() {
       .eq("team_id", team.id);
     setTeamMembers(members as TeamMember[] || []);
     setMembersDialogOpen(true);
+    // Reset add member state
+    setAddMemberOpen(false);
+    setSelectedUser(null);
+    setNewMemberType("participant");
   };
+
+  // Fetch all users for adding to team
+  const { data: allUsers } = useQuery({
+    queryKey: ["admin-all-users-for-teams"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("id, email, first_name, last_name")
+        .order("first_name");
+      if (error) throw error;
+      return data as Profile[];
+    },
+  });
 
   // Fetch hubs for dropdown
   const { data: hubs } = useQuery({
@@ -199,6 +237,64 @@ export default function AdminTeams() {
       toast.error(`Error: ${error.message}`);
     },
   });
+
+  // Add member to team mutation
+  const addMemberMutation = useMutation({
+    mutationFn: async ({
+      userId,
+      teamId,
+      memberType,
+    }: {
+      userId: string;
+      teamId: string;
+      memberType: "participant" | "mentor";
+    }) => {
+      // First remove any existing team membership for this user
+      await supabase.from("team_members").delete().eq("user_id", userId);
+
+      // Insert new team membership
+      const { error } = await supabase.from("team_members").insert({
+        user_id: userId,
+        team_id: teamId,
+        member_type: memberType,
+      });
+
+      if (error) throw error;
+    },
+    onSuccess: async () => {
+      queryClient.invalidateQueries({ queryKey: ["admin-teams"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-users"] });
+      toast.success("Miembro añadido al equipo");
+      // Refresh team members
+      if (selectedTeam) {
+        const { data: members } = await supabase
+          .from("team_members")
+          .select(`
+            id,
+            member_type,
+            joined_at,
+            user:profiles!team_members_user_id_fkey(id, email, first_name, last_name)
+          `)
+          .eq("team_id", selectedTeam.id);
+        setTeamMembers(members as TeamMember[] || []);
+      }
+      setAddMemberOpen(false);
+      setSelectedUser(null);
+      setNewMemberType("participant");
+    },
+    onError: (error) => {
+      toast.error(`Error al añadir miembro: ${error.message}`);
+    },
+  });
+
+  const handleAddMember = () => {
+    if (!selectedUser || !selectedTeam) return;
+    addMemberMutation.mutate({
+      userId: selectedUser.id,
+      teamId: selectedTeam.id,
+      memberType: newMemberType,
+    });
+  };
 
   const categoryColors: Record<TeamCategory, string> = {
     beginner: "bg-category-beginner/10 text-category-beginner border-category-beginner/20",
@@ -577,7 +673,7 @@ export default function AdminTeams() {
               {teamMembers.length} miembro{teamMembers.length !== 1 ? "s" : ""} en el equipo
             </DialogDescription>
           </DialogHeader>
-          <ScrollArea className="max-h-[400px]">
+          <ScrollArea className="max-h-[350px]">
             {teamMembers.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
                 <UserCircle className="h-12 w-12 mx-auto mb-2 opacity-50" />
@@ -623,6 +719,128 @@ export default function AdminTeams() {
               </div>
             )}
           </ScrollArea>
+
+          {/* Add Member Section */}
+          <div className="border-t pt-4 mt-4">
+            {!addMemberOpen ? (
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={() => setAddMemberOpen(true)}
+              >
+                <UserPlus className="h-4 w-4 mr-2" />
+                Añadir miembro
+              </Button>
+            ) : (
+              <div className="space-y-4">
+                <Label>Buscar usuario</Label>
+                <Popover open={userSearchOpen} onOpenChange={setUserSearchOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      role="combobox"
+                      aria-expanded={userSearchOpen}
+                      className="w-full justify-between"
+                    >
+                      {selectedUser
+                        ? `${selectedUser.first_name || ""} ${selectedUser.last_name || ""} (${selectedUser.email})`.trim()
+                        : "Buscar usuario..."}
+                      <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[350px] p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="Buscar por nombre o email..." />
+                      <CommandList>
+                        <CommandEmpty>No se encontraron usuarios</CommandEmpty>
+                        <CommandGroup>
+                          {allUsers
+                            ?.filter(
+                              (u) => !teamMembers.some((m) => m.user?.id === u.id)
+                            )
+                            .map((user) => (
+                              <CommandItem
+                                key={user.id}
+                                value={`${user.first_name || ""} ${user.last_name || ""} ${user.email}`}
+                                onSelect={() => {
+                                  setSelectedUser(user);
+                                  setUserSearchOpen(false);
+                                }}
+                              >
+                                <Check
+                                  className={cn(
+                                    "mr-2 h-4 w-4",
+                                    selectedUser?.id === user.id
+                                      ? "opacity-100"
+                                      : "opacity-0"
+                                  )}
+                                />
+                                <div className="flex flex-col">
+                                  <span>
+                                    {user.first_name} {user.last_name}
+                                  </span>
+                                  <span className="text-xs text-muted-foreground">
+                                    {user.email}
+                                  </span>
+                                </div>
+                              </CommandItem>
+                            ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+
+                {selectedUser && (
+                  <>
+                    <div className="space-y-2">
+                      <Label>Tipo de miembro</Label>
+                      <RadioGroup
+                        value={newMemberType}
+                        onValueChange={(value) =>
+                          setNewMemberType(value as "participant" | "mentor")
+                        }
+                        className="flex gap-4"
+                      >
+                        <div className="flex items-center space-x-2">
+                          <RadioGroupItem value="participant" id="add-participant" />
+                          <Label htmlFor="add-participant" className="font-normal cursor-pointer">
+                            Estudiante
+                          </Label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <RadioGroupItem value="mentor" id="add-mentor" />
+                          <Label htmlFor="add-mentor" className="font-normal cursor-pointer">
+                            Mentor
+                          </Label>
+                        </div>
+                      </RadioGroup>
+                    </div>
+
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        className="flex-1"
+                        onClick={() => {
+                          setAddMemberOpen(false);
+                          setSelectedUser(null);
+                        }}
+                      >
+                        Cancelar
+                      </Button>
+                      <Button
+                        className="flex-1"
+                        onClick={handleAddMember}
+                        disabled={addMemberMutation.isPending}
+                      >
+                        {addMemberMutation.isPending ? "Añadiendo..." : "Añadir"}
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
     </AdminLayout>
