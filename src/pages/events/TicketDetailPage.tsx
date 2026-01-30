@@ -2,13 +2,15 @@ import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { ArrowLeft, Calendar, MapPin, Download, CalendarPlus, XCircle } from 'lucide-react';
-import { useRegistration, useCancelRegistration } from '@/hooks/useEventRegistration';
+import { ArrowLeft, Calendar, MapPin, Download, CalendarPlus, XCircle, Users, ChevronDown, ChevronRight } from 'lucide-react';
+import { useRegistration, useCancelRegistration, useRegistrationCompanions } from '@/hooks/useEventRegistration';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { QRTicket } from '@/components/events/QRTicket';
 import { RegistrationStatusBadge } from '@/components/events/RegistrationStatusBadge';
+import { Badge } from '@/components/ui/badge';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -25,8 +27,10 @@ export default function TicketDetailPage() {
   const { registrationId } = useParams<{ registrationId: string }>();
   const navigate = useNavigate();
   const { data: registration, isLoading, error } = useRegistration(registrationId || '');
+  const { data: companions, isLoading: companionsLoading } = useRegistrationCompanions(registrationId || '');
   const cancelMutation = useCancelRegistration();
   const [showCancelDialog, setShowCancelDialog] = useState(false);
+  const [companionsExpanded, setCompanionsExpanded] = useState(true);
   
   const handleCancel = async () => {
     if (!registrationId) return;
@@ -93,6 +97,21 @@ export default function TicketDetailPage() {
     return `https://calendar.google.com/calendar/render?${params.toString()}`;
   };
   
+  // Helper to translate relationship values
+  const getRelationshipLabel = (value: string): string => {
+    const labels: Record<string, string> = {
+      mother: 'Madre',
+      father: 'Padre',
+      guardian: 'Tutor/a legal',
+      grandparent: 'Abuelo/a',
+      sibling: 'Hermano/a mayor',
+      other: 'Otro familiar',
+    };
+    return labels[value] || value;
+  };
+
+  const hasCompanions = companions && companions.length > 0;
+  
   return (
     <div className="min-h-screen bg-muted/30">
       {/* Header */}
@@ -105,7 +124,7 @@ export default function TicketDetailPage() {
         </div>
       </div>
       
-      <div className="max-w-lg mx-auto px-4 py-8">
+      <div className="max-w-lg mx-auto px-4 py-8 space-y-6">
         {/* Ticket Card */}
         <Card className="overflow-hidden">
           {/* Header with gradient */}
@@ -236,6 +255,64 @@ export default function TicketDetailPage() {
             )}
           </div>
         </Card>
+        
+        {/* Companion Tickets */}
+        {hasCompanions && (
+          <Card>
+            <Collapsible open={companionsExpanded} onOpenChange={setCompanionsExpanded}>
+              <CollapsibleTrigger className="w-full">
+                <CardHeader className="flex flex-row items-center justify-between p-4">
+                  <div className="flex items-center gap-2">
+                    <Users className="h-5 w-5 text-primary" />
+                    <span className="font-semibold">Entradas de acompañantes</span>
+                    <Badge variant="outline">{companions.length}</Badge>
+                  </div>
+                  {companionsExpanded ? (
+                    <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                  ) : (
+                    <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                  )}
+                </CardHeader>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <CardContent className="p-4 pt-0 space-y-4">
+                  {companions.map((companion, index) => (
+                    <div key={companion.id} className="border rounded-lg p-4 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="font-medium">
+                            {companion.first_name && companion.last_name 
+                              ? `${companion.first_name} ${companion.last_name}`
+                              : `Acompañante ${index + 1}`}
+                          </p>
+                          {companion.relationship && (
+                            <p className="text-sm text-muted-foreground">
+                              {getRelationshipLabel(companion.relationship)}
+                            </p>
+                          )}
+                        </div>
+                        {companion.checked_in_at ? (
+                          <Badge className="bg-success text-success-foreground">Check-in realizado</Badge>
+                        ) : (
+                          <Badge variant="outline">Pendiente</Badge>
+                        )}
+                      </div>
+                      
+                      {/* Companion QR */}
+                      <div className="flex justify-center py-2">
+                        <QRTicket code={companion.qr_code} size={140} />
+                      </div>
+                      
+                      <p className="text-center text-xs text-muted-foreground">
+                        Cada acompañante debe presentar su propio código QR
+                      </p>
+                    </div>
+                  ))}
+                </CardContent>
+              </CollapsibleContent>
+            </Collapsible>
+          </Card>
+        )}
       </div>
     </div>
   );
