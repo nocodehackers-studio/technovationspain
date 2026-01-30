@@ -84,6 +84,9 @@ export default function EventRegistrationPage() {
   const { register, isRegistering, error } = useEventRegistration(eventId || '');
   const { data: existingRegistration, isLoading: isCheckingRegistration } = useExistingRegistration(eventId || '');
   
+  // Fetch user's most recent registration to get prefilled DNI
+  const [cachedDni, setCachedDni] = useState<string | null>(null);
+  
   const form = useForm<RegistrationFormValues>({
     resolver: zodResolver(registrationSchema),
     defaultValues: {
@@ -100,7 +103,7 @@ export default function EventRegistrationPage() {
     },
   });
   
-  // Update form values when profile loads
+  // Update form values when profile loads and fetch previous DNI
   useEffect(() => {
     if (profile) {
       form.setValue('first_name', profile.first_name || '');
@@ -108,8 +111,30 @@ export default function EventRegistrationPage() {
       form.setValue('email', profile.email || '');
       form.setValue('phone', profile.phone || '');
       form.setValue('tg_email', profile.tg_email || '');
+      
+      // Fetch DNI from user's most recent registration
+      const fetchPreviousDni = async () => {
+        const { supabase } = await import('@/integrations/supabase/client');
+        const { data } = await supabase
+          .from('event_registrations')
+          .select('dni')
+          .eq('user_id', profile.id)
+          .not('dni', 'is', null)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        
+        if (data?.dni) {
+          setCachedDni(data.dni);
+          form.setValue('dni', data.dni);
+        }
+      };
+      
+      if (!cachedDni) {
+        fetchPreviousDni();
+      }
     }
-  }, [profile, form]);
+  }, [profile, form, cachedDni]);
   
 const selectedTicketId = form.watch('ticket_type_id');
   const selectedTicket = event?.ticket_types?.find(t => t.id === selectedTicketId);
