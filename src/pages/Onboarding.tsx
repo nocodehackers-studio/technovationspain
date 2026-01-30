@@ -301,15 +301,18 @@ export default function Onboarding() {
         throw profileError;
       }
 
-      // Assign role
-      const roleToAssign = formData.role as AppRole;
-      const { error: roleError } = await supabase
-        .from('user_roles')
-        .insert({ user_id: user.id, role: roleToAssign });
-      
-      // Ignore duplicate errors
-      if (roleError && !roleError.message.includes('duplicate')) {
-        console.warn('Role assignment warning:', roleError.message);
+      // Assign role - volunteers don't get automatic role (admin must grant QR validator access)
+      // Volunteers are verified but have no special role until admin assigns it
+      if (formData.role !== 'volunteer') {
+        const roleToAssign = formData.role as AppRole;
+        const { error: roleError } = await supabase
+          .from('user_roles')
+          .insert({ user_id: user.id, role: roleToAssign });
+        
+        // Ignore duplicate errors
+        if (roleError && !roleError.message.includes('duplicate')) {
+          console.warn('Role assignment warning:', roleError.message);
+        }
       }
 
       // If in whitelist (participant), update authorized_students
