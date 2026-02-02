@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { MetricCard } from "@/components/admin/MetricCard";
 import { WhitelistProgressCard } from "@/components/admin/WhitelistProgressCard";
+import { TeamProgressCard } from "@/components/admin/TeamProgressCard";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Users, UserCheck, Clock, UsersRound } from "lucide-react";
 import {
@@ -74,6 +75,61 @@ export default function AdminDashboard() {
       return stats;
     },
   });
+
+  // Fetch team registration stats
+  const { data: teamStats, isLoading: isLoadingTeamStats } = useQuery({
+    queryKey: ["admin-team-registration-stats"],
+    queryFn: async () => {
+      // Get all teams
+      const { data: teams } = await supabase.from("teams").select("id, name");
+      
+      // Get whitelist stats by team
+      const { data: whitelist } = await supabase
+        .from("authorized_users")
+        .select("team_name, matched_profile_id")
+        .not("team_name", "is", null);
+      
+      if (!teams) return null;
+      
+      // Calculate stats per team
+      const teamStatsMap = new Map<string, { whitelist: number; registered: number }>();
+      
+      whitelist?.forEach(u => {
+        const key = u.team_name?.toLowerCase();
+        if (!key) return;
+        const current = teamStatsMap.get(key) || { whitelist: 0, registered: 0 };
+        current.whitelist++;
+        if (u.matched_profile_id) current.registered++;
+        teamStatsMap.set(key, current);
+      });
+      
+      // Classify teams
+      let complete = 0, inProgress = 0, notStarted = 0, noData = 0;
+      
+      teams.forEach(team => {
+        const stats = teamStatsMap.get(team.name.toLowerCase());
+        if (!stats || stats.whitelist === 0) {
+          noData++;
+        } else if (stats.registered === stats.whitelist) {
+          complete++;
+        } else if (stats.registered > 0) {
+          inProgress++;
+        } else {
+          notStarted++;
+        }
+      });
+      
+      return {
+        total: teams.length,
+        complete,
+        inProgress,
+        notStarted,
+        noData,
+        active: complete + inProgress,
+      };
+    },
+  });
+
   const { data: roleDistribution } = useQuery({
     queryKey: ["admin-role-distribution"],
     queryFn: async () => {
@@ -184,8 +240,11 @@ export default function AdminDashboard() {
           />
         </div>
 
-        {/* Whitelist Progress Card */}
-        <WhitelistProgressCard stats={whitelistStats} isLoading={isLoadingWhitelist} />
+        {/* Progress Cards Grid */}
+        <div className="grid gap-4 md:grid-cols-2">
+          <WhitelistProgressCard stats={whitelistStats} isLoading={isLoadingWhitelist} />
+          <TeamProgressCard stats={teamStats} isLoading={isLoadingTeamStats} />
+        </div>
 
         {/* Charts Row */}
         <div className="grid gap-6 md:grid-cols-2">
