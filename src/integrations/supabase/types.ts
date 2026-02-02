@@ -664,6 +664,7 @@ export type Database = {
           max_capacity: number
           max_companions: number
           name: string
+          required_fields: string[] | null
           requires_team: boolean | null
           requires_verification: boolean | null
           sort_order: number | null
@@ -680,6 +681,7 @@ export type Database = {
           max_capacity: number
           max_companions?: number
           name: string
+          required_fields?: string[] | null
           requires_team?: boolean | null
           requires_verification?: boolean | null
           sort_order?: number | null
@@ -696,6 +698,7 @@ export type Database = {
           max_capacity?: number
           max_companions?: number
           name?: string
+          required_fields?: string[] | null
           requires_team?: boolean | null
           requires_verification?: boolean | null
           sort_order?: number | null

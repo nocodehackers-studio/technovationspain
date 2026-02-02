@@ -52,24 +52,42 @@ const validateSpanishPhone = (value: string): boolean => {
   return phoneRegex.test(cleanValue);
 };
 
-const registrationSchema = z.object({
+// Create dynamic schema based on required fields
+const createRegistrationSchema = (requiredFields: string[]) => z.object({
   ticket_type_id: z.string().min(1, 'Selecciona un tipo de entrada'),
   first_name: z.string().min(2, 'El nombre debe tener al menos 2 caracteres'),
   last_name: z.string().min(2, 'Los apellidos deben tener al menos 2 caracteres'),
   email: z.string().email('Introduce un email válido'),
-  dni: z.string().optional().refine(
-    (val) => !val || validateSpanishDNI(val),
-    'Formato inválido. Usa 8 números + letra (DNI) o X/Y/Z + 7 números + letra (NIE)'
-  ),
-  phone: z.string().optional().refine(
-    (val) => !val || validateSpanishPhone(val),
-    'Formato inválido. Introduce 9 dígitos (ej: 612345678)'
-  ),
-  team_name: z.string().optional(),
-  tg_email: z.string().email('Introduce un email válido').optional().or(z.literal('')),
+  dni: requiredFields.includes('dni')
+    ? z.string().min(1, 'El DNI es obligatorio').refine(
+        validateSpanishDNI,
+        'Formato inválido. Usa 8 números + letra (DNI) o X/Y/Z + 7 números + letra (NIE)'
+      )
+    : z.string().optional().refine(
+        (val) => !val || validateSpanishDNI(val),
+        'Formato inválido. Usa 8 números + letra (DNI) o X/Y/Z + 7 números + letra (NIE)'
+      ),
+  phone: requiredFields.includes('phone')
+    ? z.string().min(1, 'El teléfono es obligatorio').refine(
+        validateSpanishPhone,
+        'Formato inválido. Introduce 9 dígitos (ej: 612345678)'
+      )
+    : z.string().optional().refine(
+        (val) => !val || validateSpanishPhone(val),
+        'Formato inválido. Introduce 9 dígitos (ej: 612345678)'
+      ),
+  team_name: requiredFields.includes('team_name')
+    ? z.string().min(1, 'El nombre del equipo es obligatorio')
+    : z.string().optional(),
+  tg_email: requiredFields.includes('tg_email')
+    ? z.string().email('Introduce un email válido')
+    : z.string().email('Introduce un email válido').optional().or(z.literal('')),
   image_consent: z.boolean().default(false),
   data_consent: z.boolean().refine(val => val === true, 'Debes aceptar la política de privacidad'),
 });
+
+// Default schema for form initialization
+const registrationSchema = createRegistrationSchema([]);
 
 type RegistrationFormValues = z.infer<typeof registrationSchema>;
 
@@ -141,6 +159,7 @@ const selectedTicketId = form.watch('ticket_type_id');
   const requiresTeam = selectedTicket?.requires_team;
   const maxCompanions = selectedTicket?.max_companions || 0;
   const companionFieldsConfig: string[] = (selectedTicket as any)?.companion_fields_config || ['first_name', 'last_name', 'relationship'];
+  const requiredFields: string[] = (selectedTicket as any)?.required_fields || ['first_name', 'last_name', 'email'];
   
   // Determine number of steps based on whether companions are allowed
   const totalSteps = maxCompanions > 0 ? 4 : 3;
@@ -278,14 +297,31 @@ const selectedTicketId = form.watch('ticket_type_id');
       }
     } else if (step === 2) {
       const fieldsToValidate: (keyof RegistrationFormValues)[] = ['first_name', 'last_name', 'email'];
-      if (requiresTeam) {
-        fieldsToValidate.push('team_name', 'tg_email');
+      
+      // Add required fields based on ticket configuration
+      if (requiredFields.includes('dni')) fieldsToValidate.push('dni');
+      if (requiredFields.includes('phone')) fieldsToValidate.push('phone');
+      if (requiresTeam || requiredFields.includes('team_name')) fieldsToValidate.push('team_name');
+      if (requiresTeam || requiredFields.includes('tg_email')) fieldsToValidate.push('tg_email');
+      
+      // Create dynamic schema for validation
+      const dynamicSchema = createRegistrationSchema(requiredFields);
+      const formValues = form.getValues();
+      const result = dynamicSchema.safeParse(formValues);
+      
+      if (!result.success) {
+        // Set form errors from zod validation
+        result.error.errors.forEach((err) => {
+          const fieldName = err.path[0] as keyof RegistrationFormValues;
+          if (fieldsToValidate.includes(fieldName)) {
+            form.setError(fieldName, { message: err.message });
+          }
+        });
+        return;
       }
-      const valid = await form.trigger(fieldsToValidate);
-      if (valid) {
-        // Skip to confirmation if no companions allowed
-        setStep(maxCompanions > 0 ? 3 : totalSteps);
-      }
+      
+      // Skip to confirmation if no companions allowed
+      setStep(maxCompanions > 0 ? 3 : totalSteps);
     } else if (step === 3 && maxCompanions > 0) {
       // Validate companions step
       if (validateCompanions()) {
@@ -533,7 +569,7 @@ const selectedTicketId = form.watch('ticket_type_id');
                       name="dni"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>DNI / NIE</FormLabel>
+                          <FormLabel>DNI / NIE{requiredFields.includes('dni') ? ' *' : ''}</FormLabel>
                           <FormControl>
                             <Input 
                               placeholder="12345678A" 
@@ -552,7 +588,7 @@ const selectedTicketId = form.watch('ticket_type_id');
                       name="phone"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Teléfono</FormLabel>
+                          <FormLabel>Teléfono{requiredFields.includes('phone') ? ' *' : ''}</FormLabel>
                           <FormControl>
                             <Input 
                               placeholder="612345678" 
@@ -565,6 +601,7 @@ const selectedTicketId = form.watch('ticket_type_id');
                             />
                           </FormControl>
                           <FormDescription>9 dígitos (sin prefijo)</FormDescription>
+                          <FormMessage />
                         </FormItem>
                       )}
                     />
