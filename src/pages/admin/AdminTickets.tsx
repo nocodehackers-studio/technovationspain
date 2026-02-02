@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { AdminLayout } from "@/components/admin/AdminLayout";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -21,9 +20,22 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Plus, Ticket, Clock, PlayCircle, CheckCircle2 } from "lucide-react";
+import {
+  Plus,
+  ChevronRight,
+  Clock,
+  PlayCircle,
+  CheckCircle2,
+  GripVertical,
+  AlertTriangle,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type TicketPriority = "nice_to_have" | "mandatory";
@@ -44,32 +56,43 @@ const priorityLabels: Record<TicketPriority, string> = {
   mandatory: "Obligatorio",
 };
 
-const statusLabels: Record<TicketStatus, string> = {
-  pending: "Pendiente",
-  in_progress: "En Desarrollo",
-  completed: "Completado",
-};
-
-const statusIcons: Record<TicketStatus, React.ReactNode> = {
-  pending: <Clock className="h-4 w-4" />,
-  in_progress: <PlayCircle className="h-4 w-4" />,
-  completed: <CheckCircle2 className="h-4 w-4" />,
-};
-
-const statusColors: Record<TicketStatus, string> = {
-  pending: "bg-warning/10 text-warning border-warning/20",
-  in_progress: "bg-info/10 text-info border-info/20",
-  completed: "bg-success/10 text-success border-success/20",
-};
-
-const priorityColors: Record<TicketPriority, string> = {
-  nice_to_have: "bg-muted text-muted-foreground",
-  mandatory: "bg-destructive/10 text-destructive border-destructive/20",
+const statusConfig: Record<
+  TicketStatus,
+  { label: string; icon: React.ReactNode; color: string }
+> = {
+  pending: {
+    label: "Pendiente",
+    icon: <Clock className="h-4 w-4" />,
+    color: "text-warning",
+  },
+  in_progress: {
+    label: "En Desarrollo",
+    icon: <PlayCircle className="h-4 w-4" />,
+    color: "text-info",
+  },
+  completed: {
+    label: "Completado",
+    icon: <CheckCircle2 className="h-4 w-4" />,
+    color: "text-success",
+  },
 };
 
 export default function AdminTickets() {
   const queryClient = useQueryClient();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [expandedSections, setExpandedSections] = useState<
+    Record<TicketStatus, boolean>
+  >({
+    pending: true,
+    in_progress: true,
+    completed: false,
+  });
+  const [draggedTicket, setDraggedTicket] = useState<DevelopmentTicket | null>(
+    null
+  );
+  const [dragOverStatus, setDragOverStatus] = useState<TicketStatus | null>(
+    null
+  );
   const [newTicket, setNewTicket] = useState({
     title: "",
     description: "",
@@ -132,51 +155,150 @@ export default function AdminTickets() {
     },
   });
 
-  const groupedTickets = {
+  const groupedTickets: Record<TicketStatus, DevelopmentTicket[]> = {
     pending: tickets?.filter((t) => t.status === "pending") || [],
     in_progress: tickets?.filter((t) => t.status === "in_progress") || [],
     completed: tickets?.filter((t) => t.status === "completed") || [],
   };
 
-  const renderTicketCard = (ticket: DevelopmentTicket) => (
-    <Card key={ticket.id} className="mb-3">
-      <CardContent className="p-4">
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex-1 min-w-0">
-            <h4 className="font-medium text-sm truncate">{ticket.title}</h4>
-            {ticket.description && (
-              <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
-                {ticket.description}
-              </p>
-            )}
-            <div className="flex items-center gap-2 mt-2">
-              <Badge
-                variant="outline"
-                className={cn("text-xs", priorityColors[ticket.priority])}
-              >
-                {priorityLabels[ticket.priority]}
+  const toggleSection = (status: TicketStatus) => {
+    setExpandedSections((prev) => ({
+      ...prev,
+      [status]: !prev[status],
+    }));
+  };
+
+  // Drag & Drop handlers
+  const handleDragStart = (
+    e: React.DragEvent,
+    ticket: DevelopmentTicket
+  ) => {
+    setDraggedTicket(ticket);
+    e.dataTransfer.effectAllowed = "move";
+  };
+
+  const handleDragEnd = () => {
+    setDraggedTicket(null);
+    setDragOverStatus(null);
+  };
+
+  const handleDragOver = (e: React.DragEvent, status: TicketStatus) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    setDragOverStatus(status);
+  };
+
+  const handleDragLeave = () => {
+    setDragOverStatus(null);
+  };
+
+  const handleDrop = (e: React.DragEvent, targetStatus: TicketStatus) => {
+    e.preventDefault();
+    if (draggedTicket && draggedTicket.status !== targetStatus) {
+      updateTicketStatus.mutate({
+        id: draggedTicket.id,
+        status: targetStatus,
+      });
+    }
+    setDraggedTicket(null);
+    setDragOverStatus(null);
+  };
+
+  const renderTicketRow = (ticket: DevelopmentTicket) => {
+    const config = statusConfig[ticket.status];
+    const isDragging = draggedTicket?.id === ticket.id;
+
+    return (
+      <div
+        key={ticket.id}
+        draggable
+        onDragStart={(e) => handleDragStart(e, ticket)}
+        onDragEnd={handleDragEnd}
+        className={cn(
+          "flex items-center gap-3 px-4 py-2.5 border-b border-border/50 hover:bg-muted/50 cursor-grab active:cursor-grabbing transition-all",
+          isDragging && "opacity-50 bg-muted"
+        )}
+      >
+        <GripVertical className="h-4 w-4 text-muted-foreground/50 flex-shrink-0" />
+        
+        <div className={cn("flex-shrink-0", config.color)}>{config.icon}</div>
+        
+        {ticket.priority === "mandatory" && (
+          <AlertTriangle className="h-4 w-4 text-destructive flex-shrink-0" />
+        )}
+        
+        <span className="text-sm flex-1 truncate">{ticket.title}</span>
+        
+        <Badge
+          variant="outline"
+          className={cn(
+            "text-xs flex-shrink-0",
+            ticket.priority === "mandatory"
+              ? "bg-destructive/10 text-destructive border-destructive/20"
+              : "bg-muted text-muted-foreground"
+          )}
+        >
+          {priorityLabels[ticket.priority]}
+        </Badge>
+      </div>
+    );
+  };
+
+  const renderStatusSection = (status: TicketStatus) => {
+    const config = statusConfig[status];
+    const sectionTickets = groupedTickets[status];
+    const isExpanded = expandedSections[status];
+    const isDragOver = dragOverStatus === status;
+
+    return (
+      <Collapsible
+        key={status}
+        open={isExpanded}
+        onOpenChange={() => toggleSection(status)}
+        className="mb-2"
+      >
+        <div
+          onDragOver={(e) => handleDragOver(e, status)}
+          onDragLeave={handleDragLeave}
+          onDrop={(e) => handleDrop(e, status)}
+          className={cn(
+            "rounded-lg border transition-all",
+            isDragOver && "ring-2 ring-primary ring-offset-2"
+          )}
+        >
+          <CollapsibleTrigger asChild>
+            <button className="flex items-center gap-2 w-full px-4 py-3 hover:bg-muted/50 rounded-t-lg transition-colors">
+              <ChevronRight
+                className={cn(
+                  "h-4 w-4 text-muted-foreground transition-transform",
+                  isExpanded && "rotate-90"
+                )}
+              />
+              <div className={cn("flex-shrink-0", config.color)}>
+                {config.icon}
+              </div>
+              <span className="font-medium text-sm">{config.label}</span>
+              <Badge variant="secondary" className="ml-2">
+                {sectionTickets.length}
               </Badge>
+            </button>
+          </CollapsibleTrigger>
+
+          <CollapsibleContent>
+            <div className="border-t">
+              {sectionTickets.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  No hay tickets en este estado
+                </p>
+              ) : (
+                sectionTickets.map(renderTicketRow)
+              )}
             </div>
-          </div>
-          <Select
-            value={ticket.status}
-            onValueChange={(value: TicketStatus) =>
-              updateTicketStatus.mutate({ id: ticket.id, status: value })
-            }
-          >
-            <SelectTrigger className="w-[140px] h-8 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="pending">Pendiente</SelectItem>
-              <SelectItem value="in_progress">En Desarrollo</SelectItem>
-              <SelectItem value="completed">Completado</SelectItem>
-            </SelectContent>
-          </Select>
+          </CollapsibleContent>
         </div>
-      </CardContent>
-    </Card>
-  );
+      </Collapsible>
+    );
+  };
 
   return (
     <AdminLayout title="Tickets de Desarrollo">
@@ -187,7 +309,7 @@ export default function AdminTickets() {
               Tickets de Desarrollo
             </h1>
             <p className="text-muted-foreground">
-              Gestiona las solicitudes de nuevas funcionalidades
+              Arrastra los tickets entre secciones para cambiar su estado
             </p>
           </div>
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
@@ -262,78 +384,10 @@ export default function AdminTickets() {
             Cargando tickets...
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {/* Pendiente */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <div className={cn("p-1.5 rounded", statusColors.pending)}>
-                    {statusIcons.pending}
-                  </div>
-                  Pendiente
-                  <Badge variant="secondary" className="ml-auto">
-                    {groupedTickets.pending.length}
-                  </Badge>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="pt-0">
-                {groupedTickets.pending.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-4">
-                    No hay tickets pendientes
-                  </p>
-                ) : (
-                  groupedTickets.pending.map(renderTicketCard)
-                )}
-              </CardContent>
-            </Card>
-
-            {/* En Desarrollo */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <div className={cn("p-1.5 rounded", statusColors.in_progress)}>
-                    {statusIcons.in_progress}
-                  </div>
-                  En Desarrollo
-                  <Badge variant="secondary" className="ml-auto">
-                    {groupedTickets.in_progress.length}
-                  </Badge>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="pt-0">
-                {groupedTickets.in_progress.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-4">
-                    No hay tickets en desarrollo
-                  </p>
-                ) : (
-                  groupedTickets.in_progress.map(renderTicketCard)
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Completado */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <div className={cn("p-1.5 rounded", statusColors.completed)}>
-                    {statusIcons.completed}
-                  </div>
-                  Completado
-                  <Badge variant="secondary" className="ml-auto">
-                    {groupedTickets.completed.length}
-                  </Badge>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="pt-0">
-                {groupedTickets.completed.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-4">
-                    No hay tickets completados
-                  </p>
-                ) : (
-                  groupedTickets.completed.map(renderTicketCard)
-                )}
-              </CardContent>
-            </Card>
+          <div className="space-y-2">
+            {(["pending", "in_progress", "completed"] as TicketStatus[]).map(
+              renderStatusSection
+            )}
           </div>
         )}
       </div>
