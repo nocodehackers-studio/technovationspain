@@ -24,6 +24,12 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
 import { Upload, FileSpreadsheet, CheckCircle2, XCircle, Users, AlertCircle } from "lucide-react";
 import Papa from "papaparse";
+import {
+  validateMemberForTeam,
+  createValidationCache,
+  prefetchUserData,
+  prefetchTeamData,
+} from "@/lib/team-member-validation";
 
 interface TeamCSVImportProps {
   open: boolean;
@@ -59,6 +65,7 @@ interface ImportResult {
   membersLinked: number;
   authorizedStudentsUpdated: number;
   errors: string[];
+  skipped: string[];
 }
 
 type ImportStep = "upload" | "preview" | "processing" | "results";
@@ -267,6 +274,7 @@ export function TeamCSVImport({ open, onOpenChange, onImportComplete }: TeamCSVI
       membersLinked: 0,
       authorizedStudentsUpdated: 0,
       errors: [],
+      skipped: [],
     };
 
     const totalSteps = parsedTeams.length;
@@ -331,11 +339,39 @@ export function TeamCSVImport({ open, onOpenChange, onImportComplete }: TeamCSVI
           importResult.teamsCreated++;
         }
 
-        // Process student emails
+        // Create validation cache for this team
+        const validationCache = createValidationCache();
+        await prefetchTeamData(teamId, validationCache);
+
+        // Collect all user IDs for this team
+        const userIdsToValidate: string[] = [];
+        for (const email of [...team.studentEmails, ...team.mentorEmails]) {
+          const userId = profileEmailMap.get(email);
+          if (userId) userIdsToValidate.push(userId);
+        }
+        
+        // Prefetch user data for batch validation
+        if (userIdsToValidate.length > 0) {
+          await prefetchUserData(userIdsToValidate, validationCache);
+        }
+
+        // Process student emails with validation
         for (const email of team.studentEmails) {
           const userId = profileEmailMap.get(email);
           
           if (userId) {
+            // Validate before adding
+            const validation = await validateMemberForTeam(userId, teamId, validationCache);
+            
+            if (!validation.valid) {
+              if (validation.skipped) {
+                importResult.skipped.push(`${email}: ${validation.reason}`);
+              } else {
+                importResult.errors.push(`${email}: ${validation.reason}`);
+              }
+              continue;
+            }
+
             // Check if already a member
             const { data: existingMember } = await supabase
               .from("team_members")
@@ -350,7 +386,7 @@ export function TeamCSVImport({ open, onOpenChange, onImportComplete }: TeamCSVI
                 .insert({
                   team_id: teamId,
                   user_id: userId,
-                  member_type: "participant",
+                  member_type: validation.memberType, // Use validated member type
                 });
               
               if (insertError) {
@@ -381,11 +417,23 @@ export function TeamCSVImport({ open, onOpenChange, onImportComplete }: TeamCSVI
           }
         }
 
-        // Process mentor emails
+        // Process mentor emails with validation
         for (const email of team.mentorEmails) {
           const userId = profileEmailMap.get(email);
           
           if (userId) {
+            // Validate before adding
+            const validation = await validateMemberForTeam(userId, teamId, validationCache);
+            
+            if (!validation.valid) {
+              if (validation.skipped) {
+                importResult.skipped.push(`${email}: ${validation.reason}`);
+              } else {
+                importResult.errors.push(`${email}: ${validation.reason}`);
+              }
+              continue;
+            }
+
             // Check if already a member
             const { data: existingMember } = await supabase
               .from("team_members")
@@ -400,7 +448,7 @@ export function TeamCSVImport({ open, onOpenChange, onImportComplete }: TeamCSVI
                 .insert({
                   team_id: teamId,
                   user_id: userId,
-                  member_type: "mentor",
+                  member_type: validation.memberType, // Use validated member type
                 });
               
               if (insertError) {

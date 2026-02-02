@@ -1,40 +1,50 @@
 import { Users, Info } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
-interface TeamInfoSectionProps {
-  currentTeamName?: string | null;
-  currentMemberType?: "participant" | "mentor" | null;
+interface TeamMembership {
+  teamId?: string;
+  teamName: string;
+  memberType: "participant" | "mentor" | null;
 }
 
-export function TeamInfoSection({
-  currentTeamName,
-  currentMemberType,
-}: TeamInfoSectionProps) {
+interface TeamInfoSectionProps {
+  teams: TeamMembership[];
+}
+
+export function TeamInfoSection({ teams }: TeamInfoSectionProps) {
   return (
     <div className="space-y-4">
       <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-2">
         <Users className="h-4 w-4" />
-        Equipo
+        {teams.length > 1 ? `Equipos (${teams.length})` : "Equipo"}
       </h3>
 
-      {currentTeamName ? (
-        <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium">{currentTeamName}</span>
-            {currentMemberType && (
-              <Badge
-                variant="outline"
-                className={
-                  currentMemberType === "mentor"
-                    ? "bg-primary/10 text-primary border-primary/20"
-                    : "bg-secondary/50 text-secondary-foreground"
-                }
+      {teams.length > 0 ? (
+        <ScrollArea className={teams.length > 3 ? "max-h-40" : ""}>
+          <div className="space-y-2">
+            {teams.map((team, index) => (
+              <div
+                key={team.teamId || index}
+                className="flex items-center justify-between p-3 rounded-lg border bg-muted/30"
               >
-                {currentMemberType === "mentor" ? "Mentor" : "Estudiante"}
-              </Badge>
-            )}
+                <span className="text-sm font-medium">{team.teamName}</span>
+                {team.memberType && (
+                  <Badge
+                    variant="outline"
+                    className={
+                      team.memberType === "mentor"
+                        ? "bg-primary/10 text-primary border-primary/20"
+                        : "bg-secondary/50 text-secondary-foreground"
+                    }
+                  >
+                    {team.memberType === "mentor" ? "Mentor" : "Estudiante"}
+                  </Badge>
+                )}
+              </div>
+            ))}
           </div>
-        </div>
+        </ScrollArea>
       ) : (
         <div className="flex items-center gap-2 p-3 rounded-lg border border-dashed bg-muted/10 text-muted-foreground">
           <Info className="h-4 w-4 flex-shrink-0" />
