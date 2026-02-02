@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ColumnDef } from "@tanstack/react-table";
 import { supabase } from "@/integrations/supabase/client";
@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Textarea } from "@/components/ui/textarea";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -26,28 +27,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { MoreHorizontal, Plus, Edit, Trash2, Users, Upload, Mail, UserCircle, MapPin, CheckCircle2, UserPlus, Check, ChevronDown } from "lucide-react";
+import { MoreHorizontal, Edit, Trash2, Users, Upload, Mail, UserCircle, MapPin, CheckCircle2, Building2 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Progress } from "@/components/ui/progress";
-import { Team, TeamCategory, Profile } from "@/types/database";
-import { cn } from "@/lib/utils";
+import { Team, TeamCategory } from "@/types/database";
 import {
   Select,
   SelectContent,
@@ -73,26 +58,31 @@ interface TeamWithStats extends Team {
   hub: { id: string; name: string } | null;
   whitelist_count: number;
   registered_count: number;
+  city?: string;
+  notes?: string | null;
 }
+
+type CompletionFilter = "all" | "complete" | "incomplete" | "empty";
 
 export default function AdminTeams() {
   const queryClient = useQueryClient();
-  const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
+  const [selectedTeam, setSelectedTeam] = useState<TeamWithStats | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [membersDialogOpen, setMembersDialogOpen] = useState(false);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
-  const [hubFilter, setHubFilter] = useState<string>("all");
   
-  // Add member state
-  const [addMemberOpen, setAddMemberOpen] = useState(false);
-  const [userSearchOpen, setUserSearchOpen] = useState(false);
-  const [selectedUser, setSelectedUser] = useState<Profile | null>(null);
-  const [newMemberType, setNewMemberType] = useState<"participant" | "mentor">("participant");
+  // Filters
+  const [hubFilter, setHubFilter] = useState<string>("all");
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [completionFilter, setCompletionFilter] = useState<CompletionFilter>("all");
+  
+  // Edit form state
+  const [editHubId, setEditHubId] = useState<string>("");
+  const [editNotes, setEditNotes] = useState<string>("");
 
-  // Fetch teams with member counts, hub info, and whitelist stats
+  // Fetch teams with member counts, hub info, whitelist stats, and city
   const { data: teams, isLoading } = useQuery({
     queryKey: ["admin-teams"],
     queryFn: async () => {
@@ -104,42 +94,89 @@ export default function AdminTeams() {
 
       if (error) throw error;
       
-      // Get whitelist stats for all teams
-      const teamNames = teamsData?.map(t => t.name) || [];
+      // Get whitelist stats and city for all teams
       const { data: whitelistStats } = await supabase
         .from("authorized_users")
-        .select("team_name, matched_profile_id");
+        .select("team_name, matched_profile_id, city");
       
-      // Calculate stats per team
-      const statsMap = new Map<string, { whitelist_count: number; registered_count: number }>();
+      // Calculate stats per team and get most common city
+      const statsMap = new Map<string, { 
+        whitelist_count: number; 
+        registered_count: number; 
+        cities: Map<string, number>;
+      }>();
+      
       whitelistStats?.forEach(record => {
         if (record.team_name) {
           const key = record.team_name.toLowerCase();
-          const current = statsMap.get(key) || { whitelist_count: 0, registered_count: 0 };
+          const current = statsMap.get(key) || { 
+            whitelist_count: 0, 
+            registered_count: 0, 
+            cities: new Map() 
+          };
           current.whitelist_count++;
           if (record.matched_profile_id) current.registered_count++;
+          if (record.city) {
+            current.cities.set(record.city, (current.cities.get(record.city) || 0) + 1);
+          }
           statsMap.set(key, current);
         }
       });
       
+      // Get most common city for each team
+      const getCityFromStats = (stats: { cities: Map<string, number> } | undefined): string => {
+        if (!stats || stats.cities.size === 0) return "";
+        let maxCity = "";
+        let maxCount = 0;
+        stats.cities.forEach((count, city) => {
+          if (count > maxCount) {
+            maxCount = count;
+            maxCity = city;
+          }
+        });
+        return maxCity;
+      };
+      
       // Merge stats with teams
-      return teamsData?.map(team => ({
-        ...team,
-        whitelist_count: statsMap.get(team.name.toLowerCase())?.whitelist_count || 0,
-        registered_count: statsMap.get(team.name.toLowerCase())?.registered_count || 0,
-      })) as TeamWithStats[];
+      return teamsData?.map(team => {
+        const stats = statsMap.get(team.name.toLowerCase());
+        return {
+          ...team,
+          whitelist_count: stats?.whitelist_count || 0,
+          registered_count: stats?.registered_count || 0,
+          city: getCityFromStats(stats),
+        };
+      }) as TeamWithStats[];
     },
   });
 
-  // Filtered teams based on hub selection
-  const filteredTeams = teams?.filter((team) => {
-    if (hubFilter === "all") return true;
-    if (hubFilter === "none") return !team.hub_id;
-    return team.hub_id === hubFilter;
-  }) || [];
+  // Function to filter by completion status
+  const filterByCompletionStatus = (team: TeamWithStats, status: CompletionFilter): boolean => {
+    if (status === "all") return true;
+    if (status === "complete") return team.registered_count === team.whitelist_count && team.whitelist_count > 0;
+    if (status === "incomplete") return team.registered_count < team.whitelist_count && team.whitelist_count > 0;
+    if (status === "empty") return team.whitelist_count === 0;
+    return true;
+  };
+
+  // Filtered teams based on all filters
+  const filteredTeams = useMemo(() => {
+    return teams?.filter((team) => {
+      // Hub filter
+      if (hubFilter !== "all") {
+        if (hubFilter === "none" && team.hub_id) return false;
+        if (hubFilter !== "none" && team.hub_id !== hubFilter) return false;
+      }
+      // Category filter
+      if (categoryFilter !== "all" && team.category !== categoryFilter) return false;
+      // Completion filter
+      if (!filterByCompletionStatus(team, completionFilter)) return false;
+      return true;
+    }) || [];
+  }, [teams, hubFilter, categoryFilter, completionFilter]);
 
   // Function to open team members dialog
-  const openTeamMembers = async (team: Team) => {
+  const openTeamMembers = async (team: TeamWithStats) => {
     setSelectedTeam(team);
     const { data: members } = await supabase
       .from("team_members")
@@ -152,24 +189,7 @@ export default function AdminTeams() {
       .eq("team_id", team.id);
     setTeamMembers(members as TeamMember[] || []);
     setMembersDialogOpen(true);
-    // Reset add member state
-    setAddMemberOpen(false);
-    setSelectedUser(null);
-    setNewMemberType("participant");
   };
-
-  // Fetch all users for adding to team
-  const { data: allUsers } = useQuery({
-    queryKey: ["admin-all-users-for-teams"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("id, email, first_name, last_name")
-        .order("first_name");
-      if (error) throw error;
-      return data as Profile[];
-    },
-  });
 
   // Fetch hubs for dropdown
   const { data: hubs } = useQuery({
@@ -180,34 +200,20 @@ export default function AdminTeams() {
     },
   });
 
-  // Create team mutation
-  const createTeamMutation = useMutation({
-    mutationFn: async (team: Omit<Team, "id" | "created_at" | "updated_at">) => {
-      const { error } = await supabase.from("teams").insert(team);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["admin-teams"] });
-      toast.success("Equipo creado correctamente");
-      setCreateDialogOpen(false);
-    },
-    onError: (error) => {
-      toast.error(`Error: ${error.message}`);
-    },
-  });
-
-  // Update team mutation
+  // Update team mutation (only hub and notes)
   const updateTeamMutation = useMutation({
     mutationFn: async ({
       teamId,
-      updates,
+      hub_id,
+      notes,
     }: {
       teamId: string;
-      updates: Partial<Team>;
+      hub_id: string | null;
+      notes: string | null;
     }) => {
       const { error } = await supabase
         .from("teams")
-        .update(updates)
+        .update({ hub_id, notes })
         .eq("id", teamId);
       
       if (error) throw error;
@@ -238,61 +244,22 @@ export default function AdminTeams() {
     },
   });
 
-  // Add member to team mutation
-  const addMemberMutation = useMutation({
-    mutationFn: async ({
-      userId,
-      teamId,
-      memberType,
-    }: {
-      userId: string;
-      teamId: string;
-      memberType: "participant" | "mentor";
-    }) => {
-      // First remove any existing team membership for this user
-      await supabase.from("team_members").delete().eq("user_id", userId);
+  // Open edit dialog with current values
+  const openEditDialog = (team: TeamWithStats) => {
+    setSelectedTeam(team);
+    setEditHubId(team.hub_id || "");
+    setEditNotes(team.notes || "");
+    setEditDialogOpen(true);
+  };
 
-      // Insert new team membership
-      const { error } = await supabase.from("team_members").insert({
-        user_id: userId,
-        team_id: teamId,
-        member_type: memberType,
-      });
-
-      if (error) throw error;
-    },
-    onSuccess: async () => {
-      queryClient.invalidateQueries({ queryKey: ["admin-teams"] });
-      queryClient.invalidateQueries({ queryKey: ["admin-users"] });
-      toast.success("Miembro añadido al equipo");
-      // Refresh team members
-      if (selectedTeam) {
-        const { data: members } = await supabase
-          .from("team_members")
-          .select(`
-            id,
-            member_type,
-            joined_at,
-            user:profiles!team_members_user_id_fkey(id, email, first_name, last_name)
-          `)
-          .eq("team_id", selectedTeam.id);
-        setTeamMembers(members as TeamMember[] || []);
-      }
-      setAddMemberOpen(false);
-      setSelectedUser(null);
-      setNewMemberType("participant");
-    },
-    onError: (error) => {
-      toast.error(`Error al añadir miembro: ${error.message}`);
-    },
-  });
-
-  const handleAddMember = () => {
-    if (!selectedUser || !selectedTeam) return;
-    addMemberMutation.mutate({
-      userId: selectedUser.id,
+  // Handle edit form submission
+  const handleEditSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedTeam) return;
+    updateTeamMutation.mutate({
       teamId: selectedTeam.id,
-      memberType: newMemberType,
+      hub_id: editHubId || null,
+      notes: editNotes || null,
     });
   };
 
@@ -300,6 +267,12 @@ export default function AdminTeams() {
     beginner: "bg-category-beginner/10 text-category-beginner border-category-beginner/20",
     junior: "bg-category-junior/10 text-category-junior border-category-junior/20",
     senior: "bg-category-senior/10 text-category-senior border-category-senior/20",
+  };
+
+  const categoryLabels: Record<TeamCategory, string> = {
+    beginner: "Beginner (8-12)",
+    junior: "Junior (13-15)",
+    senior: "Senior (16-18)",
   };
 
   const columns: ColumnDef<TeamWithStats>[] = [
@@ -321,21 +294,31 @@ export default function AdminTeams() {
       accessorKey: "category",
       header: "Categoría",
       cell: ({ row }) => {
-        const category = row.original.category;
+        const category = row.original.category as TeamCategory | null;
         if (!category) return <span className="text-muted-foreground">—</span>;
-        
-        const labels: Record<TeamCategory, string> = {
-          beginner: "Beginner (8-12)",
-          junior: "Junior (13-15)",
-          senior: "Senior (16-18)",
-        };
         
         return (
           <Badge variant="outline" className={categoryColors[category]}>
-            {labels[category]}
+            {categoryLabels[category]}
           </Badge>
         );
       },
+    },
+    {
+      id: "city",
+      header: "Ciudad",
+      cell: ({ row }) => (
+        <div className="flex items-center gap-2">
+          {row.original.city ? (
+            <>
+              <Building2 className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm">{row.original.city}</span>
+            </>
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          )}
+        </div>
+      ),
     },
     {
       accessorKey: "team_members",
@@ -408,15 +391,6 @@ export default function AdminTeams() {
       ),
     },
     {
-      accessorKey: "created_at",
-      header: "Creado",
-      cell: ({ row }) => (
-        <span className="text-sm text-muted-foreground">
-          {new Date(row.original.created_at || "").toLocaleDateString("es-ES")}
-        </span>
-      ),
-    },
-    {
       id: "actions",
       cell: ({ row }) => {
         const team = row.original;
@@ -437,8 +411,7 @@ export default function AdminTeams() {
               <DropdownMenuItem
                 onClick={(e) => {
                   e.stopPropagation();
-                  setSelectedTeam(team);
-                  setEditDialogOpen(true);
+                  openEditDialog(team);
                 }}
               >
                 <Edit className="mr-2 h-4 w-4" />
@@ -472,85 +445,6 @@ export default function AdminTeams() {
     },
   ];
 
-  const TeamForm = ({
-    team,
-    onSubmit,
-    loading,
-  }: {
-    team?: Team | null;
-    onSubmit: (data: any) => void;
-    loading: boolean;
-  }) => (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        const formData = new FormData(e.currentTarget);
-        onSubmit({
-          name: formData.get("name") as string,
-          category: formData.get("category") as TeamCategory || null,
-          tg_team_id: formData.get("tg_team_id") as string || null,
-          hub_id: formData.get("hub_id") as string || null,
-        });
-      }}
-      className="space-y-4"
-    >
-      <div className="grid gap-4 md:grid-cols-2">
-        <div className="space-y-2">
-          <Label htmlFor="name">Nombre del equipo *</Label>
-          <Input
-            id="name"
-            name="name"
-            defaultValue={team?.name || ""}
-            required
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="category">Categoría</Label>
-          <select
-            id="category"
-            name="category"
-            defaultValue={team?.category || ""}
-            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-          >
-            <option value="">Sin categoría</option>
-            <option value="beginner">Beginner (8-12 años)</option>
-            <option value="junior">Junior (13-15 años)</option>
-            <option value="senior">Senior (16-18 años)</option>
-          </select>
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="tg_team_id">TG Team ID</Label>
-          <Input
-            id="tg_team_id"
-            name="tg_team_id"
-            defaultValue={team?.tg_team_id || ""}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="hub_id">Hub</Label>
-          <select
-            id="hub_id"
-            name="hub_id"
-            defaultValue={team?.hub_id || ""}
-            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-          >
-            <option value="">Sin hub</option>
-            {hubs?.map((hub) => (
-              <option key={hub.id} value={hub.id}>
-                {hub.name}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-      <DialogFooter>
-        <Button type="submit" disabled={loading}>
-          {loading ? "Guardando..." : team ? "Actualizar" : "Crear"}
-        </Button>
-      </DialogFooter>
-    </form>
-  );
-
   return (
     <AdminLayout title="Gestión de Equipos">
       <div className="space-y-4">
@@ -558,21 +452,14 @@ export default function AdminTeams() {
           <div>
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Equipos</h1>
             <p className="text-sm text-muted-foreground">
-              Gestiona los equipos de participantes
+              Equipos importados desde Technovation Global
             </p>
           </div>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={() => setImportDialogOpen(true)} className="flex-1 sm:flex-none">
-              <Upload className="h-4 w-4 sm:mr-2" />
-              <span className="hidden sm:inline">Importar CSV</span>
-              <span className="sm:hidden">CSV</span>
-            </Button>
-            <Button onClick={() => setCreateDialogOpen(true)} className="flex-1 sm:flex-none">
-              <Plus className="h-4 w-4 sm:mr-2" />
-              <span className="hidden sm:inline">Crear Equipo</span>
-              <span className="sm:hidden">Crear</span>
-            </Button>
-          </div>
+          <Button variant="outline" onClick={() => setImportDialogOpen(true)}>
+            <Upload className="h-4 w-4 sm:mr-2" />
+            <span className="hidden sm:inline">Importar CSV</span>
+            <span className="sm:hidden">CSV</span>
+          </Button>
         </div>
 
         <DataTable
@@ -580,62 +467,130 @@ export default function AdminTeams() {
           data={filteredTeams}
           searchPlaceholder="Buscar equipos..."
           loading={isLoading}
-          onRowClick={(team) => openTeamMembers(team as Team)}
+          onRowClick={(team) => openTeamMembers(team as TeamWithStats)}
           toolbarContent={
-            <Select value={hubFilter} onValueChange={setHubFilter}>
-              <SelectTrigger className="w-[160px]">
-                <SelectValue placeholder="Filtrar por hub" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos los hubs</SelectItem>
-                <SelectItem value="none">Sin hub</SelectItem>
-                {hubs?.map((hub) => (
-                  <SelectItem key={hub.id} value={hub.id}>
-                    {hub.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="flex flex-wrap gap-2">
+              {/* Category filter */}
+              <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                <SelectTrigger className="w-[140px]">
+                  <SelectValue placeholder="Categoría" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas</SelectItem>
+                  <SelectItem value="beginner">Beginner</SelectItem>
+                  <SelectItem value="junior">Junior</SelectItem>
+                  <SelectItem value="senior">Senior</SelectItem>
+                </SelectContent>
+              </Select>
+
+              {/* Hub filter */}
+              <Select value={hubFilter} onValueChange={setHubFilter}>
+                <SelectTrigger className="w-[140px]">
+                  <SelectValue placeholder="Hub" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos los hubs</SelectItem>
+                  <SelectItem value="none">Sin hub</SelectItem>
+                  {hubs?.map((hub) => (
+                    <SelectItem key={hub.id} value={hub.id}>
+                      {hub.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              {/* Completion status filter */}
+              <Select value={completionFilter} onValueChange={(v) => setCompletionFilter(v as CompletionFilter)}>
+                <SelectTrigger className="w-[140px]">
+                  <SelectValue placeholder="Estado" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos</SelectItem>
+                  <SelectItem value="complete">Completos</SelectItem>
+                  <SelectItem value="incomplete">Incompletos</SelectItem>
+                  <SelectItem value="empty">Sin miembros</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           }
         />
       </div>
 
-      {/* Create Team Dialog */}
-      <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Crear Equipo</DialogTitle>
-            <DialogDescription>
-              Crea un nuevo equipo de participantes
-            </DialogDescription>
-          </DialogHeader>
-          <TeamForm
-            onSubmit={(data) => createTeamMutation.mutate(data)}
-            loading={createTeamMutation.isPending}
-          />
-        </DialogContent>
-      </Dialog>
-
-      {/* Edit Team Dialog */}
+      {/* Edit Team Dialog - Only Hub and Notes editable */}
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Editar Equipo</DialogTitle>
             <DialogDescription>
-              Modifica los datos del equipo
+              Configura el hub y añade notas internas
             </DialogDescription>
           </DialogHeader>
-          <TeamForm
-            team={selectedTeam}
-            onSubmit={(data) =>
-              selectedTeam &&
-              updateTeamMutation.mutate({
-                teamId: selectedTeam.id,
-                updates: data,
-              })
-            }
-            loading={updateTeamMutation.isPending}
-          />
+          
+          {/* Read-only CSV data section */}
+          <div className="space-y-3 p-4 bg-muted/50 rounded-lg">
+            <h4 className="text-sm font-medium text-muted-foreground">Datos importados (solo lectura)</h4>
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <span className="text-muted-foreground">Nombre:</span>
+                <p className="font-medium">{selectedTeam?.name}</p>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Categoría:</span>
+                <p className="font-medium">
+                  {selectedTeam?.category 
+                    ? categoryLabels[selectedTeam.category as TeamCategory] 
+                    : "—"}
+                </p>
+              </div>
+              <div className="col-span-2">
+                <span className="text-muted-foreground">TG Team ID:</span>
+                <p className="font-medium font-mono">{selectedTeam?.tg_team_id || "—"}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Editable fields */}
+          <form onSubmit={handleEditSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-hub">Hub</Label>
+              <Select value={editHubId} onValueChange={setEditHubId}>
+                <SelectTrigger id="edit-hub">
+                  <SelectValue placeholder="Seleccionar hub" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">Sin hub</SelectItem>
+                  {hubs?.map((hub) => (
+                    <SelectItem key={hub.id} value={hub.id}>
+                      {hub.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-notes">Notas internas</Label>
+              <Textarea
+                id="edit-notes"
+                value={editNotes}
+                onChange={(e) => setEditNotes(e.target.value)}
+                placeholder="Añade notas o comentarios sobre este equipo..."
+                rows={3}
+              />
+              <p className="text-xs text-muted-foreground">
+                Estas notas son solo visibles para administradores
+              </p>
+            </div>
+
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setEditDialogOpen(false)}>
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={updateTeamMutation.isPending}>
+                {updateTeamMutation.isPending ? "Guardando..." : "Guardar"}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 
@@ -661,7 +616,7 @@ export default function AdminTeams() {
         }}
       />
 
-      {/* Team Members Dialog */}
+      {/* Team Members Dialog - Read Only */}
       <Dialog open={membersDialogOpen} onOpenChange={setMembersDialogOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
@@ -671,13 +626,17 @@ export default function AdminTeams() {
             </DialogTitle>
             <DialogDescription>
               {teamMembers.length} miembro{teamMembers.length !== 1 ? "s" : ""} en el equipo
+              <span className="block text-xs mt-1">
+                Los miembros se gestionan automáticamente vía importación CSV
+              </span>
             </DialogDescription>
           </DialogHeader>
-          <ScrollArea className="max-h-[350px]">
+          <ScrollArea className="max-h-[400px]">
             {teamMembers.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
                 <UserCircle className="h-12 w-12 mx-auto mb-2 opacity-50" />
                 <p>Este equipo no tiene miembros</p>
+                <p className="text-xs mt-1">Los miembros se asignarán al importar el CSV de equipos</p>
               </div>
             ) : (
               <div className="space-y-3">
@@ -719,128 +678,6 @@ export default function AdminTeams() {
               </div>
             )}
           </ScrollArea>
-
-          {/* Add Member Section */}
-          <div className="border-t pt-4 mt-4">
-            {!addMemberOpen ? (
-              <Button
-                variant="outline"
-                className="w-full"
-                onClick={() => setAddMemberOpen(true)}
-              >
-                <UserPlus className="h-4 w-4 mr-2" />
-                Añadir miembro
-              </Button>
-            ) : (
-              <div className="space-y-4">
-                <Label>Buscar usuario</Label>
-                <Popover open={userSearchOpen} onOpenChange={setUserSearchOpen}>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      role="combobox"
-                      aria-expanded={userSearchOpen}
-                      className="w-full justify-between"
-                    >
-                      {selectedUser
-                        ? `${selectedUser.first_name || ""} ${selectedUser.last_name || ""} (${selectedUser.email})`.trim()
-                        : "Buscar usuario..."}
-                      <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-[350px] p-0" align="start">
-                    <Command>
-                      <CommandInput placeholder="Buscar por nombre o email..." />
-                      <CommandList>
-                        <CommandEmpty>No se encontraron usuarios</CommandEmpty>
-                        <CommandGroup>
-                          {allUsers
-                            ?.filter(
-                              (u) => !teamMembers.some((m) => m.user?.id === u.id)
-                            )
-                            .map((user) => (
-                              <CommandItem
-                                key={user.id}
-                                value={`${user.first_name || ""} ${user.last_name || ""} ${user.email}`}
-                                onSelect={() => {
-                                  setSelectedUser(user);
-                                  setUserSearchOpen(false);
-                                }}
-                              >
-                                <Check
-                                  className={cn(
-                                    "mr-2 h-4 w-4",
-                                    selectedUser?.id === user.id
-                                      ? "opacity-100"
-                                      : "opacity-0"
-                                  )}
-                                />
-                                <div className="flex flex-col">
-                                  <span>
-                                    {user.first_name} {user.last_name}
-                                  </span>
-                                  <span className="text-xs text-muted-foreground">
-                                    {user.email}
-                                  </span>
-                                </div>
-                              </CommandItem>
-                            ))}
-                        </CommandGroup>
-                      </CommandList>
-                    </Command>
-                  </PopoverContent>
-                </Popover>
-
-                {selectedUser && (
-                  <>
-                    <div className="space-y-2">
-                      <Label>Tipo de miembro</Label>
-                      <RadioGroup
-                        value={newMemberType}
-                        onValueChange={(value) =>
-                          setNewMemberType(value as "participant" | "mentor")
-                        }
-                        className="flex gap-4"
-                      >
-                        <div className="flex items-center space-x-2">
-                          <RadioGroupItem value="participant" id="add-participant" />
-                          <Label htmlFor="add-participant" className="font-normal cursor-pointer">
-                            Estudiante
-                          </Label>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <RadioGroupItem value="mentor" id="add-mentor" />
-                          <Label htmlFor="add-mentor" className="font-normal cursor-pointer">
-                            Mentor
-                          </Label>
-                        </div>
-                      </RadioGroup>
-                    </div>
-
-                    <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        className="flex-1"
-                        onClick={() => {
-                          setAddMemberOpen(false);
-                          setSelectedUser(null);
-                        }}
-                      >
-                        Cancelar
-                      </Button>
-                      <Button
-                        className="flex-1"
-                        onClick={handleAddMember}
-                        disabled={addMemberMutation.isPending}
-                      >
-                        {addMemberMutation.isPending ? "Añadiendo..." : "Añadir"}
-                      </Button>
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
         </DialogContent>
       </Dialog>
     </AdminLayout>
