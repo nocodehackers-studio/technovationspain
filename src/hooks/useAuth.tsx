@@ -47,8 +47,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .eq('user_id', userId);
 
       if (!roleError && rolesData && rolesData.length > 0) {
-        // Prioritize admin > mentor > judge > volunteer > participant
-        const rolePriority: AppRole[] = ['admin', 'mentor', 'judge', 'volunteer', 'participant'];
+        // Prioritize admin > chapter_ambassador > mentor > judge > volunteer > participant
+        const rolePriority: AppRole[] = ['admin', 'chapter_ambassador', 'mentor', 'judge', 'volunteer', 'participant'];
         const userRoles = rolesData.map(r => r.role as AppRole);
         const highestRole = rolePriority.find(r => userRoles.includes(r)) || userRoles[0];
         setRole(highestRole);

@@ -7,11 +7,13 @@ import { AdminLayout } from "@/components/admin/AdminLayout";
 import { AirtableDataTable, FilterableColumn, ExportData } from "@/components/admin/AirtableDataTable";
 import { format } from "date-fns";
 import { StatusBadge } from "@/components/admin/StatusBadge";
-import { RoleBadge } from "@/components/admin/RoleBadge";
+import { RoleBadges } from "@/components/admin/RoleBadge";
 import { ConfirmDialog } from "@/components/admin/ConfirmDialog";
 import { EditableCell } from "@/components/admin/EditableCell";
 import { UserEditSheet } from "@/components/admin/UserEditSheet";
+import { UnregisteredUsersTable } from "@/components/admin/users/UnregisteredUsersTable";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
@@ -29,14 +31,15 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { Plus, MoreVertical, Trash2 } from "lucide-react";
+import { Plus, MoreVertical, Trash2, Users, UserPlus } from "lucide-react";
 import { Profile, AppRole, TableCustomColumn } from "@/types/database";
 
-type UserWithRole = Profile & { 
-  role?: AppRole;
+type UserWithRoles = Profile & { 
+  roles: AppRole[];
   team_name?: string | null;
   school_name?: string | null;
   hub_name?: string | null;
+  is_in_whitelist?: boolean;
 };
 
 // Slugify column label to create a key
@@ -52,13 +55,14 @@ function slugify(text: string): string {
 export default function AdminUsers() {
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
-  const [selectedUser, setSelectedUser] = useState<UserWithRole | null>(null);
+  const [selectedUser, setSelectedUser] = useState<UserWithRoles | null>(null);
   const [editSheetOpen, setEditSheetOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [addFieldDialogOpen, setAddFieldDialogOpen] = useState(false);
   const [newFieldLabel, setNewFieldLabel] = useState("");
   const [hiddenColumns, setHiddenColumns] = useState<string[]>([]);
+  const [activeTab, setActiveTab] = useState("registered");
 
   // Fetch users with roles, teams, and hub info
   const { data: users, isLoading } = useQuery({
@@ -75,7 +79,7 @@ export default function AdminUsers() {
 
       if (profilesError) throw profilesError;
 
-      // Fetch roles
+      // Fetch ALL roles for ALL users
       const { data: roles, error: rolesError } = await supabase
         .from("user_roles")
         .select("*");
@@ -92,32 +96,56 @@ export default function AdminUsers() {
 
       if (teamError) throw teamError;
 
-      // Fetch authorized_students for school_name
-      const { data: authorizedStudents, error: authStudentsError } = await supabase
-        .from("authorized_students")
-        .select("email, school_name");
+      // Fetch authorized_users for school_name and whitelist check
+      const { data: authorizedUsers, error: authUsersError } = await supabase
+        .from("authorized_users")
+        .select("email, school_name, company_name");
 
-      if (authStudentsError) throw authStudentsError;
+      if (authUsersError) throw authUsersError;
+
+      // Create a set of whitelisted emails for quick lookup
+      const whitelistEmails = new Set(
+        (authorizedUsers || []).map((au) => au.email?.toLowerCase())
+      );
 
       // Merge profiles with all related data
-      const usersWithRoles: UserWithRole[] = (profiles || []).map((profile) => {
-        const userRole = roles?.find((r) => r.user_id === profile.id);
+      const usersWithRoles: UserWithRoles[] = (profiles || []).map((profile) => {
+        // Get ALL roles for this user
+        const userRoles = roles
+          ?.filter((r) => r.user_id === profile.id)
+          .map((r) => r.role as AppRole) || [];
+        
         const teamMember = teamMembers?.find((tm) => tm.user_id === profile.id);
-        const authorizedStudent = authorizedStudents?.find(
-          (as) => as.email?.toLowerCase() === profile.email?.toLowerCase()
+        const authorizedUser = authorizedUsers?.find(
+          (au) => au.email?.toLowerCase() === profile.email?.toLowerCase()
         );
         
         return {
           ...profile,
           custom_fields: (profile.custom_fields as Record<string, unknown>) || {},
-          role: userRole?.role as AppRole | undefined,
+          roles: userRoles,
           team_name: (teamMember?.team as { name: string } | null)?.name || null,
-          school_name: authorizedStudent?.school_name || null,
+          school_name: authorizedUser?.school_name || authorizedUser?.company_name || null,
           hub_name: (profile.hub as { name: string } | null)?.name || null,
+          is_in_whitelist: whitelistEmails.has(profile.email?.toLowerCase()),
         };
       });
 
       return usersWithRoles;
+    },
+  });
+
+  // Fetch unregistered count for tab badge
+  const { data: unregisteredCount } = useQuery({
+    queryKey: ["admin-unregistered-users-count"],
+    queryFn: async () => {
+      const { count, error } = await supabase
+        .from("authorized_users")
+        .select("*", { count: "exact", head: true })
+        .is("matched_profile_id", null);
+
+      if (error) throw error;
+      return count || 0;
     },
   });
 
@@ -230,8 +258,17 @@ export default function AdminUsers() {
     },
   });
 
+  // Check if user can be deleted
+  const canDeleteUser = useCallback((user: UserWithRoles): boolean => {
+    // Verified users cannot be deleted
+    if (user.verification_status === "verified") return false;
+    // Users in whitelist cannot be deleted
+    if (user.is_in_whitelist) return false;
+    return true;
+  }, []);
+
   // Static columns - memoized to prevent re-renders
-  const staticColumns: ColumnDef<UserWithRole>[] = useMemo(() => [
+  const staticColumns: ColumnDef<UserWithRoles>[] = useMemo(() => [
     {
       id: "name",
       accessorFn: (row) => 
@@ -258,14 +295,18 @@ export default function AdminUsers() {
       ),
     },
     {
-      accessorKey: "role",
-      header: "Rol",
+      accessorKey: "roles",
+      header: "Roles",
       enableHiding: true,
+      filterFn: (row, id, value) => {
+        const roles = row.original.roles;
+        return roles.includes(value as AppRole);
+      },
       cell: ({ row }) =>
-        row.original.role ? (
-          <RoleBadge role={row.original.role} />
+        row.original.roles.length > 0 ? (
+          <RoleBadges roles={row.original.roles} size="sm" />
         ) : (
-          <span className="text-muted-foreground">—</span>
+          <span className="text-muted-foreground text-sm">Sin rol</span>
         ),
     },
     {
@@ -347,7 +388,7 @@ export default function AdminUsers() {
   );
 
   // Dynamic columns from custom fields
-  const dynamicColumns: ColumnDef<UserWithRole>[] = useMemo(() => {
+  const dynamicColumns: ColumnDef<UserWithRoles>[] = useMemo(() => {
     return (customColumns || []).map((col) => ({
       id: `custom_${col.column_key}`,
       accessorKey: `custom_fields.${col.column_key}`,
@@ -421,12 +462,13 @@ export default function AdminUsers() {
       ],
     },
     {
-      key: "role",
+      key: "roles",
       label: "Rol",
       options: [
         { value: "participant", label: "Participante" },
         { value: "mentor", label: "Mentor" },
         { value: "judge", label: "Juez" },
+        { value: "chapter_ambassador", label: "Embajador" },
         { value: "volunteer", label: "Voluntario" },
         { value: "admin", label: "Admin" },
       ],
@@ -450,7 +492,7 @@ export default function AdminUsers() {
   };
 
   // Export handler - exports only visible columns and filtered rows
-  const handleExport = useCallback((exportData: ExportData<UserWithRole>) => {
+  const handleExport = useCallback((exportData: ExportData<UserWithRoles>) => {
     const { rows, visibleColumns } = exportData;
 
     if (rows.length === 0) {
@@ -459,14 +501,14 @@ export default function AdminUsers() {
     }
 
     // Map column ID to value extractor
-    const getColumnValue = (row: UserWithRole, colId: string): string => {
+    const getColumnValue = (row: UserWithRoles, colId: string): string => {
       switch (colId) {
         case "name":
           return `${row.first_name || ""} ${row.last_name || ""}`.trim();
         case "tg_id":
           return row.tg_id || "";
-        case "role":
-          return row.role || "";
+        case "roles":
+          return row.roles.join(", ");
         case "verification_status":
           return row.verification_status || "";
         case "team_name":
@@ -519,6 +561,15 @@ export default function AdminUsers() {
     toast.success(`Exportados ${rows.length} usuarios`);
   }, []);
 
+  const handleDeleteUser = useCallback(() => {
+    if (!selectedUser) return;
+    if (!canDeleteUser(selectedUser)) {
+      toast.error("No se puede eliminar este usuario. Está verificado o existe en la whitelist.");
+      return;
+    }
+    setDeleteDialogOpen(true);
+  }, [selectedUser, canDeleteUser]);
+
   return (
     <AdminLayout title="Gestión de Usuarios">
       <div className="space-y-4 min-w-0 overflow-hidden">
@@ -531,27 +582,56 @@ export default function AdminUsers() {
           </div>
           <Button onClick={() => setCreateDialogOpen(true)} className="w-full sm:w-auto">
             <Plus className="h-4 w-4 sm:mr-2" />
-            <span className="hidden sm:inline">Crear Usuario</span>
-            <span className="sm:hidden">Crear</span>
+            <span className="hidden sm:inline">Invitar Usuario</span>
+            <span className="sm:hidden">Invitar</span>
           </Button>
         </div>
 
-        <AirtableDataTable
-          columns={columns}
-          data={users || []}
-          searchPlaceholder="Buscar por nombre, email, equipo, hub..."
-          loading={isLoading}
-          filterableColumns={filterableColumns}
-          initialFilters={initialFilters}
-          hiddenColumns={hiddenColumns}
-          onHiddenColumnsChange={setHiddenColumns}
-          onAddColumn={() => setAddFieldDialogOpen(true)}
-          onRowClick={(user) => {
-            setSelectedUser(user as UserWithRole);
-            setEditSheetOpen(true);
-          }}
-          onExport={handleExport}
-        />
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <TabsList className="w-full sm:w-auto">
+            <TabsTrigger value="registered" className="flex items-center gap-2">
+              <Users className="h-4 w-4" />
+              Registrados
+              {users && (
+                <span className="ml-1 text-xs bg-muted px-1.5 py-0.5 rounded-full">
+                  {users.length}
+                </span>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="unregistered" className="flex items-center gap-2">
+              <UserPlus className="h-4 w-4" />
+              Sin Registrar
+              {unregisteredCount !== undefined && unregisteredCount > 0 && (
+                <span className="ml-1 text-xs bg-warning/20 text-warning px-1.5 py-0.5 rounded-full">
+                  {unregisteredCount}
+                </span>
+              )}
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="registered" className="mt-4">
+            <AirtableDataTable
+              columns={columns}
+              data={users || []}
+              searchPlaceholder="Buscar por nombre, email, equipo, hub..."
+              loading={isLoading}
+              filterableColumns={filterableColumns}
+              initialFilters={initialFilters}
+              hiddenColumns={hiddenColumns}
+              onHiddenColumnsChange={setHiddenColumns}
+              onAddColumn={() => setAddFieldDialogOpen(true)}
+              onRowClick={(user) => {
+                setSelectedUser(user as UserWithRoles);
+                setEditSheetOpen(true);
+              }}
+              onExport={handleExport}
+            />
+          </TabsContent>
+
+          <TabsContent value="unregistered" className="mt-4">
+            <UnregisteredUsersTable />
+          </TabsContent>
+        </Tabs>
       </div>
 
       {/* Add Field Dialog */}
@@ -597,9 +677,8 @@ export default function AdminUsers() {
         open={editSheetOpen}
         onOpenChange={setEditSheetOpen}
         customColumns={customColumns}
-        onDelete={(user) => {
-          setDeleteDialogOpen(true);
-        }}
+        onDelete={handleDeleteUser}
+        canDelete={selectedUser ? canDeleteUser(selectedUser) : false}
       />
 
       {/* Delete Confirmation */}
@@ -616,11 +695,11 @@ export default function AdminUsers() {
         loading={deleteUserMutation.isPending}
       />
 
-      {/* Create User Dialog */}
+      {/* Invite User Dialog */}
       <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Crear Usuario</DialogTitle>
+            <DialogTitle>Invitar Usuario</DialogTitle>
             <DialogDescription>
               Se enviará un Magic Link al email indicado
             </DialogDescription>
