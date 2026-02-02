@@ -1,120 +1,167 @@
 
 
-## Plan: Refactorizar Gestión de Equipos
+## Plan: Mejoras del Sistema de Usuarios
 
 ### Resumen
-Modificar la pestaña de Equipos para que funcione como vista de solo lectura de los equipos importados vía CSV, eliminando la creación/edición manual y añadiendo filtros avanzados y un campo de notas interno.
+Implementar cuatro cambios importantes en la gestión de usuarios del panel de administración:
+1. **Sistema de roles múltiples**: Permitir que un usuario tenga varios roles simultáneos (ej: mentor + admin) y añadir el rol de Chapter Ambassador
+2. **Restricción de eliminación**: Solo permitir eliminar usuarios no verificados que no estén en la whitelist
+3. **Vista de usuarios sin registrar**: Nueva pestaña/filtro para ver usuarios importados del CSV que aún no se han registrado en la plataforma
 
 ---
 
-### Cambios a realizar
+### Cambios a Realizar
 
-#### 1. Base de datos - Añadir campo de notas a equipos
+#### 1. Añadir rol "chapter_ambassador" al sistema
 
-Añadir una columna `notes` a la tabla `teams` para que los administradores puedan añadir comentarios internos sin modificar datos importados.
-
+**Base de datos:**
 ```sql
-ALTER TABLE teams ADD COLUMN notes TEXT;
+ALTER TYPE app_role ADD VALUE 'chapter_ambassador' AFTER 'volunteer';
 ```
 
----
-
-#### 2. Interfaz - Eliminar creación manual de equipos
-
-- Eliminar el botón "Crear Equipo" de la barra de herramientas
-- Eliminar el diálogo `createDialogOpen` y la mutación `createTeamMutation`
-- Mantener solo el botón "Importar CSV" como forma de añadir equipos
+**Archivos a modificar:**
+- `src/types/database.ts`: Añadir `chapter_ambassador` al tipo `AppRole`
+- `src/components/admin/RoleBadge.tsx`: Añadir configuración visual para el nuevo rol
+- `src/components/admin/UserEditSheet.tsx`: Incluir opción en el selector de roles
+- `src/pages/admin/AdminUsers.tsx`: Añadir filtro por chapter_ambassador
 
 ---
 
-#### 3. Interfaz - Restringir edición a solo campos internos
+#### 2. Sistema de roles múltiples (no exclusivos)
 
-Modificar el diálogo de edición para:
-- Mostrar nombre, categoría y TG Team ID como campos de solo lectura (información)
-- Permitir editar solo:
-  - Hub (selector)
-  - Notas (campo de texto)
+Actualmente el sistema ya soporta múltiples roles en la tabla `user_roles` (hay usuarios con 2-3 roles). El cambio es mostrar **todos los roles** del usuario en lugar de solo el "principal".
 
-Esto respeta que los datos vienen del CSV de Technovation Global y no deberían modificarse.
+**Cambios en UserEditSheet:**
+- Cambiar de selector único a **checkboxes de roles primarios** (participant, mentor, judge, chapter_ambassador)
+- Separar **roles adicionales** (admin, volunteer) como toggles independientes
+- Un usuario puede ser: `mentor + admin` o `participant + volunteer`
 
----
+**Cambios en AdminUsers:**
+- Mostrar múltiples badges de rol en la columna "Rol"
+- Fetch de todos los roles del usuario, no solo el primero
 
-#### 4. Añadir filtros avanzados en la toolbar
-
-Añadir dropdowns de filtrado adicionales:
-
-| Filtro | Opciones |
-|--------|----------|
-| **Hub** | Ya existe |
-| **Categoría** | Beginner, Junior, Senior, Todas |
-| **Estado de registro** | Todos, Completos (100%), Incompletos (<100%), Sin miembros |
-
-Los filtros se aplicarán en cascada sobre los datos ya cargados.
+**Cambios en RoleBadge:**
+- Crear componente `RoleBadges` (plural) que acepta array de roles
 
 ---
 
-#### 5. Añadir columna de Ciudad en la tabla
+#### 3. Restricción de eliminación de usuarios
 
-Obtener la ciudad desde `authorized_users` agrupando por `team_name` y mostrarla como columna informativa.
+Modificar la lógica de eliminación en `UserEditSheet.tsx` y `AdminUsers.tsx`:
+
+**Condiciones para permitir eliminación:**
+- Estado de verificación debe ser `pending` o `rejected` (NO verificados)
+- El usuario NO debe existir en `authorized_users` (no está en la whitelist)
+
+**Implementación:**
+- Consulta adicional para verificar si el email existe en `authorized_users`
+- Deshabilitar/ocultar botón "Eliminar" si no cumple condiciones
+- Mostrar tooltip explicando por qué no se puede eliminar
 
 ---
 
-### Cambios visuales
+#### 4. Vista de usuarios sin registrar (whitelist pendiente)
 
-**Antes:**
+Crear un sistema de pestañas en AdminUsers con dos vistas:
+
+| Pestaña | Contenido |
+|---------|-----------|
+| **Registrados** | Usuarios actuales (profiles) - vista actual |
+| **Sin Registrar** | Usuarios de `authorized_users` donde `matched_profile_id IS NULL` |
+
+**Datos a mostrar en "Sin Registrar":**
+- Email
+- Nombre completo
+- Tipo de perfil (student, mentor, judge, chapter_ambassador)
+- Equipo
+- Ciudad
+- Fecha de importación
+
+**Acciones disponibles:**
+- Enviar Magic Link (invitación a registrarse)
+- Filtrar por tipo de perfil
+
+---
+
+### Diagrama de Flujo de Roles
+
 ```text
-[Buscar] [Hub ▼] [Importar CSV] [Crear Equipo]
+ROLES PRIMARIOS (mutuamente exclusivos en contexto Technovation):
+├── participant (estudiante)
+├── mentor
+├── judge
+└── chapter_ambassador
+
+ROLES ADICIONALES (pueden combinarse con primarios):
+├── admin (acceso al panel de gestión)
+└── volunteer (validador QR en eventos)
+
+Ejemplos válidos:
+- mentor + admin
+- mentor + volunteer
+- participant + volunteer (estudiante que también ayuda)
+- chapter_ambassador + admin
 ```
-
-**Despues:**
-```text
-[Buscar] [Categoria ▼] [Hub ▼] [Estado ▼] [Importar CSV]
-```
-
-**Diálogo de edición (antes):**
-- Nombre (editable)
-- Categoría (editable)
-- TG Team ID (editable)
-- Hub (editable)
-
-**Diálogo de edición (despues):**
-- Datos del CSV (solo lectura): Nombre, Categoría, TG ID
-- Configuración interna (editable): Hub, Notas
 
 ---
 
-### Archivos a modificar
+### Archivos a Modificar
 
 | Archivo | Cambios |
 |---------|---------|
-| `src/pages/admin/AdminTeams.tsx` | Eliminar crear equipo, modificar edición, añadir filtros, añadir columna ciudad |
-| `src/types/database.ts` | Añadir campo `notes` al tipo Team |
-| Nueva migración SQL | Añadir columna `notes` a tabla teams |
+| **Nueva migración SQL** | Añadir `chapter_ambassador` al enum `app_role` |
+| `src/types/database.ts` | Actualizar tipo `AppRole` |
+| `src/components/admin/RoleBadge.tsx` | Añadir Chapter Ambassador + crear `RoleBadges` |
+| `src/components/admin/UserEditSheet.tsx` | Sistema de checkboxes para roles, verificar eliminación |
+| `src/pages/admin/AdminUsers.tsx` | Pestañas Registrados/Sin Registrar, mostrar múltiples roles |
+| `src/hooks/useAuth.tsx` | Actualizar tipo de roles |
 
 ---
 
-### Secciones tecnicas
+### Sección Técnica
 
-#### Filtro de estado de registro
-Se calculará en base a `whitelist_count` y `registered_count`:
+#### Consulta para verificar si se puede eliminar un usuario
 ```typescript
-const filterByCompletionStatus = (team: TeamWithStats, status: string) => {
-  if (status === "all") return true;
-  if (status === "complete") return team.registered_count === team.whitelist_count && team.whitelist_count > 0;
-  if (status === "incomplete") return team.registered_count < team.whitelist_count;
-  if (status === "empty") return team.whitelist_count === 0;
-  return true;
+const canDeleteUser = async (user: UserWithRole) => {
+  // Verificados no se pueden eliminar
+  if (user.verification_status === 'verified') return false;
+  
+  // Comprobar si está en la whitelist
+  const { data } = await supabase
+    .from('authorized_users')
+    .select('id')
+    .ilike('email', user.email)
+    .maybeSingle();
+  
+  // Si existe en whitelist, no se puede eliminar
+  return !data;
 };
 ```
 
-#### Obtener ciudad de authorized_users
-Se añadirá una consulta agregada para obtener la ciudad más común por equipo:
+#### Consulta para usuarios sin registrar
 ```typescript
-const { data: teamCities } = await supabase
-  .from("authorized_users")
-  .select("team_name, city")
-  .not("team_name", "is", null);
-
-// Agrupar por team_name y obtener ciudad más frecuente
+const { data: unregisteredUsers } = await supabase
+  .from('authorized_users')
+  .select('*')
+  .is('matched_profile_id', null)
+  .order('imported_at', { ascending: false });
 ```
+
+#### Fetch de todos los roles de un usuario
+```typescript
+// Antes: solo un rol
+const userRole = roles?.find((r) => r.user_id === profile.id);
+
+// Después: todos los roles
+const userRoles = roles?.filter((r) => r.user_id === profile.id).map(r => r.role);
+```
+
+---
+
+### Tickets a Marcar como Completados
+
+Al finalizar, marcar estos tickets como "completed":
+- `4cd64754-3ec8-445a-a4ba-c67bdf016227` - Sistema de roles incompleto
+- `1f069b20-9e58-49cc-91cd-cff440212326` - Restricción de eliminación de usuarios
+- `bddfedef-eed9-4a3a-8014-9f22b6e43e2f` - Vista de usuarios sin registrar
 
