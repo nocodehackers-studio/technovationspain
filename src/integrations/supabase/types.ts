@@ -336,6 +336,39 @@ export type Database = {
           },
         ]
       }
+      development_tickets: {
+        Row: {
+          created_at: string | null
+          created_by: string | null
+          description: string | null
+          id: string
+          priority: Database["public"]["Enums"]["ticket_priority"]
+          status: Database["public"]["Enums"]["ticket_status"]
+          title: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          priority?: Database["public"]["Enums"]["ticket_priority"]
+          status?: Database["public"]["Enums"]["ticket_status"]
+          title: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          priority?: Database["public"]["Enums"]["ticket_priority"]
+          status?: Database["public"]["Enums"]["ticket_status"]
+          title?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       event_agenda: {
         Row: {
           color: string | null
@@ -1273,6 +1306,8 @@ export type Database = {
     }
     Enums: {
       app_role: "participant" | "mentor" | "judge" | "volunteer" | "admin"
+      ticket_priority: "nice_to_have" | "mandatory"
+      ticket_status: "pending" | "in_progress" | "completed"
       verification_status: "pending" | "verified" | "rejected" | "manual_review"
     }
     CompositeTypes: {
@@ -1402,6 +1437,8 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["participant", "mentor", "judge", "volunteer", "admin"],
+      ticket_priority: ["nice_to_have", "mandatory"],
+      ticket_status: ["pending", "in_progress", "completed"],
       verification_status: ["pending", "verified", "rejected", "manual_review"],
     },
   },

@@ -9,6 +9,7 @@ import {
   BarChart3,
   Settings,
   LogOut,
+  Ticket,
 } from "lucide-react";
 import {
   Sidebar,
@@ -40,6 +41,7 @@ const menuItems = [
   { title: "Importar Usuarios", url: "/admin/import-csv", icon: Upload },
   { title: "Importar Equipos", url: "/admin/import-teams", icon: UsersRound },
   { title: "Reportes", url: "/admin/reports", icon: BarChart3 },
+  { title: "Tickets", url: "/admin/tickets", icon: Ticket },
 ];
 
 const settingsItems = [

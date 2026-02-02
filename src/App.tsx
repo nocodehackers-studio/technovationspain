@@ -40,6 +40,7 @@ import AdminImportUnified from "./pages/admin/AdminImportUnified";
 import AdminImportTeams from "./pages/admin/AdminImportTeams";
 import AdminReports from "./pages/admin/AdminReports";
 import AdminSettings from "./pages/admin/AdminSettings";
+import AdminTickets from "./pages/admin/AdminTickets";
 
 // Event Pages
 import EventsListPage from "./pages/events/EventsListPage";
@@ -154,6 +155,11 @@ const App = () => (
             <Route path="/admin/settings" element={
               <ProtectedRoute requiredRoles={["admin"]}>
                 <AdminSettings />
+              </ProtectedRoute>
+            } />
+            <Route path="/admin/tickets" element={
+              <ProtectedRoute requiredRoles={["admin"]}>
+                <AdminTickets />
               </ProtectedRoute>
             } />
             
