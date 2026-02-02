@@ -1,161 +1,120 @@
 
 
-## Plan: Vincular Usuarios a Equipos Manualmente desde Admin
+## Plan: Refactorizar Gestión de Equipos
 
 ### Resumen
+Modificar la pestaña de Equipos para que funcione como vista de solo lectura de los equipos importados vía CSV, eliminando la creación/edición manual y añadiendo filtros avanzados y un campo de notas interno.
 
-Añadir una funcionalidad en el panel de administración que permita vincular manualmente un usuario a un equipo. Esta funcionalidad se integrará en dos lugares:
+---
 
-1. **UserEditSheet** (panel lateral de edición de usuario): Nueva sección para gestionar la vinculación a equipos
-2. **Team Members Dialog** (en AdminTeams): Botón para añadir miembros directamente al equipo
+### Cambios a realizar
 
-### Flujo de Usuario
+#### 1. Base de datos - Añadir campo de notas a equipos
 
+Añadir una columna `notes` a la tabla `teams` para que los administradores puedan añadir comentarios internos sin modificar datos importados.
+
+```sql
+ALTER TABLE teams ADD COLUMN notes TEXT;
+```
+
+---
+
+#### 2. Interfaz - Eliminar creación manual de equipos
+
+- Eliminar el botón "Crear Equipo" de la barra de herramientas
+- Eliminar el diálogo `createDialogOpen` y la mutación `createTeamMutation`
+- Mantener solo el botón "Importar CSV" como forma de añadir equipos
+
+---
+
+#### 3. Interfaz - Restringir edición a solo campos internos
+
+Modificar el diálogo de edición para:
+- Mostrar nombre, categoría y TG Team ID como campos de solo lectura (información)
+- Permitir editar solo:
+  - Hub (selector)
+  - Notas (campo de texto)
+
+Esto respeta que los datos vienen del CSV de Technovation Global y no deberían modificarse.
+
+---
+
+#### 4. Añadir filtros avanzados en la toolbar
+
+Añadir dropdowns de filtrado adicionales:
+
+| Filtro | Opciones |
+|--------|----------|
+| **Hub** | Ya existe |
+| **Categoría** | Beginner, Junior, Senior, Todas |
+| **Estado de registro** | Todos, Completos (100%), Incompletos (<100%), Sin miembros |
+
+Los filtros se aplicarán en cascada sobre los datos ya cargados.
+
+---
+
+#### 5. Añadir columna de Ciudad en la tabla
+
+Obtener la ciudad desde `authorized_users` agrupando por `team_name` y mostrarla como columna informativa.
+
+---
+
+### Cambios visuales
+
+**Antes:**
 ```text
-Opción A: Desde el panel de usuario (UserEditSheet)
-┌──────────────────────────────────────────┐
-│  Panel de Usuario                        │
-│  ────────────────                        │
-│  [Avatar] María García                   │
-│  maria@email.com                         │
-│  [Verificado] [Participante]             │
-│                                          │
-│  ─── Equipo ───────────────────────────  │
-│  Equipo actual: Las Innovadoras          │
-│  [Cambiar equipo ▼] [Desvincular]        │
-│                                          │
-│  Tipo de miembro: ○ Estudiante ○ Mentor  │
-└──────────────────────────────────────────┘
-
-Opción B: Desde el diálogo de miembros del equipo
-┌──────────────────────────────────────────┐
-│  Miembros de "Las Innovadoras"           │
-│  ────────────────────────────            │
-│  [👤] Ana López - Estudiante             │
-│  [👤] María García - Mentor              │
-│                                          │
-│  [+ Añadir miembro]                      │
-│  ────────────────────────────            │
-│  Buscar usuario: [_______________]       │
-│  Tipo: ○ Estudiante ○ Mentor             │
-│  [Añadir]                                │
-└──────────────────────────────────────────┘
+[Buscar] [Hub ▼] [Importar CSV] [Crear Equipo]
 ```
 
-### Cambios Técnicos
+**Despues:**
+```text
+[Buscar] [Categoria ▼] [Hub ▼] [Estado ▼] [Importar CSV]
+```
 
-#### 1. Nuevo Componente: `TeamLinkSection`
+**Diálogo de edición (antes):**
+- Nombre (editable)
+- Categoría (editable)
+- TG Team ID (editable)
+- Hub (editable)
 
-Crear un componente reutilizable para la sección de vinculación de equipos:
+**Diálogo de edición (despues):**
+- Datos del CSV (solo lectura): Nombre, Categoría, TG ID
+- Configuración interna (editable): Hub, Notas
 
-**Archivo:** `src/components/admin/TeamLinkSection.tsx`
+---
 
-- Dropdown para seleccionar equipo (con búsqueda)
-- Radio buttons para tipo de miembro (estudiante/mentor)
-- Botón para vincular/desvincular
-- Mostrar equipo actual si existe
+### Archivos a modificar
 
-#### 2. Modificar `UserEditSheet.tsx`
+| Archivo | Cambios |
+|---------|---------|
+| `src/pages/admin/AdminTeams.tsx` | Eliminar crear equipo, modificar edición, añadir filtros, añadir columna ciudad |
+| `src/types/database.ts` | Añadir campo `notes` al tipo Team |
+| Nueva migración SQL | Añadir columna `notes` a tabla teams |
 
-Añadir la nueva sección de "Equipo" después de "Rol del Usuario":
+---
 
-- Importar el nuevo componente `TeamLinkSection`
-- Mostrar el equipo actual del usuario (si tiene)
-- Permitir cambiar o desvincular del equipo
-- Mutations para INSERT/DELETE en `team_members`
+### Secciones tecnicas
 
-#### 3. Modificar `AdminTeams.tsx`
-
-Añadir funcionalidad para vincular usuarios directamente desde el diálogo de miembros:
-
-- Botón "Añadir miembro" en el diálogo de miembros
-- Combobox de búsqueda de usuarios (por nombre o email)
-- Selector de tipo de miembro
-- Mutation para INSERT en `team_members`
-
-#### 4. Actualizar Query de Usuarios
-
-Modificar la query en `AdminUsers.tsx` para incluir también el `team_id` del usuario, no solo el `team_name`, para poder manejarlo en el Sheet.
-
-### Detalles de Implementación
-
-**Nuevas Mutations necesarias:**
-
+#### Filtro de estado de registro
+Se calculará en base a `whitelist_count` y `registered_count`:
 ```typescript
-// Vincular usuario a equipo
-const linkToTeamMutation = useMutation({
-  mutationFn: async ({ 
-    userId, 
-    teamId, 
-    memberType 
-  }: { 
-    userId: string; 
-    teamId: string; 
-    memberType: 'participant' | 'mentor' 
-  }) => {
-    // Primero eliminar cualquier vinculación existente
-    await supabase
-      .from("team_members")
-      .delete()
-      .eq("user_id", userId);
-    
-    // Insertar nueva vinculación
-    const { error } = await supabase
-      .from("team_members")
-      .insert({
-        user_id: userId,
-        team_id: teamId,
-        member_type: memberType,
-      });
-
-    if (error) throw error;
-  },
-  onSuccess: () => {
-    queryClient.invalidateQueries({ queryKey: ["admin-users"] });
-    queryClient.invalidateQueries({ queryKey: ["admin-teams"] });
-    toast.success("Usuario vinculado al equipo");
-  },
-});
-
-// Desvincular usuario de equipo
-const unlinkFromTeamMutation = useMutation({
-  mutationFn: async (userId: string) => {
-    const { error } = await supabase
-      .from("team_members")
-      .delete()
-      .eq("user_id", userId);
-
-    if (error) throw error;
-  },
-  onSuccess: () => {
-    queryClient.invalidateQueries({ queryKey: ["admin-users"] });
-    queryClient.invalidateQueries({ queryKey: ["admin-teams"] });
-    toast.success("Usuario desvinculado del equipo");
-  },
-});
+const filterByCompletionStatus = (team: TeamWithStats, status: string) => {
+  if (status === "all") return true;
+  if (status === "complete") return team.registered_count === team.whitelist_count && team.whitelist_count > 0;
+  if (status === "incomplete") return team.registered_count < team.whitelist_count;
+  if (status === "empty") return team.whitelist_count === 0;
+  return true;
+};
 ```
 
-**UI para buscar usuarios (en AdminTeams):**
+#### Obtener ciudad de authorized_users
+Se añadirá una consulta agregada para obtener la ciudad más común por equipo:
+```typescript
+const { data: teamCities } = await supabase
+  .from("authorized_users")
+  .select("team_name, city")
+  .not("team_name", "is", null);
 
-Utilizar el componente `Combobox` de shadcn/ui para buscar usuarios por nombre o email con autocompletado.
-
-### Archivos a Modificar/Crear
-
-| Archivo | Acción | Descripción |
-|---------|--------|-------------|
-| `src/components/admin/TeamLinkSection.tsx` | Crear | Componente de vinculación de equipos |
-| `src/components/admin/UserEditSheet.tsx` | Modificar | Añadir sección de equipo |
-| `src/pages/admin/AdminTeams.tsx` | Modificar | Añadir botón y diálogo para añadir miembros |
-| `src/pages/admin/AdminUsers.tsx` | Modificar | Incluir team_id en la query |
-
-### Consideraciones
-
-- **RLS**: Ya existe política `Admins can manage team members` para la tabla `team_members`
-- **Validación**: Verificar que el usuario no esté ya en el equipo antes de insertar
-- **UX**: Mostrar confirmación antes de cambiar de equipo si el usuario ya tiene uno
-- **Consistencia**: Al cambiar el tipo de miembro (estudiante/mentor), usar el mismo equipo
-
-### Nota sobre terminología
-
-También se corregirá "Mentora" a "Mentor" en el SelectItem del UserEditSheet (línea 388) como parte de este cambio.
+// Agrupar por team_name y obtener ciudad más frecuente
+```
 
