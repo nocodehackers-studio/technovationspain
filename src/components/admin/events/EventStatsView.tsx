@@ -5,7 +5,7 @@ import { MetricCard } from "@/components/admin/MetricCard";
 import { DataTable } from "@/components/admin/DataTable";
 import { RegistrationStatusBadge } from "@/components/events/RegistrationStatusBadge";
 import { Badge } from "@/components/ui/badge";
-import { Users, UserPlus, GraduationCap, Ticket } from "lucide-react";
+import { Users, UserPlus, GraduationCap, Ticket, UsersRound } from "lucide-react";
 import { ColumnDef } from "@tanstack/react-table";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -135,13 +135,22 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
     ).length;
 
     const companionsCount = allCompanions?.length || 0;
+    const mainRegistrations = regs.length;
+    const totalAttendees = mainRegistrations + companionsCount;
 
     const remainingTickets = Math.max(
       0,
-      (event?.max_capacity || 0) - (event?.current_registrations || 0)
+      (event?.max_capacity || 0) - totalAttendees
     );
 
-    return { participantsCount, mentorsCount, companionsCount, remainingTickets };
+    return { 
+      participantsCount, 
+      mentorsCount, 
+      companionsCount, 
+      mainRegistrations,
+      totalAttendees,
+      remainingTickets 
+    };
   }, [registrations, allCompanions, event]);
 
   // Table columns
@@ -258,6 +267,37 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
 
   return (
     <div className="space-y-6">
+      {/* Total Attendees Summary */}
+      <div className="bg-gradient-to-r from-primary/10 to-primary/5 border border-primary/20 rounded-lg p-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-primary/20 rounded-full">
+              <UsersRound className="h-5 w-5 text-primary" />
+            </div>
+            <div>
+              <h3 className="text-2xl font-bold text-primary">{metrics.totalAttendees}</h3>
+              <p className="text-sm text-muted-foreground">Total asistentes confirmados</p>
+            </div>
+          </div>
+          <div className="text-right text-sm">
+            <p className="text-muted-foreground">
+              <span className="font-medium text-foreground">{metrics.mainRegistrations}</span> registros
+              {metrics.companionsCount > 0 && (
+                <>
+                  {" + "}
+                  <span className="font-medium text-foreground">{metrics.companionsCount}</span> acompañantes
+                </>
+              )}
+            </p>
+            {event?.max_capacity && (
+              <p className="text-muted-foreground mt-1">
+                Capacidad: {metrics.totalAttendees} / {event.max_capacity}
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+
       {/* Metrics Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <MetricCard
