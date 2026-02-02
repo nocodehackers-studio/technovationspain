@@ -43,18 +43,23 @@ export default function AdminEvents() {
 
       if (eventsError) throw eventsError;
 
-      // Get registration counts per event (only confirmed, non-companion registrations)
+      // Get registration counts per event (non-cancelled, non-companion registrations)
       const { data: registrations } = await supabase
         .from("event_registrations")
-        .select("event_id")
-        .eq("registration_status", "confirmed")
+        .select("id, event_id")
+        .neq("registration_status", "cancelled")
         .eq("is_companion", false);
 
-      // Get companion counts per event
-      const { data: companions } = await supabase
-        .from("companions")
-        .select("event_registration_id, event_registrations!inner(event_id)")
-        .not("event_registration_id", "is", null);
+      // Get all registration IDs for companion lookup
+      const regIds = registrations?.map(r => r.id) || [];
+
+      // Get companion counts only for non-cancelled registrations
+      const { data: companions } = regIds.length > 0
+        ? await supabase
+            .from("companions")
+            .select("event_registration_id")
+            .in("event_registration_id", regIds)
+        : { data: [] };
 
       // Calculate real counts per event
       const regCounts = new Map<string, number>();
@@ -62,9 +67,15 @@ export default function AdminEvents() {
         regCounts.set(r.event_id!, (regCounts.get(r.event_id!) || 0) + 1);
       });
 
+      // Build a map of registration_id -> event_id for companion counting
+      const regToEvent = new Map<string, string>();
+      registrations?.forEach(r => {
+        regToEvent.set(r.id, r.event_id!);
+      });
+
       const companionCounts = new Map<string, number>();
       companions?.forEach(c => {
-        const eventId = (c.event_registrations as any)?.event_id;
+        const eventId = regToEvent.get(c.event_registration_id!);
         if (eventId) {
           companionCounts.set(eventId, (companionCounts.get(eventId) || 0) + 1);
         }
