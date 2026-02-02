@@ -16,7 +16,8 @@ import { Separator } from "@/components/ui/separator";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusBadge } from "@/components/admin/StatusBadge";
 import { RoleBadge } from "@/components/admin/RoleBadge";
-import { TeamLinkSection } from "@/components/admin/TeamLinkSection";
+import { TeamInfoSection } from "@/components/admin/TeamInfoSection";
+import { HubLinkSection } from "@/components/admin/HubLinkSection";
 import { toast } from "sonner";
 import { UserCheck, UserX, Trash2, QrCode, Shield } from "lucide-react";
 import { Profile, AppRole, VerificationStatus, TableCustomColumn } from "@/types/database";
@@ -60,6 +61,23 @@ export function UserEditSheet({
       return data;
     },
     enabled: !!user?.id && open,
+  });
+
+  // Fetch user's hub info
+  const { data: userHub } = useQuery({
+    queryKey: ["user-hub", user?.hub_id],
+    queryFn: async () => {
+      if (!user?.hub_id) return null;
+      const { data, error } = await supabase
+        .from("hubs")
+        .select("id, name, location")
+        .eq("id", user.hub_id)
+        .maybeSingle();
+      
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!user?.hub_id && open,
   });
 
   // Reset selected role when user changes
@@ -436,12 +454,19 @@ export function UserEditSheet({
 
           <Separator />
 
-          {/* Team Link Section */}
-          <TeamLinkSection
-            userId={user.id}
-            currentTeamId={(teamMembership?.team as { id: string } | null)?.id}
+          {/* Team Info Section (read-only) */}
+          <TeamInfoSection
             currentTeamName={(teamMembership?.team as { name: string } | null)?.name}
             currentMemberType={teamMembership?.member_type as "participant" | "mentor" | null}
+          />
+
+          <Separator />
+
+          {/* Hub Link Section */}
+          <HubLinkSection
+            userId={user.id}
+            currentHubId={user.hub_id}
+            currentHubName={userHub?.name}
           />
 
           <Separator />
