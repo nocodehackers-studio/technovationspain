@@ -7,12 +7,6 @@ import { WhitelistProgressCard } from "@/components/admin/WhitelistProgressCard"
 import { TeamProgressCard } from "@/components/admin/TeamProgressCard";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Users, UserCheck, Clock, UsersRound } from "lucide-react";
-import {
-  ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
-} from "@/components/ui/chart";
-import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, CartesianGrid, Legend } from "recharts";
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -130,63 +124,6 @@ export default function AdminDashboard() {
     },
   });
 
-  const { data: roleDistribution } = useQuery({
-    queryKey: ["admin-role-distribution"],
-    queryFn: async () => {
-      const { data } = await supabase.from("user_roles").select("role");
-      
-      const counts: Record<string, number> = {
-        participant: 0,
-        mentor: 0,
-        judge: 0,
-        volunteer: 0,
-        admin: 0,
-      };
-
-      data?.forEach((row) => {
-        if (row.role in counts) {
-          counts[row.role]++;
-        }
-      });
-
-      return [
-        { name: "Participantes", value: counts.participant, color: "hsl(270 80% 55%)" },
-        { name: "Mentores", value: counts.mentor, color: "hsl(200 90% 50%)" },
-        { name: "Jueces", value: counts.judge, color: "hsl(175 80% 45%)" },
-        { name: "Voluntarios", value: counts.volunteer, color: "hsl(150 80% 42%)" },
-        { name: "Admins", value: counts.admin, color: "hsl(35 95% 55%)" },
-      ];
-    },
-  });
-
-  // Fetch verification status distribution
-  const { data: verificationDistribution } = useQuery({
-    queryKey: ["admin-verification-distribution"],
-    queryFn: async () => {
-      const { data } = await supabase.from("profiles").select("verification_status");
-      
-      const counts: Record<string, number> = {
-        verified: 0,
-        pending: 0,
-        manual_review: 0,
-        rejected: 0,
-      };
-
-      data?.forEach((row) => {
-        if (row.verification_status in counts) {
-          counts[row.verification_status]++;
-        }
-      });
-
-      return [
-        { name: "Verificados", value: counts.verified, fill: "hsl(150 80% 42%)" },
-        { name: "Pendientes", value: counts.pending, fill: "hsl(35 95% 55%)" },
-        { name: "Revisión Manual", value: counts.manual_review, fill: "hsl(25 90% 50%)" },
-        { name: "Rechazados", value: counts.rejected, fill: "hsl(0 84% 60%)" },
-      ];
-    },
-  });
-
   // Fetch upcoming events
   const { data: upcomingEventsList } = useQuery({
     queryKey: ["admin-upcoming-events"],
@@ -201,12 +138,6 @@ export default function AdminDashboard() {
       return data || [];
     },
   });
-
-  const chartConfig = {
-    value: {
-      label: "Cantidad",
-    },
-  };
 
   return (
     <AdminLayout title="Dashboard">
@@ -244,62 +175,6 @@ export default function AdminDashboard() {
         <div className="grid gap-4 md:grid-cols-2">
           <WhitelistProgressCard stats={whitelistStats} isLoading={isLoadingWhitelist} />
           <TeamProgressCard stats={teamStats} isLoading={isLoadingTeamStats} />
-        </div>
-
-        {/* Charts Row */}
-        <div className="grid gap-6 md:grid-cols-2">
-          {/* Role Distribution */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Distribución por Rol</CardTitle>
-              <CardDescription>Usuarios activos por tipo de rol</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ChartContainer config={chartConfig} className="h-[200px] sm:h-[300px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={roleDistribution || []}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={40}
-                      outerRadius={70}
-                      paddingAngle={2}
-                      dataKey="value"
-                      label={({ name, value }) => `${name}: ${value}`}
-                      labelLine={false}
-                      className="[&_.recharts-pie-label-text]:hidden sm:[&_.recharts-pie-label-text]:block"
-                    >
-                      {roleDistribution?.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <ChartTooltip content={<ChartTooltipContent />} />
-                  </PieChart>
-                </ResponsiveContainer>
-              </ChartContainer>
-            </CardContent>
-          </Card>
-
-          {/* Verification Status */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Estado de Verificación</CardTitle>
-              <CardDescription>Distribución de estados de verificación</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ChartContainer config={chartConfig} className="h-[200px] sm:h-[300px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={verificationDistribution || []} layout="vertical">
-                    <XAxis type="number" />
-                    <YAxis dataKey="name" type="category" width={80} tick={{ fontSize: 12 }} />
-                    <ChartTooltip content={<ChartTooltipContent />} />
-                    <Bar dataKey="value" radius={[0, 4, 4, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </ChartContainer>
-            </CardContent>
-          </Card>
         </div>
 
         {/* Upcoming Events */}
