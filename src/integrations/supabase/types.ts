@@ -1047,6 +1047,7 @@ export type Database = {
           hub_id: string | null
           id: string
           name: string
+          notes: string | null
           tg_team_id: string | null
           updated_at: string | null
         }
@@ -1056,6 +1057,7 @@ export type Database = {
           hub_id?: string | null
           id?: string
           name: string
+          notes?: string | null
           tg_team_id?: string | null
           updated_at?: string | null
         }
@@ -1065,6 +1067,7 @@ export type Database = {
           hub_id?: string | null
           id?: string
           name?: string
+          notes?: string | null
           tg_team_id?: string | null
           updated_at?: string | null
         }
