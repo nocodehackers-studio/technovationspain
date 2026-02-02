@@ -1,64 +1,78 @@
 
-## Plan: Corregir Gestión de Miembros de Equipos
 
-### Resumen de Problemas Identificados
+## Plan: Corregir HB-02, DT-01 y EV-01
 
-Hay dos categorías de problemas a resolver:
+### Resumen de Problemas
 
-1. **Problemas de Validación en Importación CSV** (EQ-01 a EQ-04, HB-03)
-2. **Problemas de Visualización Multi-Equipo para Mentores** (MT-01, MT-02)
+| Issue | Descripción | Estado Actual |
+|-------|-------------|---------------|
+| **HB-02** | No se puede modificar el HUB de un equipo | **FALSO POSITIVO** - Ya existe funcionalidad |
+| **DT-01** | No se muestra la edad de las usuarias en USUARIOS | Falta columna en tabla |
+| **EV-01** | Inscripción sin DNI obligatorio | Falta configuración de campos requeridos |
 
 ---
 
-### Análisis Actual del Código
+### Análisis Detallado
 
-| Componente | Estado Actual |
-|------------|---------------|
-| `AdminTeams.tsx` | Solo lectura - no permite añadir miembros manualmente |
-| `TeamCSVImport.tsx` | Importa miembros sin validar rol, verificación o hub |
-| `AdminImportTeams.tsx` | Importa miembros sin validar rol, verificación o hub |
-| `UserEditSheet.tsx` | Usa `.maybeSingle()` - solo muestra 1 equipo |
-| `useMentorTeams.ts` | Soporta múltiples equipos correctamente |
+#### HB-02: Editar Hub del Equipo
+
+**Estado: YA FUNCIONA**
+
+Al revisar `AdminTeams.tsx`, el diálogo de edición (líneas 520-595) ya incluye:
+- Selector de Hub en líneas 555-568
+- Mutación `updateTeamMutation` que actualiza `hub_id`
+- El menú de acciones tiene la opción "Editar" que abre este diálogo
+
+**No se requieren cambios** - Quizás el usuario no encontró la opción o hubo un problema temporal.
+
+---
+
+#### DT-01: Mostrar edad en tabla de Usuarios
+
+**Problema:** La tabla de `AdminUsers.tsx` no muestra la edad de los usuarios. La edad es crítica para validar la categoría correcta del equipo (Beginner 8-12, Junior 13-15, Senior 16-18).
+
+**Datos disponibles:** El campo `date_of_birth` existe en `profiles` y se usa durante el registro.
+
+**Solución:** Añadir columna "Edad" que calcule la edad a partir de `date_of_birth`.
+
+---
+
+#### EV-01: DNI obligatorio en inscripciones
+
+**Problema:** El formulario de inscripción no valida DNI como obligatorio. Actualmente:
+- En `EventRegistrationPage.tsx` línea 60: `dni: z.string().optional()`
+- Solo valida formato si se proporciona, pero no es requerido
+
+**Análisis del flujo:**
+1. Los tipos de entrada (`event_ticket_types`) tienen `companion_fields_config` para acompañantes
+2. **No existe** configuración de campos obligatorios para el titular de la inscripción
+3. El DNI debería ser configurable por tipo de entrada
+
+**Solución:** Añadir configuración `required_fields` en tipos de entrada para controlar qué campos son obligatorios para el titular.
 
 ---
 
 ### Cambios a Realizar
 
-#### 1. Validaciones en Importación CSV
+#### 1. Añadir columna Edad en AdminUsers (DT-01)
 
-Añadir validaciones en `TeamCSVImport.tsx` y `AdminImportTeams.tsx`:
-
-| Validación | Regla | Acción |
-|------------|-------|--------|
-| **EQ-01** | Respetar rol del usuario | Si tiene rol `mentor` → `member_type = 'mentor'` |
-| **EQ-02** | No admins en equipos | Si tiene rol `admin` → Excluir con warning |
-| **EQ-03** | Solo usuarios verificados | Si `verification_status != 'verified'` → Excluir |
-| **EQ-04** | Máximo 5 estudiantes | Contar existentes, rechazar si > 5 |
-| **HB-03** | Mismo hub | Si `user.hub_id != team.hub_id` → Excluir |
-
-#### 2. Soporte Multi-Equipo en Panel de Admin
-
-Modificar `UserEditSheet.tsx` para mostrar todos los equipos de un mentor:
+Añadir columna que calcule edad a partir de `date_of_birth`:
 
 ```text
-Cambio actual:
-┌─────────────────────────────────────┐
-│ Equipo                              │
-│ ┌─────────────────────────────────┐ │
-│ │ PowerTeam          [Mentor]    │ │
-│ └─────────────────────────────────┘ │
-└─────────────────────────────────────┘
-
-Cambio propuesto:
-┌─────────────────────────────────────┐
-│ Equipos (2)                         │
-│ ┌─────────────────────────────────┐ │
-│ │ PowerTeam          [Mentor]    │ │
-│ ├─────────────────────────────────┤ │
-│ │ TechTeam           [Mentor]    │ │
-│ └─────────────────────────────────┘ │
-└─────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│ Nombre    │ TG ID │ Roles │ Estado │ Edad │ Equipo │ Hub │ ...     │
+├───────────┼───────┼───────┼────────┼──────┼────────┼─────┼─────────┤
+│ Ana G.    │ 12345 │ Part  │ ✓      │ 12   │ Power  │ BCN │         │
+│ María L.  │ 12346 │ Part  │ ✓      │ 9    │ Tech   │ MAD │         │
+└─────────────────────────────────────────────────────────────────────┘
 ```
+
+#### 2. Configurar campos obligatorios por tipo de entrada (EV-01)
+
+Añadir en la tabla `event_ticket_types`:
+- Campo `required_fields` para definir qué campos son obligatorios (dni, phone, etc.)
+
+Actualizar el formulario de inscripción para validar según configuración.
 
 ---
 
@@ -66,147 +80,126 @@ Cambio propuesto:
 
 | Archivo | Cambios |
 |---------|---------|
-| `src/components/admin/TeamCSVImport.tsx` | Añadir validaciones de rol, verificación, límite y hub |
-| `src/pages/admin/AdminImportTeams.tsx` | Añadir validaciones de rol, verificación, límite y hub |
-| `src/components/admin/UserEditSheet.tsx` | Cambiar query de `.maybeSingle()` a array |
-| `src/components/admin/TeamInfoSection.tsx` | Soportar lista de equipos en lugar de uno solo |
+| `src/pages/admin/AdminUsers.tsx` | Añadir columna "Edad" calculada desde `date_of_birth` |
+| `src/components/admin/events/TicketTypeManager.tsx` | Añadir sección de campos requeridos para titular |
+| `src/pages/events/EventRegistrationPage.tsx` | Validar campos según configuración del ticket |
+| Nueva migración SQL | Añadir columna `required_fields` a `event_ticket_types` |
 
 ---
 
 ### Sección Técnica
 
-#### Lógica de Validación para Importación
+#### Cálculo de Edad para AdminUsers
 
 ```typescript
-async function validateMemberForTeam(
-  userId: string,
-  teamId: string
-): Promise<{ valid: boolean; reason?: string; memberType: 'participant' | 'mentor' }> {
-  
-  // 1. Obtener datos del usuario
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('verification_status, hub_id')
-    .eq('id', userId)
-    .single();
+// Función helper para calcular edad
+const calculateAge = (dateOfBirth: string | null): number | null => {
+  if (!dateOfBirth) return null;
+  const today = new Date();
+  const birth = new Date(dateOfBirth);
+  let age = today.getFullYear() - birth.getFullYear();
+  const monthDiff = today.getMonth() - birth.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
+    age--;
+  }
+  return age;
+};
+
+// Nueva columna en staticColumns
+{
+  accessorKey: "date_of_birth",
+  header: "Edad",
+  enableHiding: true,
+  cell: ({ row }) => {
+    const age = calculateAge(row.original.date_of_birth);
+    if (age === null) return <span className="text-muted-foreground">—</span>;
     
-  const { data: roles } = await supabase
-    .from('user_roles')
-    .select('role')
-    .eq('user_id', userId);
-  
-  // 2. Obtener datos del equipo
-  const { data: team } = await supabase
-    .from('teams')
-    .select('hub_id')
-    .eq('id', teamId)
-    .single();
-    
-  const userRoles = roles?.map(r => r.role) || [];
-  
-  // EQ-03: Verificar estado
-  if (profile?.verification_status !== 'verified') {
-    return { valid: false, reason: 'Usuario no verificado', memberType: 'participant' };
-  }
-  
-  // EQ-02: No admins
-  if (userRoles.includes('admin')) {
-    return { valid: false, reason: 'Los administradores no pueden ser miembros de equipos', memberType: 'participant' };
-  }
-  
-  // HB-03: Mismo hub (solo si ambos tienen hub asignado)
-  if (team?.hub_id && profile?.hub_id && team.hub_id !== profile.hub_id) {
-    return { valid: false, reason: 'El usuario pertenece a un hub diferente', memberType: 'participant' };
-  }
-  
-  // EQ-01: Determinar member_type según rol
-  const memberType = userRoles.includes('mentor') ? 'mentor' : 'participant';
-  
-  // EQ-04: Límite de 5 estudiantes (solo para participant)
-  if (memberType === 'participant') {
-    const { count } = await supabase
-      .from('team_members')
-      .select('*', { count: 'exact', head: true })
-      .eq('team_id', teamId)
-      .eq('member_type', 'participant');
-      
-    if ((count || 0) >= 5) {
-      return { valid: false, reason: 'El equipo ya tiene 5 estudiantes', memberType };
-    }
-  }
-  
-  return { valid: true, memberType };
+    // Resaltar edades fuera de rango típico (8-18)
+    const isOutOfRange = age < 8 || age > 18;
+    return (
+      <span className={isOutOfRange ? "text-warning font-medium" : ""}>
+        {age} años
+      </span>
+    );
+  },
 }
 ```
 
-#### Query Multi-Equipo para UserEditSheet
+#### Migración SQL para required_fields
 
-```typescript
-// Antes:
-const { data: teamMembership } = useQuery({
-  queryFn: async () => {
-    const { data } = await supabase
-      .from("team_members")
-      .select(`id, member_type, team:teams(id, name)`)
-      .eq("user_id", user.id)
-      .maybeSingle();  // ❌ Solo devuelve 1
-    return data;
-  }
-});
+```sql
+ALTER TABLE event_ticket_types 
+ADD COLUMN required_fields text[] DEFAULT ARRAY['first_name', 'last_name', 'email']::text[];
 
-// Después:
-const { data: teamMemberships } = useQuery({
-  queryFn: async () => {
-    const { data } = await supabase
-      .from("team_members")
-      .select(`id, member_type, team:teams(id, name)`)
-      .eq("user_id", user.id);  // ✅ Devuelve todos
-    return data || [];
-  }
-});
+COMMENT ON COLUMN event_ticket_types.required_fields IS 
+  'Campos obligatorios para el titular: dni, phone, team_name, tg_email';
 ```
 
-#### Actualizar TeamInfoSection
+#### Configuración en TicketTypeManager
 
 ```typescript
-interface TeamInfoSectionProps {
-  teams: Array<{
-    teamName: string;
-    memberType: 'participant' | 'mentor';
-  }>;
-}
+const REGISTRATION_FIELDS = [
+  { value: "dni", label: "DNI/NIE" },
+  { value: "phone", label: "Teléfono" },
+  { value: "team_name", label: "Nombre del equipo" },
+  { value: "tg_email", label: "Email de Technovation" },
+];
 
-export function TeamInfoSection({ teams }: TeamInfoSectionProps) {
-  if (teams.length === 0) {
-    return (/* Sin equipo asignado */);
-  }
-  
-  return (
-    <div className="space-y-4">
-      <h3>Equipos ({teams.length})</h3>
-      <div className="space-y-2">
-        {teams.map((t, i) => (
-          <div key={i} className="flex items-center justify-between p-3 rounded-lg border">
-            <span>{t.teamName}</span>
-            <Badge>{t.memberType === 'mentor' ? 'Mentor' : 'Estudiante'}</Badge>
-          </div>
-        ))}
+// En formData añadir:
+required_fields: ["dni"] as string[],
+
+// En Tab de Configuración, nueva sección:
+<div className="space-y-3 pt-4 border-t">
+  <Label>Campos obligatorios del titular</Label>
+  <p className="text-sm text-muted-foreground">
+    Además de nombre, apellidos y email (siempre obligatorios)
+  </p>
+  <div className="grid grid-cols-2 gap-2">
+    {REGISTRATION_FIELDS.map((field) => (
+      <div key={field.value} className="flex items-center space-x-2">
+        <Checkbox
+          id={`required-${field.value}`}
+          checked={formData.required_fields.includes(field.value)}
+          onCheckedChange={() => toggleRequiredField(field.value)}
+        />
+        <Label htmlFor={`required-${field.value}`} className="font-normal">
+          {field.label}
+        </Label>
       </div>
-    </div>
-  );
-}
+    ))}
+  </div>
+</div>
+```
+
+#### Validación Dinámica en EventRegistrationPage
+
+```typescript
+// Obtener campos requeridos del ticket seleccionado
+const requiredFields = selectedTicket?.required_fields || [];
+
+// Schema dinámico basado en configuración
+const createRegistrationSchema = (requiredFields: string[]) => z.object({
+  ticket_type_id: z.string().min(1, 'Selecciona un tipo de entrada'),
+  first_name: z.string().min(2, 'El nombre debe tener al menos 2 caracteres'),
+  last_name: z.string().min(2, 'Los apellidos deben tener al menos 2 caracteres'),
+  email: z.string().email('Introduce un email válido'),
+  dni: requiredFields.includes('dni')
+    ? z.string().min(1, 'El DNI es obligatorio').refine(validateSpanishDNI, 'Formato de DNI inválido')
+    : z.string().optional().refine((val) => !val || validateSpanishDNI(val), 'Formato inválido'),
+  phone: requiredFields.includes('phone')
+    ? z.string().min(1, 'El teléfono es obligatorio').refine(validateSpanishPhone, 'Formato inválido')
+    : z.string().optional().refine((val) => !val || validateSpanishPhone(val), 'Formato inválido'),
+  // ... resto de campos
+});
 ```
 
 ---
 
-### Resumen de Validaciones
+### Resumen de Cambios
 
-| Issue | Validación | Ubicación |
-|-------|------------|-----------|
-| EQ-01 | `member_type` basado en rol del usuario | Import CSV |
-| EQ-02 | Excluir usuarios con rol `admin` | Import CSV |
-| EQ-03 | Solo usuarios `verified` | Import CSV |
-| EQ-04 | Máximo 5 `participant` por equipo | Import CSV |
-| HB-03 | `user.hub_id == team.hub_id` | Import CSV |
-| MT-01 | Permitir mentor en múltiples equipos | Sin cambio (ya permitido) |
-| MT-02 | Mostrar todos los equipos en admin panel | UserEditSheet + TeamInfoSection |
+| Issue | Acción | Prioridad |
+|-------|--------|-----------|
+| HB-02 | Ninguna - ya funciona | N/A |
+| DT-01 | Añadir columna Edad en AdminUsers | Alta |
+| EV-01 | Añadir `required_fields` a tickets + validación dinámica | Alta |
+
