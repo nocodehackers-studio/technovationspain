@@ -136,6 +136,15 @@ export default function AdminHubs() {
       ),
     },
     {
+      accessorKey: "notes",
+      header: "Notas",
+      cell: ({ row }) => (
+        <span className="text-sm text-muted-foreground max-w-[200px] truncate block">
+          {row.original.notes || "—"}
+        </span>
+      ),
+    },
+    {
       accessorKey: "created_at",
       header: "Creado",
       cell: ({ row }) => (
