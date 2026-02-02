@@ -345,6 +345,31 @@ export default function AdminUsers() {
       ),
     },
     {
+      accessorKey: "date_of_birth",
+      header: "Edad",
+      enableHiding: true,
+      cell: ({ row }) => {
+        const dob = row.original.date_of_birth;
+        if (!dob) return <span className="text-muted-foreground">—</span>;
+        
+        const today = new Date();
+        const birth = new Date(dob);
+        let age = today.getFullYear() - birth.getFullYear();
+        const monthDiff = today.getMonth() - birth.getMonth();
+        if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
+          age--;
+        }
+        
+        // Highlight ages outside typical participant range (8-18)
+        const isOutOfRange = age < 8 || age > 18;
+        return (
+          <span className={isOutOfRange ? "text-orange-600 font-medium" : "text-sm"}>
+            {age}
+          </span>
+        );
+      },
+    },
+    {
       accessorKey: "phone",
       header: "Teléfono",
       enableHiding: true,

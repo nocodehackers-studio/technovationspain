@@ -35,6 +35,7 @@ interface TicketType {
   requires_team: boolean | null;
   is_active: boolean | null;
   sort_order: number | null;
+  required_fields: string[] | null;
 }
 
 const COMPANION_FIELDS = [
@@ -42,6 +43,13 @@ const COMPANION_FIELDS = [
   { value: "last_name", label: "Apellidos" },
   { value: "dni", label: "DNI/NIE" },
   { value: "relationship", label: "Parentesco" },
+];
+
+const REGISTRATION_FIELDS = [
+  { value: "dni", label: "DNI/NIE" },
+  { value: "phone", label: "Teléfono" },
+  { value: "team_name", label: "Nombre del equipo" },
+  { value: "tg_email", label: "Email de Technovation" },
 ];
 
 interface TicketTypeManagerProps {
@@ -68,6 +76,7 @@ const [formData, setFormData] = useState({
     companion_fields_config: ["first_name", "last_name", "relationship"] as string[],
     anonymous_companions: false,
     allowed_roles: [] as string[],
+    required_fields: [] as string[],
     requires_verification: true,
     requires_team: false,
     is_active: true,
@@ -99,6 +108,9 @@ const createMutation = useMutation({
         max_companions: data.max_companions,
         companion_fields_config: companionConfig,
         allowed_roles: data.allowed_roles.length > 0 ? data.allowed_roles : null,
+        required_fields: data.required_fields.length > 0 
+          ? [...['first_name', 'last_name', 'email'], ...data.required_fields]
+          : ['first_name', 'last_name', 'email'],
         requires_verification: data.requires_verification,
         requires_team: data.requires_team,
         is_active: data.is_active,
@@ -129,6 +141,9 @@ const updateMutation = useMutation({
           max_companions: data.max_companions,
           companion_fields_config: companionConfig,
           allowed_roles: data.allowed_roles.length > 0 ? data.allowed_roles : null,
+          required_fields: data.required_fields.length > 0 
+            ? [...['first_name', 'last_name', 'email'], ...data.required_fields]
+            : ['first_name', 'last_name', 'email'],
           requires_verification: data.requires_verification,
           requires_team: data.requires_team,
           is_active: data.is_active,
@@ -171,6 +186,7 @@ const resetForm = () => {
       companion_fields_config: ["first_name", "last_name", "relationship"],
       anonymous_companions: false,
       allowed_roles: [],
+      required_fields: [],
       requires_verification: true,
       requires_team: false,
       is_active: true,
@@ -183,6 +199,9 @@ const openEditDialog = (ticket?: TicketType) => {
       setSelectedTicket(ticket);
       const configArray = ticket.companion_fields_config || ["first_name", "last_name", "relationship"];
       const isAnonymous = Array.isArray(configArray) && configArray.length === 0;
+      // Extract extra required fields (excluding always-required ones)
+      const baseFields = ['first_name', 'last_name', 'email'];
+      const extraRequired = (ticket.required_fields || []).filter(f => !baseFields.includes(f));
       setFormData({
         name: ticket.name,
         description: ticket.description || "",
@@ -191,6 +210,7 @@ const openEditDialog = (ticket?: TicketType) => {
         companion_fields_config: isAnonymous ? ["first_name", "last_name", "relationship"] : configArray,
         anonymous_companions: isAnonymous,
         allowed_roles: ticket.allowed_roles || [],
+        required_fields: extraRequired,
         requires_verification: ticket.requires_verification ?? true,
         requires_team: ticket.requires_team ?? false,
         is_active: ticket.is_active ?? true,
@@ -228,6 +248,15 @@ const openEditDialog = (ticket?: TicketType) => {
       allowed_roles: prev.allowed_roles.includes(role)
         ? prev.allowed_roles.filter((r) => r !== role)
         : [...prev.allowed_roles, role],
+    }));
+  };
+
+  const toggleRequiredField = (field: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      required_fields: prev.required_fields.includes(field)
+        ? prev.required_fields.filter((f) => f !== field)
+        : [...prev.required_fields, field],
     }));
   };
 
@@ -474,6 +503,27 @@ const openEditDialog = (ticket?: TicketType) => {
                         />
                         <Label htmlFor={`role-${role.value}`} className="font-normal">
                           {role.label}
+                        </Label>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-3 pt-4 border-t">
+                  <Label>Campos obligatorios del titular</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Además de nombre, apellidos y email (siempre obligatorios)
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {REGISTRATION_FIELDS.map((field) => (
+                      <div key={field.value} className="flex items-center space-x-2">
+                        <Checkbox
+                          id={`required-${field.value}`}
+                          checked={formData.required_fields.includes(field.value)}
+                          onCheckedChange={() => toggleRequiredField(field.value)}
+                        />
+                        <Label htmlFor={`required-${field.value}`} className="font-normal">
+                          {field.label}
                         </Label>
                       </div>
                     ))}
