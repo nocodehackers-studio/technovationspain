@@ -1308,7 +1308,13 @@ export type Database = {
       }
     }
     Enums: {
-      app_role: "participant" | "mentor" | "judge" | "volunteer" | "admin"
+      app_role:
+        | "participant"
+        | "mentor"
+        | "judge"
+        | "volunteer"
+        | "chapter_ambassador"
+        | "admin"
       ticket_priority: "nice_to_have" | "mandatory"
       ticket_status: "pending" | "in_progress" | "completed"
       verification_status: "pending" | "verified" | "rejected" | "manual_review"
@@ -1439,7 +1445,14 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      app_role: ["participant", "mentor", "judge", "volunteer", "admin"],
+      app_role: [
+        "participant",
+        "mentor",
+        "judge",
+        "volunteer",
+        "chapter_ambassador",
+        "admin",
+      ],
       ticket_priority: ["nice_to_have", "mandatory"],
       ticket_status: ["pending", "in_progress", "completed"],
       verification_status: ["pending", "verified", "rejected", "manual_review"],

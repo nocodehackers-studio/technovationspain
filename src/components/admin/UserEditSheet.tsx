@@ -13,23 +13,25 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusBadge } from "@/components/admin/StatusBadge";
-import { RoleBadge } from "@/components/admin/RoleBadge";
+import { RoleBadges } from "@/components/admin/RoleBadge";
 import { TeamInfoSection } from "@/components/admin/TeamInfoSection";
 import { HubLinkSection } from "@/components/admin/HubLinkSection";
+import { MultiRoleSelector } from "@/components/admin/users/MultiRoleSelector";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
-import { UserCheck, UserX, Trash2, QrCode, Shield } from "lucide-react";
+import { UserCheck, UserX, Trash2 } from "lucide-react";
 import { Profile, AppRole, VerificationStatus, TableCustomColumn } from "@/types/database";
 
-type UserWithRole = Profile & { role?: AppRole; team_name?: string | null };
+type UserWithRoles = Profile & { roles: AppRole[]; team_name?: string | null };
 
 interface UserEditSheetProps {
-  user: UserWithRole | null;
+  user: UserWithRoles | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   customColumns?: TableCustomColumn[];
-  onDelete?: (user: UserWithRole) => void;
+  onDelete?: () => void;
+  canDelete?: boolean;
 }
 
 export function UserEditSheet({
@@ -38,9 +40,9 @@ export function UserEditSheet({
   onOpenChange,
   customColumns = [],
   onDelete,
+  canDelete = true,
 }: UserEditSheetProps) {
   const queryClient = useQueryClient();
-  const [selectedRole, setSelectedRole] = useState<AppRole | undefined>(undefined);
 
   // Fetch user's team membership
   const { data: teamMembership } = useQuery({
@@ -80,12 +82,21 @@ export function UserEditSheet({
     enabled: !!user?.hub_id && open,
   });
 
-  // Reset selected role when user changes
-  useEffect(() => {
-    setSelectedRole(undefined);
-  }, [user?.id]);
-
-  const currentRole = selectedRole ?? user?.role;
+  // Fetch user's all roles
+  const { data: userRoles } = useQuery({
+    queryKey: ["user-roles", user?.id],
+    queryFn: async () => {
+      if (!user?.id) return [];
+      const { data, error } = await supabase
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", user.id);
+      
+      if (error) throw error;
+      return (data || []).map((r) => r.role as AppRole);
+    },
+    enabled: !!user?.id && open,
+  });
 
   // Update user mutation
   const updateUserMutation = useMutation({
@@ -187,70 +198,6 @@ export function UserEditSheet({
     });
   }, [user, updateVerificationMutation]);
 
-  // Update user role mutation
-  const updateRoleMutation = useMutation({
-    mutationFn: async ({ userId, oldRole, newRole }: { userId: string; oldRole?: AppRole; newRole: AppRole }) => {
-      // First, delete old role if exists
-      if (oldRole) {
-        await supabase
-          .from("user_roles")
-          .delete()
-          .eq("user_id", userId)
-          .eq("role", oldRole);
-      }
-      
-      // Insert new role
-      const { error } = await supabase
-        .from("user_roles")
-        .upsert({ user_id: userId, role: newRole }, { onConflict: "user_id,role" });
-
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["admin-users"] });
-      toast.success("Rol actualizado correctamente");
-    },
-    onError: (error) => {
-      toast.error(`Error al cambiar rol: ${error.message}`);
-    },
-  });
-
-  // Assign volunteer role mutation (additional role)
-  const assignRoleMutation = useMutation({
-    mutationFn: async ({ userId, role }: { userId: string; role: AppRole }) => {
-      const { error } = await supabase
-        .from("user_roles")
-        .upsert({ user_id: userId, role }, { onConflict: "user_id,role" });
-
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["admin-users"] });
-      toast.success("Rol de validador QR asignado correctamente");
-    },
-    onError: (error) => {
-      toast.error(`Error al asignar rol: ${error.message}`);
-    },
-  });
-
-  const handleRoleChange = useCallback((newRole: AppRole) => {
-    setSelectedRole(newRole);
-  }, []);
-
-  const handleSaveRole = useCallback(() => {
-    if (!user || !selectedRole || selectedRole === user.role) return;
-    updateRoleMutation.mutate({ 
-      userId: user.id, 
-      oldRole: user.role, 
-      newRole: selectedRole 
-    });
-  }, [user, selectedRole, updateRoleMutation]);
-
-  const handleAssignVolunteer = useCallback(() => {
-    if (!user) return;
-    assignRoleMutation.mutate({ userId: user.id, role: "volunteer" });
-  }, [user, assignRoleMutation]);
-
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!user) return;
@@ -295,6 +242,13 @@ export function UserEditSheet({
     "?";
 
   const customFieldsData = (user.custom_fields || {}) as Record<string, unknown>;
+  const displayRoles = userRoles || user.roles || [];
+
+  const deleteTooltip = !canDelete
+    ? user.verification_status === "verified"
+      ? "No se puede eliminar un usuario verificado"
+      : "No se puede eliminar un usuario que está en la whitelist"
+    : undefined;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -312,9 +266,9 @@ export function UserEditSheet({
               <SheetDescription className="text-left truncate">
                 {user.email}
               </SheetDescription>
-              <div className="flex items-center gap-2 mt-2">
+              <div className="flex flex-wrap items-center gap-2 mt-2">
                 <StatusBadge status={user.verification_status || "pending"} />
-                {user.role && <RoleBadge role={user.role} />}
+                {displayRoles.length > 0 && <RoleBadges roles={displayRoles} size="sm" />}
               </div>
             </div>
           </div>
@@ -345,16 +299,6 @@ export function UserEditSheet({
                 Rechazar
               </Button>
             )}
-            <Button
-              variant="outline"
-              size="sm"
-              className="border-accent/50 text-accent hover:bg-accent/10"
-              onClick={handleAssignVolunteer}
-              disabled={assignRoleMutation.isPending}
-            >
-              <QrCode className="h-4 w-4 mr-1" />
-              Validador QR
-            </Button>
           </div>
         </SheetHeader>
 
@@ -413,44 +357,8 @@ export function UserEditSheet({
 
           <Separator />
 
-          {/* Role Management */}
-          <div className="space-y-4">
-            <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-2">
-              <Shield className="h-4 w-4" />
-              Rol del Usuario
-            </h3>
-            <div className="flex items-center gap-3">
-              <Select
-                value={currentRole || "participant"}
-                onValueChange={(value) => handleRoleChange(value as AppRole)}
-              >
-                <SelectTrigger className="w-[180px]">
-                  <SelectValue placeholder="Seleccionar rol" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="participant">Participante</SelectItem>
-                  <SelectItem value="mentor">Mentor</SelectItem>
-                  <SelectItem value="judge">Juez</SelectItem>
-                  <SelectItem value="volunteer">Voluntario</SelectItem>
-                  <SelectItem value="admin">Administrador</SelectItem>
-                </SelectContent>
-              </Select>
-              {selectedRole && selectedRole !== user.role && (
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={handleSaveRole}
-                  disabled={updateRoleMutation.isPending}
-                >
-                  {updateRoleMutation.isPending ? "Guardando..." : "Guardar rol"}
-                </Button>
-              )}
-              {currentRole && <RoleBadge role={currentRole} />}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Cambiar el rol principal del usuario. Los administradores tienen acceso completo al panel de gestión.
-            </p>
-          </div>
+          {/* Multi Role Management */}
+          <MultiRoleSelector userId={user.id} />
 
           <Separator />
 
@@ -527,15 +435,29 @@ export function UserEditSheet({
 
           <SheetFooter className="flex-col sm:flex-row gap-2">
             {onDelete && (
-              <Button
-                type="button"
-                variant="outline"
-                className="border-destructive text-destructive hover:bg-destructive/10"
-                onClick={() => onDelete(user)}
-              >
-                <Trash2 className="h-4 w-4 mr-1" />
-                Eliminar
-              </Button>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-block">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="border-destructive text-destructive hover:bg-destructive/10 disabled:opacity-50"
+                        onClick={onDelete}
+                        disabled={!canDelete}
+                      >
+                        <Trash2 className="h-4 w-4 mr-1" />
+                        Eliminar
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  {deleteTooltip && (
+                    <TooltipContent>
+                      <p>{deleteTooltip}</p>
+                    </TooltipContent>
+                  )}
+                </Tooltip>
+              </TooltipProvider>
             )}
             <div className="flex-1" />
             <Button

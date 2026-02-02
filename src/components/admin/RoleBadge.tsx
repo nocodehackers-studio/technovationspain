@@ -7,6 +7,11 @@ interface RoleBadgeProps {
   size?: "sm" | "md" | "lg";
 }
 
+interface RoleBadgesProps {
+  roles: AppRole[];
+  size?: "sm" | "md" | "lg";
+}
+
 const roleConfig: Record<AppRole, { label: string; className: string }> = {
   participant: {
     label: "Participante",
@@ -24,6 +29,10 @@ const roleConfig: Record<AppRole, { label: string; className: string }> = {
     label: "Voluntario",
     className: "bg-success/10 text-success border-success/20",
   },
+  chapter_ambassador: {
+    label: "Embajador",
+    className: "bg-warning/10 text-warning border-warning/20",
+  },
   admin: {
     label: "Admin",
     className: "bg-primary/10 text-primary border-primary/20",
@@ -39,6 +48,10 @@ const sizeClasses = {
 export function RoleBadge({ role, size = "md" }: RoleBadgeProps) {
   const config = roleConfig[role];
 
+  if (!config) {
+    return null;
+  }
+
   return (
     <Badge
       variant="outline"
@@ -47,4 +60,26 @@ export function RoleBadge({ role, size = "md" }: RoleBadgeProps) {
       {config.label}
     </Badge>
   );
+}
+
+// Display order for roles (primary roles first, then additional roles)
+const roleDisplayOrder: AppRole[] = ['participant', 'mentor', 'judge', 'chapter_ambassador', 'volunteer', 'admin'];
+
+export function RoleBadges({ roles, size = "md" }: RoleBadgesProps) {
+  // Sort roles by display order
+  const sortedRoles = [...roles].sort((a, b) => {
+    return roleDisplayOrder.indexOf(a) - roleDisplayOrder.indexOf(b);
+  });
+
+  return (
+    <div className="flex flex-wrap gap-1">
+      {sortedRoles.map((role) => (
+        <RoleBadge key={role} role={role} size={size} />
+      ))}
+    </div>
+  );
+}
+
+export function getRoleLabel(role: AppRole): string {
+  return roleConfig[role]?.label || role;
 }
