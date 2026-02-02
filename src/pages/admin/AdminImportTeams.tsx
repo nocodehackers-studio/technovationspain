@@ -12,6 +12,12 @@ import { Upload, FileSpreadsheet, CheckCircle2, XCircle, AlertTriangle, Users, U
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
+import {
+  validateMemberForTeam,
+  createValidationCache,
+  prefetchUserData,
+  prefetchTeamData,
+} from "@/lib/team-member-validation";
 
 // Types
 interface TeamCSVRow {
@@ -56,6 +62,7 @@ interface ImportResults {
   membersLinked: number;
   whitelistUpdated: number;
   errors: string[];
+  skipped: string[];
 }
 
 type ImportStep = "upload" | "preview" | "processing" | "results";
@@ -275,6 +282,7 @@ export default function AdminImportTeams() {
       membersLinked: 0,
       whitelistUpdated: 0,
       errors: [],
+      skipped: [],
     };
 
     try {
@@ -340,20 +348,56 @@ export default function AdminImportTeams() {
               results.teamsCreated++;
             }
 
-            // Link students
-            for (const email of team.studentEmails) {
-              const linked = await linkUserToTeam(teamId, email, "participant", team.name, team.division);
-              if (linked.memberLinked) results.membersLinked++;
-              if (linked.whitelistUpdated) results.whitelistUpdated++;
-              if (linked.error) results.errors.push(`${email}: ${linked.error}`);
+            // Create validation cache for this team
+            const validationCache = createValidationCache();
+            await prefetchTeamData(teamId, validationCache);
+
+            // Collect all emails for profile lookup
+            const allEmailsForTeam = [...team.studentEmails, ...team.mentorEmails];
+            
+            // Get profile IDs for validation prefetch
+            const profileIdsToValidate: string[] = [];
+            for (const email of allEmailsForTeam) {
+              const { data: profile } = await supabase
+                .from("profiles")
+                .select("id")
+                .or(`email.ilike.${email},tg_email.ilike.${email}`)
+                .maybeSingle();
+              if (profile) profileIdsToValidate.push(profile.id);
+            }
+            
+            if (profileIdsToValidate.length > 0) {
+              await prefetchUserData(profileIdsToValidate, validationCache);
             }
 
-            // Link mentors
-            for (const email of team.mentorEmails) {
-              const linked = await linkUserToTeam(teamId, email, "mentor", team.name, team.division);
+            // Link students with validation
+            for (const email of team.studentEmails) {
+              const linked = await linkUserToTeamWithValidation(
+                teamId,
+                email,
+                team.name,
+                team.division,
+                validationCache
+              );
               if (linked.memberLinked) results.membersLinked++;
               if (linked.whitelistUpdated) results.whitelistUpdated++;
               if (linked.error) results.errors.push(`${email}: ${linked.error}`);
+              if (linked.skipped) results.skipped.push(`${email}: ${linked.skipReason}`);
+            }
+
+            // Link mentors with validation
+            for (const email of team.mentorEmails) {
+              const linked = await linkUserToTeamWithValidation(
+                teamId,
+                email,
+                team.name,
+                team.division,
+                validationCache
+              );
+              if (linked.memberLinked) results.membersLinked++;
+              if (linked.whitelistUpdated) results.whitelistUpdated++;
+              if (linked.error) results.errors.push(`${email}: ${linked.error}`);
+              if (linked.skipped) results.skipped.push(`${email}: ${linked.skipReason}`);
             }
           } catch (error) {
             const message = error instanceof Error ? error.message : "Error desconocido";
@@ -390,7 +434,98 @@ export default function AdminImportTeams() {
     }
   };
 
-  // Link user to team or update whitelist
+  // Link user to team with validation or update whitelist
+  const linkUserToTeamWithValidation = async (
+    teamId: string,
+    email: string,
+    teamName: string,
+    teamDivision: string,
+    validationCache: ReturnType<typeof createValidationCache>
+  ): Promise<{
+    memberLinked: boolean;
+    whitelistUpdated: boolean;
+    error?: string;
+    skipped?: boolean;
+    skipReason?: string;
+  }> => {
+    try {
+      // Search in profiles
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("id")
+        .or(`email.ilike.${email},tg_email.ilike.${email}`)
+        .maybeSingle();
+
+      if (profile) {
+        // Validate before adding
+        const validation = await validateMemberForTeam(profile.id, teamId, validationCache);
+        
+        if (!validation.valid) {
+          return {
+            memberLinked: false,
+            whitelistUpdated: false,
+            skipped: validation.skipped,
+            skipReason: validation.reason,
+            error: validation.skipped ? undefined : validation.reason,
+          };
+        }
+
+        // Check if already a member
+        const { data: existingMember } = await supabase
+          .from("team_members")
+          .select("id")
+          .eq("team_id", teamId)
+          .eq("user_id", profile.id)
+          .maybeSingle();
+
+        if (!existingMember) {
+          // Add as team member with validated member_type
+          const { error } = await supabase.from("team_members").insert({
+            team_id: teamId,
+            user_id: profile.id,
+            member_type: validation.memberType,
+          });
+
+          if (error) return { memberLinked: false, whitelistUpdated: false, error: error.message };
+          return { memberLinked: true, whitelistUpdated: false };
+        }
+
+        return { memberLinked: false, whitelistUpdated: false }; // Already a member
+      }
+
+      // Not in profiles, check authorized_users
+      const { data: authorizedUser } = await supabase
+        .from("authorized_users")
+        .select("id, matched_profile_id")
+        .ilike("email", email)
+        .maybeSingle();
+
+      if (authorizedUser && !authorizedUser.matched_profile_id) {
+        // Update whitelist with team info
+        const { error } = await supabase
+          .from("authorized_users")
+          .update({
+            team_name: teamName,
+            team_division: teamDivision,
+          })
+          .eq("id", authorizedUser.id);
+
+        if (error) return { memberLinked: false, whitelistUpdated: false, error: error.message };
+        return { memberLinked: false, whitelistUpdated: true };
+      }
+
+      return { memberLinked: false, whitelistUpdated: false };
+    } catch (error) {
+      return {
+        memberLinked: false,
+        whitelistUpdated: false,
+        error: error instanceof Error ? error.message : "Error desconocido",
+      };
+    }
+  };
+
+  // Keep old function for compatibility but mark as unused
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const linkUserToTeam = async (
     teamId: string,
     email: string,

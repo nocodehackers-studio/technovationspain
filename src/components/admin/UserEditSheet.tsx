@@ -44,11 +44,11 @@ export function UserEditSheet({
 }: UserEditSheetProps) {
   const queryClient = useQueryClient();
 
-  // Fetch user's team membership
-  const { data: teamMembership } = useQuery({
-    queryKey: ["user-team-membership", user?.id],
+  // Fetch user's team memberships (supports multiple teams for mentors)
+  const { data: teamMemberships } = useQuery({
+    queryKey: ["user-team-memberships", user?.id],
     queryFn: async () => {
-      if (!user?.id) return null;
+      if (!user?.id) return [];
       const { data, error } = await supabase
         .from("team_members")
         .select(`
@@ -56,11 +56,10 @@ export function UserEditSheet({
           member_type,
           team:teams(id, name)
         `)
-        .eq("user_id", user.id)
-        .maybeSingle();
+        .eq("user_id", user.id);
       
       if (error) throw error;
-      return data;
+      return data || [];
     },
     enabled: !!user?.id && open,
   });
@@ -362,10 +361,13 @@ export function UserEditSheet({
 
           <Separator />
 
-          {/* Team Info Section (read-only) */}
+          {/* Team Info Section (read-only) - supports multiple teams */}
           <TeamInfoSection
-            currentTeamName={(teamMembership?.team as { name: string } | null)?.name}
-            currentMemberType={teamMembership?.member_type as "participant" | "mentor" | null}
+            teams={(teamMemberships || []).map((tm) => ({
+              teamId: (tm.team as { id: string; name: string } | null)?.id,
+              teamName: (tm.team as { id: string; name: string } | null)?.name || "Equipo desconocido",
+              memberType: tm.member_type as "participant" | "mentor" | null,
+            }))}
           />
 
           <Separator />
