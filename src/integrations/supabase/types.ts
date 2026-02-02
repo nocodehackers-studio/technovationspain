@@ -822,7 +822,7 @@ export type Database = {
           id: string
           location: string | null
           name: string
-          organization: string | null
+          notes: string | null
         }
         Insert: {
           coordinator_id?: string | null
@@ -830,7 +830,7 @@ export type Database = {
           id?: string
           location?: string | null
           name: string
-          organization?: string | null
+          notes?: string | null
         }
         Update: {
           coordinator_id?: string | null
@@ -838,7 +838,7 @@ export type Database = {
           id?: string
           location?: string | null
           name?: string
-          organization?: string | null
+          notes?: string | null
         }
         Relationships: [
           {

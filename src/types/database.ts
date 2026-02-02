@@ -64,8 +64,8 @@ export interface UserRole {
 export interface Hub {
   id: string;
   name: string;
-  organization?: string | null;
   location?: string | null;
+  notes?: string | null;
   coordinator_id?: string | null;
   created_at: string;
 }

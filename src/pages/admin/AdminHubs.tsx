@@ -112,14 +112,7 @@ export default function AdminHubs() {
       accessorKey: "name",
       header: "Nombre",
       cell: ({ row }) => (
-        <div className="flex flex-col">
-          <span className="font-medium">{row.original.name}</span>
-          {row.original.organization && (
-            <span className="text-xs text-muted-foreground">
-              {row.original.organization}
-            </span>
-          )}
-        </div>
+        <span className="font-medium">{row.original.name}</span>
       ),
     },
     {
@@ -207,8 +200,8 @@ export default function AdminHubs() {
         const formData = new FormData(e.currentTarget);
         onSubmit({
           name: formData.get("name") as string,
-          organization: formData.get("organization") as string || null,
           location: formData.get("location") as string || null,
+          notes: formData.get("notes") as string || null,
         });
       }}
       className="space-y-4"
@@ -224,21 +217,21 @@ export default function AdminHubs() {
           />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="organization">Organización</Label>
-          <Input
-            id="organization"
-            name="organization"
-            placeholder="Ej: Banco Santander, Biblioteca Municipal..."
-            defaultValue={hub?.organization || ""}
-          />
-        </div>
-        <div className="space-y-2">
           <Label htmlFor="location">Ubicación</Label>
           <Input
             id="location"
             name="location"
             placeholder="Ej: Madrid, Barcelona..."
             defaultValue={hub?.location || ""}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="notes">Notas internas</Label>
+          <Input
+            id="notes"
+            name="notes"
+            placeholder="Notas o comentarios internos..."
+            defaultValue={hub?.notes || ""}
           />
         </div>
       </div>
