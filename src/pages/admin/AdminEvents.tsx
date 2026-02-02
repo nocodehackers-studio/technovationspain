@@ -21,23 +21,60 @@ import { toast } from "sonner";
 import { MoreHorizontal, Plus, Edit, Trash2, Users, GraduationCap, Eye, EyeOff } from "lucide-react";
 import { Event } from "@/types/database";
 
+interface EventWithRealCount extends Event {
+  realAttendees: number;
+}
+
 export default function AdminEvents() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
-  // Fetch events
+  // Fetch events with real attendee counts
   const { data: events, isLoading } = useQuery({
     queryKey: ["admin-events"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      // Get all events
+      const { data: eventsData, error: eventsError } = await supabase
         .from("events")
         .select("*")
         .order("date", { ascending: true });
 
-      if (error) throw error;
-      return data as Event[];
+      if (eventsError) throw eventsError;
+
+      // Get registration counts per event (only confirmed, non-companion registrations)
+      const { data: registrations } = await supabase
+        .from("event_registrations")
+        .select("event_id")
+        .eq("registration_status", "confirmed")
+        .eq("is_companion", false);
+
+      // Get companion counts per event
+      const { data: companions } = await supabase
+        .from("companions")
+        .select("event_registration_id, event_registrations!inner(event_id)")
+        .not("event_registration_id", "is", null);
+
+      // Calculate real counts per event
+      const regCounts = new Map<string, number>();
+      registrations?.forEach(r => {
+        regCounts.set(r.event_id!, (regCounts.get(r.event_id!) || 0) + 1);
+      });
+
+      const companionCounts = new Map<string, number>();
+      companions?.forEach(c => {
+        const eventId = (c.event_registrations as any)?.event_id;
+        if (eventId) {
+          companionCounts.set(eventId, (companionCounts.get(eventId) || 0) + 1);
+        }
+      });
+
+      // Merge counts into events
+      return (eventsData as Event[]).map(event => ({
+        ...event,
+        realAttendees: (regCounts.get(event.id) || 0) + (companionCounts.get(event.id) || 0),
+      })) as EventWithRealCount[];
     },
   });
 
@@ -94,7 +131,7 @@ export default function AdminEvents() {
     return { label: "Registro Abierto", variant: "default" as const };
   };
 
-  const columns: ColumnDef<Event>[] = [
+  const columns: ColumnDef<EventWithRealCount>[] = [
     {
       accessorKey: "name",
       header: "Evento",
@@ -136,7 +173,7 @@ export default function AdminEvents() {
       cell: ({ row }) => (
         <div className="w-40">
           <CapacityBar
-            current={row.original.current_registrations || 0}
+            current={row.original.realAttendees}
             max={row.original.max_capacity || 0}
             size="sm"
           />
