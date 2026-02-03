@@ -1,78 +1,69 @@
 
 
-## Plan: Corregir HB-02, DT-01 y EV-01
+## Plan: Corregir Detección de Conflictos en Importación CSV
 
-### Resumen de Problemas
+### Problema Identificado
 
-| Issue | Descripción | Estado Actual |
-|-------|-------------|---------------|
-| **HB-02** | No se puede modificar el HUB de un equipo | **FALSO POSITIVO** - Ya existe funcionalidad |
-| **DT-01** | No se muestra la edad de las usuarias en USUARIOS | Falta columna en tabla |
-| **EV-01** | Inscripción sin DNI obligatorio | Falta configuración de campos requeridos |
+Al importar un CSV de 3,678 registros, el sistema ignoró todas las filas sin mostrar conflictos porque:
 
----
-
-### Análisis Detallado
-
-#### HB-02: Editar Hub del Equipo
-
-**Estado: YA FUNCIONA**
-
-Al revisar `AdminTeams.tsx`, el diálogo de edición (líneas 520-595) ya incluye:
-- Selector de Hub en líneas 555-568
-- Mutación `updateTeamMutation` que actualiza `hub_id`
-- El menú de acciones tiene la opción "Editar" que abre este diálogo
-
-**No se requieren cambios** - Quizás el usuario no encontró la opción o hubo un problema temporal.
+1. **La consulta `.in("email", uniqueEmails)` falla con listas de ~3,500+ emails** - Supabase/PostgreSQL tiene límites en el número de elementos
+2. Al no detectar duplicados, el sistema intentó INSERT que falló por violación de unicidad
+3. Estos fallos se contabilizaron silenciosamente como `skipped`
 
 ---
 
-#### DT-01: Mostrar edad en tabla de Usuarios
+### Datos Actuales
 
-**Problema:** La tabla de `AdminUsers.tsx` no muestra la edad de los usuarios. La edad es crítica para validar la categoría correcta del equipo (Beginner 8-12, Junior 13-15, Senior 16-18).
-
-**Datos disponibles:** El campo `date_of_birth` existe en `profiles` y se usa durante el registro.
-
-**Solución:** Añadir columna "Edad" que calcule la edad a partir de `date_of_birth`.
-
----
-
-#### EV-01: DNI obligatorio en inscripciones
-
-**Problema:** El formulario de inscripción no valida DNI como obligatorio. Actualmente:
-- En `EventRegistrationPage.tsx` línea 60: `dni: z.string().optional()`
-- Solo valida formato si se proporciona, pero no es requerido
-
-**Análisis del flujo:**
-1. Los tipos de entrada (`event_ticket_types`) tienen `companion_fields_config` para acompañantes
-2. **No existe** configuración de campos obligatorios para el titular de la inscripción
-3. El DNI debería ser configurable por tipo de entrada
-
-**Solución:** Añadir configuración `required_fields` en tipos de entrada para controlar qué campos son obligatorios para el titular.
+| Métrica | Valor |
+|---------|-------|
+| Registros en `authorized_users` | 3,693 |
+| Registros en CSV | 3,678 |
+| Registros procesados (log) | 3,678 |
+| Nuevos insertados | 0 |
+| Actualizados | 0 |
+| **Resultado** | Todos ignorados silenciosamente |
 
 ---
 
 ### Cambios a Realizar
 
-#### 1. Añadir columna Edad en AdminUsers (DT-01)
+#### 1. Procesar detección de conflictos en lotes
 
-Añadir columna que calcule edad a partir de `date_of_birth`:
+Dividir la consulta de emails existentes en lotes de 500 elementos para evitar límites de PostgreSQL:
 
 ```text
-┌─────────────────────────────────────────────────────────────────────┐
-│ Nombre    │ TG ID │ Roles │ Estado │ Edad │ Equipo │ Hub │ ...     │
-├───────────┼───────┼───────┼────────┼──────┼────────┼─────┼─────────┤
-│ Ana G.    │ 12345 │ Part  │ ✓      │ 12   │ Power  │ BCN │         │
-│ María L.  │ 12346 │ Part  │ ✓      │ 9    │ Tech   │ MAD │         │
-└─────────────────────────────────────────────────────────────────────┘
+Antes:
+┌─────────────────────────────────────────────────┐
+│ .in("email", [3678 emails])  → FALLA/TIMEOUT   │
+└─────────────────────────────────────────────────┘
+
+Después:
+┌─────────────────────────────────────────────────┐
+│ Lote 1: .in("email", [500 emails]) → OK        │
+│ Lote 2: .in("email", [500 emails]) → OK        │
+│ ...                                             │
+│ Lote 8: .in("email", [178 emails]) → OK        │
+└─────────────────────────────────────────────────┘
 ```
 
-#### 2. Configurar campos obligatorios por tipo de entrada (EV-01)
+#### 2. Mejorar feedback cuando todos los registros ya existen
 
-Añadir en la tabla `event_ticket_types`:
-- Campo `required_fields` para definir qué campos son obligatorios (dni, phone, etc.)
+Mostrar mensaje claro cuando el CSV contiene registros que ya están en la whitelist:
 
-Actualizar el formulario de inscripción para validar según configuración.
+```text
+┌─────────────────────────────────────────────────────────┐
+│ ℹ️  Todos los registros ya existen                      │
+│                                                         │
+│ Los 3,678 registros de este CSV ya están en la         │
+│ lista de autorizados.                                   │
+│                                                         │
+│ [Actualizar datos existentes]  [Cancelar]               │
+└─────────────────────────────────────────────────────────┘
+```
+
+#### 3. Añadir opción de "Actualizar todos" para reimportaciones
+
+Cuando se detecten muchos conflictos de whitelist, ofrecer un botón para actualizar todos los registros de una vez.
 
 ---
 
@@ -80,126 +71,101 @@ Actualizar el formulario de inscripción para validar según configuración.
 
 | Archivo | Cambios |
 |---------|---------|
-| `src/pages/admin/AdminUsers.tsx` | Añadir columna "Edad" calculada desde `date_of_birth` |
-| `src/components/admin/events/TicketTypeManager.tsx` | Añadir sección de campos requeridos para titular |
-| `src/pages/events/EventRegistrationPage.tsx` | Validar campos según configuración del ticket |
-| Nueva migración SQL | Añadir columna `required_fields` a `event_ticket_types` |
+| `src/pages/admin/AdminImportUnified.tsx` | Procesar emails en lotes de 500 para detección de conflictos |
+| `src/components/admin/import/ConflictResolver.tsx` | Añadir opción "Actualizar todos" cuando hay muchos conflictos |
 
 ---
 
 ### Sección Técnica
 
-#### Cálculo de Edad para AdminUsers
+#### Detección de Conflictos en Lotes
 
 ```typescript
-// Función helper para calcular edad
-const calculateAge = (dateOfBirth: string | null): number | null => {
-  if (!dateOfBirth) return null;
-  const today = new Date();
-  const birth = new Date(dateOfBirth);
-  let age = today.getFullYear() - birth.getFullYear();
-  const monthDiff = today.getMonth() - birth.getMonth();
-  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
-    age--;
-  }
-  return age;
-};
-
-// Nueva columna en staticColumns
-{
-  accessorKey: "date_of_birth",
-  header: "Edad",
-  enableHiding: true,
-  cell: ({ row }) => {
-    const age = calculateAge(row.original.date_of_birth);
-    if (age === null) return <span className="text-muted-foreground">—</span>;
+// Función helper para procesar en lotes
+async function fetchExistingAuthorizedInBatches(emails: string[]) {
+  const BATCH_SIZE = 500;
+  const allResults: AuthorizedUser[] = [];
+  
+  for (let i = 0; i < emails.length; i += BATCH_SIZE) {
+    const batch = emails.slice(i, i + BATCH_SIZE);
+    const { data } = await supabase
+      .from("authorized_users")
+      .select("id, email, matched_profile_id, first_name, last_name")
+      .in("email", batch);
     
-    // Resaltar edades fuera de rango típico (8-18)
-    const isOutOfRange = age < 8 || age > 18;
-    return (
-      <span className={isOutOfRange ? "text-warning font-medium" : ""}>
-        {age} años
-      </span>
-    );
-  },
+    if (data) {
+      allResults.push(...data);
+    }
+  }
+  
+  return allResults;
+}
+
+// En processCSVData:
+const existingAuthorized = await fetchExistingAuthorizedInBatches(uniqueEmails);
+const authorizedMap = new Map(
+  existingAuthorized.map(a => [a.email.toLowerCase(), a])
+);
+```
+
+#### Detección Optimizada de Perfiles Existentes
+
+```typescript
+// También procesar profiles en lotes
+async function fetchExistingProfilesInBatches(emails: string[]) {
+  const BATCH_SIZE = 200; // Menor por la complejidad del OR
+  const allEmails = new Set<string>();
+  
+  for (let i = 0; i < emails.length; i += BATCH_SIZE) {
+    const batch = emails.slice(i, i + BATCH_SIZE);
+    const { data } = await supabase
+      .from("profiles")
+      .select("email, tg_email")
+      .or(batch.map(e => `email.ilike.${e},tg_email.ilike.${e}`).join(","));
+    
+    if (data) {
+      data.forEach(p => {
+        if (p.email) allEmails.add(p.email.toLowerCase());
+        if (p.tg_email) allEmails.add(p.tg_email.toLowerCase());
+      });
+    }
+  }
+  
+  return allEmails;
 }
 ```
 
-#### Migración SQL para required_fields
-
-```sql
-ALTER TABLE event_ticket_types 
-ADD COLUMN required_fields text[] DEFAULT ARRAY['first_name', 'last_name', 'email']::text[];
-
-COMMENT ON COLUMN event_ticket_types.required_fields IS 
-  'Campos obligatorios para el titular: dni, phone, team_name, tg_email';
-```
-
-#### Configuración en TicketTypeManager
+#### UI para "Actualizar Todos"
 
 ```typescript
-const REGISTRATION_FIELDS = [
-  { value: "dni", label: "DNI/NIE" },
-  { value: "phone", label: "Teléfono" },
-  { value: "team_name", label: "Nombre del equipo" },
-  { value: "tg_email", label: "Email de Technovation" },
-];
-
-// En formData añadir:
-required_fields: ["dni"] as string[],
-
-// En Tab de Configuración, nueva sección:
-<div className="space-y-3 pt-4 border-t">
-  <Label>Campos obligatorios del titular</Label>
-  <p className="text-sm text-muted-foreground">
-    Además de nombre, apellidos y email (siempre obligatorios)
-  </p>
-  <div className="grid grid-cols-2 gap-2">
-    {REGISTRATION_FIELDS.map((field) => (
-      <div key={field.value} className="flex items-center space-x-2">
-        <Checkbox
-          id={`required-${field.value}`}
-          checked={formData.required_fields.includes(field.value)}
-          onCheckedChange={() => toggleRequiredField(field.value)}
-        />
-        <Label htmlFor={`required-${field.value}`} className="font-normal">
-          {field.label}
-        </Label>
-      </div>
-    ))}
-  </div>
-</div>
-```
-
-#### Validación Dinámica en EventRegistrationPage
-
-```typescript
-// Obtener campos requeridos del ticket seleccionado
-const requiredFields = selectedTicket?.required_fields || [];
-
-// Schema dinámico basado en configuración
-const createRegistrationSchema = (requiredFields: string[]) => z.object({
-  ticket_type_id: z.string().min(1, 'Selecciona un tipo de entrada'),
-  first_name: z.string().min(2, 'El nombre debe tener al menos 2 caracteres'),
-  last_name: z.string().min(2, 'Los apellidos deben tener al menos 2 caracteres'),
-  email: z.string().email('Introduce un email válido'),
-  dni: requiredFields.includes('dni')
-    ? z.string().min(1, 'El DNI es obligatorio').refine(validateSpanishDNI, 'Formato de DNI inválido')
-    : z.string().optional().refine((val) => !val || validateSpanishDNI(val), 'Formato inválido'),
-  phone: requiredFields.includes('phone')
-    ? z.string().min(1, 'El teléfono es obligatorio').refine(validateSpanishPhone, 'Formato inválido')
-    : z.string().optional().refine((val) => !val || validateSpanishPhone(val), 'Formato inválido'),
-  // ... resto de campos
-});
+// En ConflictResolver cuando hay muchos conflictos de whitelist
+{whitelistConflicts.length > 100 && (
+  <Alert>
+    <AlertTriangle className="h-4 w-4" />
+    <AlertTitle>Muchos registros ya existen</AlertTitle>
+    <AlertDescription className="flex items-center justify-between">
+      <span>
+        {whitelistConflicts.length} registros ya están en la whitelist.
+      </span>
+      <Button 
+        variant="outline" 
+        onClick={() => onSelectAllUpdate()}
+      >
+        Actualizar todos
+      </Button>
+    </AlertDescription>
+  </Alert>
+)}
 ```
 
 ---
 
 ### Resumen de Cambios
 
-| Issue | Acción | Prioridad |
-|-------|--------|-----------|
-| HB-02 | Ninguna - ya funciona | N/A |
-| DT-01 | Añadir columna Edad en AdminUsers | Alta |
-| EV-01 | Añadir `required_fields` a tickets + validación dinámica | Alta |
+| Problema | Solución |
+|----------|----------|
+| `.in()` falla con +3000 emails | Procesar en lotes de 500 |
+| Errores de INSERT silenciosos | Detectar duplicados antes de intentar INSERT |
+| No hay opción de actualizar masivo | Añadir botón "Actualizar todos" |
+| Feedback confuso | Mensaje claro cuando todo ya existe |
 
