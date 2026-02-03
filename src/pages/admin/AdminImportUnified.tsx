@@ -159,6 +159,51 @@ export default function AdminImportUnified() {
     readyToImport: 0,
   });
 
+  // Helper function to fetch existing authorized users in batches
+  const fetchExistingAuthorizedInBatches = async (emails: string[]) => {
+    const BATCH_SIZE = 500;
+    const allResults: { id: string; email: string; matched_profile_id: string | null; first_name: string | null; last_name: string | null }[] = [];
+    
+    for (let i = 0; i < emails.length; i += BATCH_SIZE) {
+      const batch = emails.slice(i, i + BATCH_SIZE);
+      const { data, error } = await supabase
+        .from("authorized_users")
+        .select("id, email, matched_profile_id, first_name, last_name")
+        .in("email", batch);
+      
+      if (data && !error) {
+        allResults.push(...data);
+      }
+    }
+    
+    return allResults;
+  };
+
+  // Helper function to fetch existing profiles in batches
+  const fetchExistingProfilesInBatches = async (emails: string[]) => {
+    const BATCH_SIZE = 200; // Smaller batch for OR queries
+    const allEmails = new Set<string>();
+    
+    for (let i = 0; i < emails.length; i += BATCH_SIZE) {
+      const batch = emails.slice(i, i + BATCH_SIZE);
+      const orFilter = batch.map(e => `email.ilike.${e},tg_email.ilike.${e}`).join(",");
+      
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("email, tg_email")
+        .or(orFilter);
+      
+      if (data && !error) {
+        data.forEach(p => {
+          if (p.email) allEmails.add(p.email.toLowerCase());
+          if (p.tg_email) allEmails.add(p.tg_email.toLowerCase());
+        });
+      }
+    }
+    
+    return allEmails;
+  };
+
   // Process CSV data and detect conflicts
   const processCSVData = useCallback(async (headers: string[], data: CSVRow[]) => {
     const records: ParsedRecord[] = data.map((row, index) => ({
@@ -193,8 +238,8 @@ export default function AdminImportUnified() {
       }
     });
 
-    // Get all unique emails from CSV
-    const uniqueEmails = [...new Set(records.map(r => r.email?.toLowerCase()).filter(Boolean))];
+    // Get all unique emails from CSV (normalized to lowercase)
+    const uniqueEmails = [...new Set(records.map(r => r.email?.toLowerCase()).filter(Boolean))] as string[];
     
     // Check against existing data in parallel batches
     const detectedConflicts: ConflictRecord[] = [];
@@ -223,25 +268,14 @@ export default function AdminImportUnified() {
       }
     }
 
-    // Check existing profiles (batch query)
+    // Check existing profiles and authorized users in batches
     if (uniqueEmails.length > 0) {
-      const { data: existingProfiles } = await supabase
-        .from("profiles")
-        .select("id, email, tg_email, first_name, last_name, verification_status")
-        .or(uniqueEmails.map(e => `email.ilike.${e},tg_email.ilike.${e}`).join(","));
-
-      const existingProfileEmails = new Set(
-        existingProfiles?.flatMap(p => [p.email?.toLowerCase(), p.tg_email?.toLowerCase()].filter(Boolean)) || []
-      );
-
-      // Check existing authorized_users
-      const { data: existingAuthorized } = await supabase
-        .from("authorized_users")
-        .select("id, email, matched_profile_id, first_name, last_name")
-        .in("email", uniqueEmails);
+      // Fetch in batches to avoid query limits
+      const existingProfileEmails = await fetchExistingProfilesInBatches(uniqueEmails);
+      const existingAuthorized = await fetchExistingAuthorizedInBatches(uniqueEmails);
 
       const authorizedMap = new Map(
-        existingAuthorized?.map(a => [a.email.toLowerCase(), a]) || []
+        existingAuthorized.map(a => [a.email.toLowerCase(), a])
       );
 
       // Process each record for conflicts
@@ -401,6 +435,12 @@ export default function AdminImportUnified() {
   const handleSelectAllSkip = useCallback((skip: boolean) => {
     setConflicts(prev => prev.map(c => 
       c.conflictType !== "already_active" ? { ...c, action: skip ? "skip" : "update" } : c
+    ));
+  }, []);
+
+  const handleSelectAllUpdate = useCallback(() => {
+    setConflicts(prev => prev.map(c => 
+      c.conflictType === "already_in_whitelist" ? { ...c, action: "update" } : c
     ));
   }, []);
 
@@ -713,6 +753,7 @@ export default function AdminImportUnified() {
             conflicts={conflicts}
             onConflictActionChange={handleConflictActionChange}
             onSelectAllSkip={handleSelectAllSkip}
+            onSelectAllUpdate={handleSelectAllUpdate}
             onContinue={handleStartImport}
             onBack={() => setStep("preview")}
           />
