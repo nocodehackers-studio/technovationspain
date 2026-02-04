@@ -3,6 +3,7 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Calendar, Clock, MapPin, Users, ArrowLeft, ExternalLink } from 'lucide-react';
 import { useEvent } from '@/hooks/useEventRegistration';
+import { useAuth } from '@/hooks/useAuth';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -13,7 +14,11 @@ import { Separator } from '@/components/ui/separator';
 export default function EventDetailPage() {
   const { eventId } = useParams<{ eventId: string }>();
   const navigate = useNavigate();
+  const { role } = useAuth();
   const { data: event, isLoading, error } = useEvent(eventId || '');
+  
+  // Only show capacity to admins and chapter ambassadors
+  const showCapacity = role === 'admin' || role === 'chapter_ambassador';
   
   if (isLoading) {
     return (
@@ -173,7 +178,7 @@ export default function EventDetailPage() {
               <Card>
                 <CardHeader>
                   <CardTitle>Inscripción</CardTitle>
-                  {totalCapacity > 0 && (
+                  {showCapacity && totalCapacity > 0 && (
                     <div className="space-y-2">
                       <div className="flex items-center gap-2 text-sm text-muted-foreground">
                         <Users className="h-4 w-4" />
@@ -199,9 +204,11 @@ export default function EventDetailPage() {
                           >
                             <div>
                               <p className="font-medium">{ticket.name}</p>
-                              <p className="text-xs text-muted-foreground">
-                                {available} / {ticket.max_capacity} disponibles
-                              </p>
+                              {showCapacity && (
+                                <p className="text-xs text-muted-foreground">
+                                  {available} / {ticket.max_capacity} disponibles
+                                </p>
+                              )}
                             </div>
                             <Badge variant={isSoldOut ? 'destructive' : 'secondary'}>
                               {isSoldOut ? 'Agotado' : 'Gratis'}
