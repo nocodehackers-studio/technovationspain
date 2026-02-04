@@ -87,6 +87,37 @@ const createRegistrationSchema = (requiredFields: string[]) => z.object({
   data_consent: z.boolean().refine(val => val === true, 'Debes aceptar la política de privacidad'),
 });
 
+// Schema for step 2 validation (excludes consent fields that are filled in step 3/4)
+const createStep2Schema = (requiredFields: string[]) => z.object({
+  first_name: z.string().min(2, 'El nombre debe tener al menos 2 caracteres'),
+  last_name: z.string().min(2, 'Los apellidos deben tener al menos 2 caracteres'),
+  email: z.string().email('Introduce un email válido'),
+  dni: requiredFields.includes('dni')
+    ? z.string().min(1, 'El DNI es obligatorio').refine(
+        validateSpanishDNI,
+        'Formato inválido. Usa 8 números + letra (DNI) o X/Y/Z + 7 números + letra (NIE)'
+      )
+    : z.string().optional().refine(
+        (val) => !val || validateSpanishDNI(val),
+        'Formato inválido. Usa 8 números + letra (DNI) o X/Y/Z + 7 números + letra (NIE)'
+      ),
+  phone: requiredFields.includes('phone')
+    ? z.string().min(1, 'El teléfono es obligatorio').refine(
+        validateSpanishPhone,
+        'Formato inválido. Introduce 9 dígitos (ej: 612345678)'
+      )
+    : z.string().optional().refine(
+        (val) => !val || validateSpanishPhone(val),
+        'Formato inválido. Introduce 9 dígitos (ej: 612345678)'
+      ),
+  team_name: requiredFields.includes('team_name')
+    ? z.string().min(1, 'El nombre del equipo es obligatorio')
+    : z.string().optional(),
+  tg_email: requiredFields.includes('tg_email')
+    ? z.string().email('Introduce un email válido')
+    : z.string().email('Introduce un email válido').optional().or(z.literal('')),
+});
+
 // Default schema for form initialization
 const registrationSchema = createRegistrationSchema([]);
 
@@ -285,10 +316,10 @@ const selectedTicketId = form.watch('ticket_type_id');
       if (requiresTeam || requiredFields.includes('team_name')) fieldsToValidate.push('team_name');
       if (requiresTeam || requiredFields.includes('tg_email')) fieldsToValidate.push('tg_email');
       
-      // Create dynamic schema for validation
-      const dynamicSchema = createRegistrationSchema(requiredFields);
+      // Use step 2 schema that doesn't include consent fields
+      const step2Schema = createStep2Schema(requiredFields);
       const formValues = form.getValues();
-      const result = dynamicSchema.safeParse(formValues);
+      const result = step2Schema.safeParse(formValues);
       
       if (!result.success) {
         // Set form errors from zod validation
