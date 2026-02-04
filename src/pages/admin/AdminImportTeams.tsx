@@ -309,22 +309,39 @@ export default function AdminImportTeams() {
 
         for (const team of batch) {
           try {
-            // Check if team exists
-            const { data: existingTeam } = await supabase
+            // Check if team exists by tg_team_id first
+            let existingTeam: { id: string } | null = null;
+            
+            const { data: teamByTgId } = await supabase
               .from("teams")
               .select("id")
               .eq("tg_team_id", team.tgTeamId)
               .maybeSingle();
 
+            if (teamByTgId) {
+              existingTeam = teamByTgId;
+            } else {
+              // If not found by tg_team_id, search by exact name (case-insensitive)
+              // This handles teams created during participant import
+              const { data: teamByName } = await supabase
+                .from("teams")
+                .select("id")
+                .ilike("name", team.name)
+                .maybeSingle();
+              
+              existingTeam = teamByName;
+            }
+
             let teamId: string;
 
             if (existingTeam) {
-              // Update existing team
+              // Update existing team (add tg_team_id if it didn't have one)
               const { error: updateError } = await supabase
                 .from("teams")
                 .update({
                   name: team.name,
                   category: team.division,
+                  tg_team_id: team.tgTeamId, // Always update tg_team_id
                 })
                 .eq("id", existingTeam.id);
 

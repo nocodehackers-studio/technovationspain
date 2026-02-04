@@ -1,6 +1,6 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Users, GraduationCap, Scale, Crown, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { Users, GraduationCap, Scale, Crown, AlertTriangle, CheckCircle2, Package } from "lucide-react";
 import { ProfileType } from "./ProfileTypeBadge";
 
 interface ImportSummaryData {
@@ -9,6 +9,9 @@ interface ImportSummaryData {
   totalRecords: number;
   conflictsCount: number;
   readyToImport: number;
+  teamsInCSV?: number;
+  teamsToCreate?: number;
+  teamsExisting?: number;
 }
 
 interface ImportSummaryCardProps {
@@ -85,6 +88,30 @@ export function ImportSummaryCard({ data }: ImportSummaryCardProps) {
                     {division}: {count.toLocaleString()}
                   </Badge>
                 ))}
+            </div>
+          </div>
+        )}
+
+        {/* Teams Summary */}
+        {data.teamsInCSV != null && data.teamsInCSV > 0 && (
+          <div className="p-4 rounded-lg border bg-card">
+            <div className="flex items-center gap-2 mb-3">
+              <Package className="h-5 w-5 text-primary" />
+              <h4 className="font-medium">Equipos Detectados</h4>
+            </div>
+            <div className="grid grid-cols-3 gap-4 text-center">
+              <div>
+                <div className="text-2xl font-bold">{data.teamsInCSV}</div>
+                <div className="text-sm text-muted-foreground">En CSV</div>
+              </div>
+              <div>
+                <div className="text-2xl font-bold text-muted-foreground">{data.teamsExisting || 0}</div>
+                <div className="text-sm text-muted-foreground">Ya existen</div>
+              </div>
+              <div>
+                <div className="text-2xl font-bold text-green-600">{data.teamsToCreate || 0}</div>
+                <div className="text-sm text-muted-foreground">Se crearán</div>
+              </div>
             </div>
           </div>
         )}
