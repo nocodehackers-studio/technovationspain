@@ -83,24 +83,19 @@ export function useDemoData(eventId: string) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
 
-  // Query to count existing demo teams for this event
+  // Query to count existing demo teams (regardless of event registrations)
   const { data: demoTeamsCount = 0, refetch: refetchDemoCount } = useQuery({
-    queryKey: ['demo-teams-count', eventId],
+    queryKey: ['demo-teams-count'],
     queryFn: async () => {
-      // Get teams with registrations for this event that are DEMO
+      // Get ALL teams with [DEMO] prefix
       const { data, error } = await supabase
-        .from('event_registrations')
-        .select('team_id, teams!inner(name)')
-        .eq('event_id', eventId)
-        .like('teams.name', '[DEMO]%');
+        .from('teams')
+        .select('id')
+        .like('name', '[DEMO]%');
 
       if (error) throw error;
-      
-      // Get unique team IDs
-      const uniqueTeamIds = new Set(data?.map(r => r.team_id).filter(Boolean));
-      return uniqueTeamIds.size;
+      return data?.length || 0;
     },
-    enabled: !!eventId,
   });
 
   const generateDemoData = async () => {
@@ -198,7 +193,7 @@ export function useDemoData(eventId: string) {
       toast.success(`Se crearon ${teamsCreated} equipos DEMO con preferencias`);
       
       // Invalidate queries to refresh data
-      queryClient.invalidateQueries({ queryKey: ['demo-teams-count', eventId] });
+      queryClient.invalidateQueries({ queryKey: ['demo-teams-count'] });
       queryClient.invalidateQueries({ queryKey: ['all-teams-preferences', eventId] });
       queryClient.invalidateQueries({ queryKey: ['workshop-assignments', eventId] });
 
@@ -268,7 +263,7 @@ export function useDemoData(eventId: string) {
       toast.success(`Se eliminaron ${demoTeamIds.length} equipos DEMO y sus datos relacionados`);
       
       // Invalidate queries to refresh data
-      queryClient.invalidateQueries({ queryKey: ['demo-teams-count', eventId] });
+      queryClient.invalidateQueries({ queryKey: ['demo-teams-count'] });
       queryClient.invalidateQueries({ queryKey: ['all-teams-preferences', eventId] });
       queryClient.invalidateQueries({ queryKey: ['workshop-assignments', eventId] });
 
