@@ -1,69 +1,52 @@
 
 
-## Plan: Corregir Detección de Conflictos en Importación CSV
+## Plan: DNI Obligatorio en Plataforma y Eventos
 
-### Problema Identificado
+### Resumen
 
-Al importar un CSV de 3,678 registros, el sistema ignoró todas las filas sin mostrar conflictos porque:
+El cliente quiere que el DNI sea obligatorio tanto en el registro de la plataforma (Onboarding) como en la inscripción a eventos.
 
-1. **La consulta `.in("email", uniqueEmails)` falla con listas de ~3,500+ emails** - Supabase/PostgreSQL tiene límites en el número de elementos
-2. Al no detectar duplicados, el sistema intentó INSERT que falló por violación de unicidad
-3. Estos fallos se contabilizaron silenciosamente como `skipped`
+### Estado Actual
 
----
-
-### Datos Actuales
-
-| Métrica | Valor |
-|---------|-------|
-| Registros en `authorized_users` | 3,693 |
-| Registros en CSV | 3,678 |
-| Registros procesados (log) | 3,678 |
-| Nuevos insertados | 0 |
-| Actualizados | 0 |
-| **Resultado** | Todos ignorados silenciosamente |
-
----
+| Ubicación | DNI | Implementación |
+|-----------|-----|----------------|
+| **Tabla `profiles`** | ❌ No existe | La tabla no tiene columna `dni` |
+| **Onboarding** | ❌ No se pide | El formulario no incluye el campo |
+| **Eventos** | ⚙️ Configurable | Ya implementado con `required_fields` por tipo de entrada |
 
 ### Cambios a Realizar
 
-#### 1. Procesar detección de conflictos en lotes
+#### 1. Base de Datos
 
-Dividir la consulta de emails existentes en lotes de 500 elementos para evitar límites de PostgreSQL:
+Añadir columna `dni` a la tabla `profiles`:
 
-```text
-Antes:
-┌─────────────────────────────────────────────────┐
-│ .in("email", [3678 emails])  → FALLA/TIMEOUT   │
-└─────────────────────────────────────────────────┘
-
-Después:
-┌─────────────────────────────────────────────────┐
-│ Lote 1: .in("email", [500 emails]) → OK        │
-│ Lote 2: .in("email", [500 emails]) → OK        │
-│ ...                                             │
-│ Lote 8: .in("email", [178 emails]) → OK        │
-└─────────────────────────────────────────────────┘
+```sql
+ALTER TABLE profiles ADD COLUMN dni text;
 ```
 
-#### 2. Mejorar feedback cuando todos los registros ya existen
+#### 2. Onboarding (Registro en Plataforma)
 
-Mostrar mensaje claro cuando el CSV contiene registros que ya están en la whitelist:
+Añadir campo DNI al formulario de onboarding con validación de formato español (DNI/NIE).
 
 ```text
-┌─────────────────────────────────────────────────────────┐
-│ ℹ️  Todos los registros ya existen                      │
-│                                                         │
-│ Los 3,678 registros de este CSV ya están en la         │
-│ lista de autorizados.                                   │
-│                                                         │
-│ [Actualizar datos existentes]  [Cancelar]               │
-└─────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────┐
+│               DATOS PERSONALES                       │
+├─────────────────────────────────────────────────────┤
+│  Nombre *          │  Apellidos *                   │
+│  [_______________] │  [_______________]             │
+│                                                     │
+│  Fecha de nacimiento *                              │
+│  [_______________]                                  │
+│                                                     │
+│  DNI/NIE *  ← NUEVO                                │
+│  [_______________]                                  │
+│  "8 números + letra (DNI) o X/Y/Z + 7 números"     │
+└─────────────────────────────────────────────────────┘
 ```
 
-#### 3. Añadir opción de "Actualizar todos" para reimportaciones
+#### 3. Eventos (Ya Implementado)
 
-Cuando se detecten muchos conflictos de whitelist, ofrecer un botón para actualizar todos los registros de una vez.
+El sistema ya permite configurar DNI como obligatorio por tipo de entrada. **No requiere cambios adicionales**, pero ahora el formulario de eventos puede pre-rellenar el DNI desde el perfil del usuario.
 
 ---
 
@@ -71,101 +54,127 @@ Cuando se detecten muchos conflictos de whitelist, ofrecer un botón para actual
 
 | Archivo | Cambios |
 |---------|---------|
-| `src/pages/admin/AdminImportUnified.tsx` | Procesar emails en lotes de 500 para detección de conflictos |
-| `src/components/admin/import/ConflictResolver.tsx` | Añadir opción "Actualizar todos" cuando hay muchos conflictos |
+| Nueva migración SQL | Añadir columna `dni` a `profiles` |
+| `src/pages/Onboarding.tsx` | Añadir campo DNI con validación |
+| `src/hooks/useAuth.tsx` | Incluir `dni` en el tipo de perfil |
+| `src/pages/events/EventRegistrationPage.tsx` | Pre-rellenar DNI desde perfil en lugar de buscar en registros anteriores |
 
 ---
 
 ### Sección Técnica
 
-#### Detección de Conflictos en Lotes
+#### Migración SQL
 
-```typescript
-// Función helper para procesar en lotes
-async function fetchExistingAuthorizedInBatches(emails: string[]) {
-  const BATCH_SIZE = 500;
-  const allResults: AuthorizedUser[] = [];
-  
-  for (let i = 0; i < emails.length; i += BATCH_SIZE) {
-    const batch = emails.slice(i, i + BATCH_SIZE);
-    const { data } = await supabase
-      .from("authorized_users")
-      .select("id, email, matched_profile_id, first_name, last_name")
-      .in("email", batch);
-    
-    if (data) {
-      allResults.push(...data);
-    }
-  }
-  
-  return allResults;
-}
+```sql
+ALTER TABLE profiles ADD COLUMN dni text;
 
-// En processCSVData:
-const existingAuthorized = await fetchExistingAuthorizedInBatches(uniqueEmails);
-const authorizedMap = new Map(
-  existingAuthorized.map(a => [a.email.toLowerCase(), a])
-);
+COMMENT ON COLUMN profiles.dni IS 
+  'DNI o NIE del usuario. Formato: 8 dígitos + letra (DNI) o X/Y/Z + 7 dígitos + letra (NIE)';
 ```
 
-#### Detección Optimizada de Perfiles Existentes
+#### Validación de DNI/NIE en Onboarding
 
 ```typescript
-// También procesar profiles en lotes
-async function fetchExistingProfilesInBatches(emails: string[]) {
-  const BATCH_SIZE = 200; // Menor por la complejidad del OR
-  const allEmails = new Set<string>();
-  
-  for (let i = 0; i < emails.length; i += BATCH_SIZE) {
-    const batch = emails.slice(i, i + BATCH_SIZE);
-    const { data } = await supabase
-      .from("profiles")
-      .select("email, tg_email")
-      .or(batch.map(e => `email.ilike.${e},tg_email.ilike.${e}`).join(","));
-    
-    if (data) {
-      data.forEach(p => {
-        if (p.email) allEmails.add(p.email.toLowerCase());
-        if (p.tg_email) allEmails.add(p.tg_email.toLowerCase());
-      });
-    }
-  }
-  
-  return allEmails;
+// Añadir al esquema de validación
+const validateSpanishDNI = (value: string): boolean => {
+  if (!value) return false; // Obligatorio
+  const cleanValue = value.toUpperCase().replace(/\s|-/g, '');
+  // DNI: 8 digits + letter
+  const dniRegex = /^[0-9]{8}[A-Z]$/;
+  // NIE: X/Y/Z + 7 digits + letter
+  const nieRegex = /^[XYZ][0-9]{7}[A-Z]$/;
+  return dniRegex.test(cleanValue) || nieRegex.test(cleanValue);
+};
+
+// En OnboardingData añadir:
+dni: string;
+
+// En formData inicial:
+dni: '',
+
+// Validación en validateStep1():
+if (!formData.dni.trim()) {
+  newErrors.dni = 'El DNI/NIE es obligatorio';
+} else if (!validateSpanishDNI(formData.dni)) {
+  newErrors.dni = 'Formato inválido. Usa 8 números + letra (DNI) o X/Y/Z + 7 números + letra (NIE)';
 }
 ```
 
-#### UI para "Actualizar Todos"
+#### Campo DNI en formulario Onboarding
+
+```tsx
+<div className="space-y-2">
+  <Label htmlFor="dni">DNI/NIE *</Label>
+  <Input
+    id="dni"
+    placeholder="12345678A"
+    value={formData.dni}
+    onChange={(e) => updateField('dni', e.target.value.toUpperCase())}
+    maxLength={9}
+    className="uppercase"
+  />
+  <p className="text-xs text-muted-foreground">
+    8 números + letra (DNI) o X/Y/Z + 7 números + letra (NIE)
+  </p>
+  {errors.dni && (
+    <p className="text-sm text-destructive">{errors.dni}</p>
+  )}
+</div>
+```
+
+#### Guardar DNI en perfil
 
 ```typescript
-// En ConflictResolver cuando hay muchos conflictos de whitelist
-{whitelistConflicts.length > 100 && (
-  <Alert>
-    <AlertTriangle className="h-4 w-4" />
-    <AlertTitle>Muchos registros ya existen</AlertTitle>
-    <AlertDescription className="flex items-center justify-between">
-      <span>
-        {whitelistConflicts.length} registros ya están en la whitelist.
-      </span>
-      <Button 
-        variant="outline" 
-        onClick={() => onSelectAllUpdate()}
-      >
-        Actualizar todos
-      </Button>
-    </AlertDescription>
-  </Alert>
-)}
+// En handleSubmit, añadir al profileUpdate:
+const profileUpdate: any = {
+  first_name: formData.first_name.trim(),
+  last_name: formData.last_name.trim(),
+  date_of_birth: formData.date_of_birth,
+  dni: formData.dni.toUpperCase().trim(), // ← NUEVO
+  tg_email: formData.tg_email?.trim() || null,
+  // ... resto de campos
+};
 ```
+
+#### Pre-rellenar DNI en eventos desde perfil
+
+```typescript
+// En EventRegistrationPage.tsx, modificar useEffect:
+useEffect(() => {
+  if (profile) {
+    form.setValue('first_name', profile.first_name || '');
+    form.setValue('last_name', profile.last_name || '');
+    form.setValue('email', profile.email || '');
+    form.setValue('phone', profile.phone || '');
+    form.setValue('tg_email', profile.tg_email || '');
+    
+    // Pre-rellenar DNI desde perfil (nuevo)
+    if (profile.dni) {
+      form.setValue('dni', profile.dni);
+    }
+  }
+}, [profile, form]);
+```
+
+---
+
+### Consideraciones
+
+| Aspecto | Decisión |
+|---------|----------|
+| **Menores sin DNI** | Los menores de 14 años en España sí tienen DNI. Si hay casos excepcionales, se puede usar el DNI del tutor |
+| **Extranjeros sin NIE** | Usuarios con pasaporte deberían gestionar su NIE antes de registrarse. Alternativa: permitir formato pasaporte |
+| **Usuarios existentes** | Los perfiles ya creados tendrán `dni = null`. Se podría forzar completar este dato en su próximo login |
+| **Eventos** | DNI sigue siendo configurable por tipo de entrada (por si hay eventos públicos donde no sea necesario) |
 
 ---
 
 ### Resumen de Cambios
 
-| Problema | Solución |
-|----------|----------|
-| `.in()` falla con +3000 emails | Procesar en lotes de 500 |
-| Errores de INSERT silenciosos | Detectar duplicados antes de intentar INSERT |
-| No hay opción de actualizar masivo | Añadir botón "Actualizar todos" |
-| Feedback confuso | Mensaje claro cuando todo ya existe |
+| Cambio | Impacto |
+|--------|---------|
+| Nueva columna `dni` en `profiles` | Almacenar DNI del usuario |
+| Campo DNI obligatorio en Onboarding | Todos los nuevos usuarios deben proporcionarlo |
+| Pre-relleno de DNI en eventos desde perfil | Evita búsqueda en registros anteriores |
+| Eventos mantienen configuración por tipo | Flexibilidad para eventos públicos |
 
