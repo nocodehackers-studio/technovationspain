@@ -273,6 +273,14 @@ export default function MentorDashboard() {
                       const participants = team.members.filter(m => m.member_type === 'participant');
                       const otherMentors = team.members.filter(m => m.member_type === 'mentor' && m.user?.id !== user?.id);
                       
+                      // Get workshop status for this team
+                      const teamEligibility = eligibleTeams.filter(t => t.teamId === team.id);
+                      const workshopStatus = teamEligibility.length > 0 ? {
+                        hasSubmitted: teamEligibility.some(t => t.hasSubmittedPreferences),
+                        hasPending: teamEligibility.some(t => !t.hasSubmittedPreferences),
+                        pendingEvent: teamEligibility.find(t => !t.hasSubmittedPreferences),
+                      } : null;
+                      
                       return (
                         <Collapsible key={team.id} open={isExpanded} onOpenChange={() => toggleTeam(team.id)}>
                           <CollapsibleTrigger className="w-full">
@@ -282,7 +290,22 @@ export default function MentorDashboard() {
                                   <Users className="h-5 w-5 text-secondary" />
                                 </div>
                                 <div className="text-left">
-                                  <p className="font-medium">{team.name}</p>
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <p className="font-medium">{team.name}</p>
+                                    {/* Workshop status badges */}
+                                    {workshopStatus?.hasPending && (
+                                      <Badge variant="orange" className="text-[10px] py-0 px-2">
+                                        <Clock className="mr-1 h-3 w-3" />
+                                        Talleres pendientes
+                                      </Badge>
+                                    )}
+                                    {workshopStatus?.hasSubmitted && !workshopStatus?.hasPending && (
+                                      <Badge variant="green" className="text-[10px] py-0 px-2">
+                                        <CheckCircle2 className="mr-1 h-3 w-3" />
+                                        Talleres asignados
+                                      </Badge>
+                                    )}
+                                  </div>
                                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                                     <span>{participants.length} participante{participants.length !== 1 ? 's' : ''}</span>
                                     {team.category && (
@@ -303,11 +326,24 @@ export default function MentorDashboard() {
                                   </div>
                                 </div>
                               </div>
-                              {isExpanded ? (
-                                <ChevronDown className="h-5 w-5 text-muted-foreground" />
-                              ) : (
-                                <ChevronRight className="h-5 w-5 text-muted-foreground" />
-                              )}
+                              <div className="flex items-center gap-2">
+                                {/* Quick action button for pending workshops */}
+                                {workshopStatus?.hasPending && workshopStatus.pendingEvent && (
+                                  <Link 
+                                    to={`/events/${workshopStatus.pendingEvent.eventId}/workshop-preferences`}
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <Button size="sm" variant="secondary" className="text-xs">
+                                      Asignar talleres
+                                    </Button>
+                                  </Link>
+                                )}
+                                {isExpanded ? (
+                                  <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                                ) : (
+                                  <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                                )}
+                              </div>
                             </div>
                           </CollapsibleTrigger>
                           <CollapsibleContent>
