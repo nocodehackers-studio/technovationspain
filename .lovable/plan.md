@@ -1,140 +1,76 @@
 
-## Plan: Corregir Página de Talleres con Selector de Eventos
-
-### Problema Identificado
-
-La página `/admin/workshops` muestra "Selecciona un evento para gestionar sus talleres" pero NO hay ningún selector de eventos visible. El componente espera un `eventId` de los parámetros de URL, pero cuando el usuario navega desde el sidebar a `/admin/workshops`, no hay ningún `eventId`.
-
-### Solución
-
-Modificar `AdminWorkshops.tsx` para que cuando no haya `eventId`:
-1. Muestre un selector dropdown de eventos disponibles
-2. Una vez seleccionado, cargue toda la información de talleres
-
-Cuando sí hay `eventId`, mostrar la interfaz completa como ya está diseñada.
+## Plan: Simplificar Interfaz de Talleres
 
 ### Cambios a Realizar
 
 **Archivo: `src/pages/admin/AdminWorkshops.tsx`**
 
-1. Añadir estado para evento seleccionado
-2. Añadir query para obtener lista de eventos
-3. Modificar la condición `if (!eventId)` para mostrar un selector en lugar de solo texto
+#### 1. Eliminar elementos innecesarios
+- **Stats Overview** (líneas 408-446): Eliminar las 3 cards de métricas (Turnos, Talleres, Aforo Total)
+- **Sección "¿Cómo funciona?"** (líneas 448-464): Eliminar completamente
 
-### Diseño de Interfaz (Sin eventId)
+#### 2. Reordenar tabs
+- Cambiar `defaultValue="slots"` a `defaultValue="workshops"`
+- Mover la tab "Talleres" a primera posición
+- Mover la tab "Turnos Horarios" a segunda posición
+
+#### 3. Añadir badges de turnos en cada taller
+En la card de cada taller, añadir badges visuales que muestren en qué turnos se imparte:
 
 ```text
-┌─────────────────────────────────────────────────────────────────┐
-│ Dashboard > Talleres                                            │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  Talleres                                                       │
-│                                                                 │
-│  Selecciona un evento para ver y gestionar sus talleres        │
-│                                                                 │
-│  Evento: [ Evento Intermedio 2025          ▼ ]                 │
-│                                                                 │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │ Lista de eventos disponibles con talleres               │   │
-│  │ • Evento Intermedio 2025 - 7 talleres, 3 turnos        │   │
-│  │ • Final Nacional 2025 - Sin talleres                    │   │
-│  └─────────────────────────────────────────────────────────┘   │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│ Ética e IA                                    [Edit][Delete]│
+│ Santander                                                   │
+├─────────────────────────────────────────────────────────────┤
+│ 📍 Sala 1                                                   │
+│                                                             │
+│ Aforo: 30 personas                                          │
+│ [████████████░░░░░░░] 60%                                   │
+│                                                             │
+│ [T1 10:30] [T2 11:30] [T3 12:30]  ← Badges de turnos       │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-### Diseño de Interfaz (Con eventId seleccionado)
+Como cada taller se realiza en TODOS los turnos simultáneamente (7 talleres × 3 turnos), mostraremos los turnos disponibles del evento.
 
-Una vez seleccionado el evento (o si viene por URL directa), se muestra:
+### Resultado Visual Final
 
 ```text
-┌─────────────────────────────────────────────────────────────────┐
-│ Dashboard > Talleres > Evento Intermedio 2025                   │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│ [← Volver]  Talleres - Evento Intermedio 2025                  │
-│                                                                 │
-│ [Estado Preferencias] [Asignar] [Cuadrante]                    │
-│                                                                 │
-│ ┌────────┐  ┌────────┐  ┌────────┐                             │
-│ │ 3      │  │ 7      │  │ 310    │                             │
-│ │ Turnos │  │Talleres│  │ Aforo  │                             │
-│ └────────┘  └────────┘  └────────┘                             │
-│                                                                 │
-│ ℹ️ ¿Cómo funciona? ...                                         │
-│                                                                 │
-│ [Turnos Horarios] [Talleres] ← Tabs                            │
-│                                                                 │
-│ Turnos:                                                         │
-│ ┌────────────────────────────────────────────────────────────┐ │
-│ │ Turno 1: 10:30 - 11:15  |  7 talleres simultáneos          │ │
-│ │ Turno 2: 11:30 - 12:15  |  7 talleres simultáneos          │ │
-│ │ Turno 3: 12:30 - 13:00  |  7 talleres simultáneos          │ │
-│ └────────────────────────────────────────────────────────────┘ │
-│                                                                 │
-│ Talleres:                                                       │
-│ ┌─────────────┬─────────────┬─────────────┬─────────────┐      │
-│ │ Ética e IA  │ Comunicación│ Diseño UX   │ Diseña logo │      │
-│ │ Santander   │ Repsol      │ GFT         │ Dell        │      │
-│ │ 30 plazas   │ 30 plazas   │ 30 plazas   │ 30 plazas   │      │
-│ └─────────────┴─────────────┴─────────────┴─────────────┘      │
-│ ┌─────────────┬─────────────┬─────────────┐                    │
-│ │ ML 4 Kids   │Accesibilidad│ Prompting   │                    │
-│ │ Verisure    │ Inditex     │ Amazon      │                    │
-│ │ 30 plazas   │ 70 plazas   │ 100 plazas  │                    │
-│ └─────────────┴─────────────┴─────────────┘                    │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│ ← Talleres                                                  │
+│   Evento Intermedio 2025                                    │
+│                                                             │
+│ [Estado Preferencias] [Asignar] [Cuadrante]                │
+│                                                             │
+│ [Talleres] [Turnos Horarios]  ← Tabs (Talleres primero)    │
+│                                                             │
+│ Talleres Disponibles                     [+ Añadir Taller] │
+│ Estos talleres se realizan en cada turno                   │
+│                                                             │
+│ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐            │
+│ │Ética e IA   │ │Comunicación │ │ Diseño UX   │            │
+│ │Santander    │ │Repsol       │ │ GFT         │            │
+│ │📍 Sala 1    │ │📍 Sala 2    │ │📍 Sala 3    │            │
+│ │30 personas  │ │30 personas  │ │30 personas  │            │
+│ │[T1][T2][T3] │ │[T1][T2][T3] │ │[T1][T2][T3] │            │
+│ └─────────────┘ └─────────────┘ └─────────────┘            │
+│ ...                                                         │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ### Cambios Técnicos
 
-```typescript
-// Nuevo estado
-const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
-
-// Usar eventId de URL o el seleccionado
-const effectiveEventId = eventId || selectedEventId;
-
-// Nueva query para lista de eventos
-const { data: allEvents, isLoading: eventsLoading } = useQuery({
-  queryKey: ['all-events-for-workshops'],
-  queryFn: async () => {
-    const { data, error } = await supabase
-      .from('events')
-      .select('id, name, date, event_type')
-      .order('date', { ascending: false });
-    if (error) throw error;
-    return data;
-  },
-  enabled: !eventId,  // Solo cargar si no hay eventId en URL
-});
-
-// Si no hay eventId, mostrar selector
-if (!effectiveEventId) {
-  return (
-    <AdminLayout title="Talleres">
-      <EventSelector 
-        events={allEvents}
-        onSelect={(id) => setSelectedEventId(id)}
-        loading={eventsLoading}
-      />
-    </AdminLayout>
-  );
-}
-
-// Si hay effectiveEventId, mostrar la vista completa actual
-// (el resto del código permanece igual pero usando effectiveEventId)
-```
-
-### Archivos a Modificar
-
-| Archivo | Cambio |
-|---------|--------|
-| `src/pages/admin/AdminWorkshops.tsx` | Añadir selector de eventos cuando no hay eventId |
+| Líneas | Acción |
+|--------|--------|
+| 408-446 | Eliminar grid de stats cards |
+| 448-464 | Eliminar sección "¿Cómo funciona?" |
+| 467 | Cambiar `defaultValue="slots"` → `defaultValue="workshops"` |
+| 469-476 | Intercambiar orden de TabsTrigger (Talleres primero) |
+| 480-553 | Mover TabsContent de slots después de workshops |
+| 613-637 | Añadir sección de badges de turnos en cada workshop card |
 
 ### Beneficios
-
-1. El usuario puede navegar desde el sidebar y seleccionar un evento
-2. Se mantiene la funcionalidad de acceso directo por URL (`/admin/events/:eventId/workshops`)
-3. Una vez seleccionado, se muestra toda la información: turnos, talleres, estadísticas, links a preferencias/asignación/cuadrante
+- Interfaz más limpia y directa
+- Los talleres son lo primero que ve el admin (lo más importante)
+- Se visualiza claramente en qué turnos está cada taller
+- Se elimina información redundante que no aporta valor
