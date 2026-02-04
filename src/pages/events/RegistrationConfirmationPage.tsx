@@ -3,6 +3,8 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { CheckCircle, Calendar, MapPin, Download, CalendarPlus, Ticket, Users, Clock } from 'lucide-react';
 import { useRegistration, useRegistrationCompanions } from '@/hooks/useEventRegistration';
+import { useAuth } from '@/hooks/useAuth';
+import { getDashboardPath } from '@/lib/dashboard-routes';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
@@ -22,6 +24,8 @@ const RELATIONSHIP_LABELS: Record<string, string> = {
 export default function RegistrationConfirmationPage() {
   const { registrationId } = useParams<{ registrationId: string }>();
   const navigate = useNavigate();
+  const { role } = useAuth();
+  const dashboardPath = getDashboardPath(role);
   
   const { data: registration, isLoading, error } = useRegistration(registrationId || '');
   const { data: companions } = useRegistrationCompanions(registrationId || '');
@@ -255,7 +259,7 @@ export default function RegistrationConfirmationPage() {
         {/* Links */}
         <div className="text-center">
           <Button variant="link" asChild>
-            <Link to="/dashboard" className="gap-2">
+            <Link to={dashboardPath} className="gap-2">
               <Ticket className="h-4 w-4" />
               Ir al dashboard
             </Link>

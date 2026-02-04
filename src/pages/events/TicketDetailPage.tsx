@@ -4,6 +4,8 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { ArrowLeft, Calendar, MapPin, Download, CalendarPlus, XCircle, Users, ChevronDown, ChevronRight } from 'lucide-react';
 import { useRegistration, useCancelRegistration, useRegistrationCompanions } from '@/hooks/useEventRegistration';
+import { useAuth } from '@/hooks/useAuth';
+import { getDashboardPath } from '@/lib/dashboard-routes';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
@@ -26,6 +28,8 @@ import {
 export default function TicketDetailPage() {
   const { registrationId } = useParams<{ registrationId: string }>();
   const navigate = useNavigate();
+  const { role } = useAuth();
+  const dashboardPath = getDashboardPath(role);
   const { data: registration, isLoading, error } = useRegistration(registrationId || '');
   const { data: companions, isLoading: companionsLoading } = useRegistrationCompanions(registrationId || '');
   const cancelMutation = useCancelRegistration();
@@ -58,7 +62,7 @@ export default function TicketDetailPage() {
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
           <p className="text-destructive mb-4">Entrada no encontrada</p>
-          <Button onClick={() => navigate('/dashboard')}>Volver al dashboard</Button>
+          <Button onClick={() => navigate(dashboardPath)}>Volver al dashboard</Button>
         </div>
       </div>
     );
@@ -117,7 +121,7 @@ export default function TicketDetailPage() {
       {/* Header */}
       <div className="bg-background border-b">
         <div className="max-w-lg mx-auto px-4 py-4">
-          <Button variant="ghost" onClick={() => navigate('/dashboard')} className="gap-2">
+          <Button variant="ghost" onClick={() => navigate(dashboardPath)} className="gap-2">
             <ArrowLeft className="h-4 w-4" />
             Volver al dashboard
           </Button>

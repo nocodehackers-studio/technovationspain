@@ -361,8 +361,13 @@ export default function Onboarding() {
           title: '¡Bienvenida!',
           description: 'Tu cuenta ha sido verificada correctamente.',
         });
-        // Volunteers go to their specific dashboard
-        const redirectPath = isVolunteer ? '/voluntario/dashboard' : '/dashboard';
+        // Route to role-specific dashboard
+        let redirectPath = '/dashboard';
+        if (isVolunteer) {
+          redirectPath = '/voluntario/dashboard';
+        } else if (formData.role === 'mentor') {
+          redirectPath = '/mentor/dashboard';
+        }
         navigate(redirectPath, { replace: true });
       } else {
         toast({
