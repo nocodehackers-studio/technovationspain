@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useParams, Link } from "react-router-dom";
+import { format } from "date-fns";
+import { es } from "date-fns/locale";
 import { supabase } from "@/integrations/supabase/client";
 import { useWorkshopTimeSlots } from "@/hooks/useWorkshopTimeSlots";
 import { AdminLayout } from "@/components/admin/AdminLayout";
@@ -43,13 +45,20 @@ import {
   AlertTriangle,
   Shuffle,
   BarChart3,
-  Calendar
+  Calendar,
+  CalendarDays
 } from "lucide-react";
 import { Workshop, WorkshopTimeSlot } from "@/types/database";
 
 export default function AdminWorkshops() {
   const { eventId } = useParams();
   const queryClient = useQueryClient();
+  
+  // State for selected event when no eventId in URL
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
+  
+  // Effective event ID: from URL or selected
+  const effectiveEventId = eventId || selectedEventId;
   
   const [selectedWorkshop, setSelectedWorkshop] = useState<Workshop | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<WorkshopTimeSlot | null>(null);
@@ -59,19 +68,40 @@ export default function AdminWorkshops() {
   const [deleteSlotDialogOpen, setDeleteSlotDialogOpen] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
 
+  // Fetch all events for selector (only when no eventId in URL)
+  const { data: allEvents, isLoading: allEventsLoading } = useQuery({
+    queryKey: ['all-events-for-workshops'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('events')
+        .select(`
+          id, 
+          name, 
+          date, 
+          event_type,
+          workshops:workshops(count),
+          time_slots:workshop_time_slots(count)
+        `)
+        .order('date', { ascending: false });
+      if (error) throw error;
+      return data;
+    },
+    enabled: !eventId,
+  });
+
   // Fetch event
   const { data: event, isLoading: eventLoading } = useQuery({
-    queryKey: ['admin-event', eventId],
+    queryKey: ['admin-event', effectiveEventId],
     queryFn: async () => {
-      if (!eventId) return null;
+      if (!effectiveEventId) return null;
       const { data } = await supabase
         .from('events')
         .select('id, name, date, event_type')
-        .eq('id', eventId)
+        .eq('id', effectiveEventId)
         .single();
       return data;
     },
-    enabled: !!eventId,
+    enabled: !!effectiveEventId,
   });
 
   // Use the time slots hook
@@ -84,22 +114,22 @@ export default function AdminWorkshops() {
     isCreating: isCreatingSlot,
     isUpdating: isUpdatingSlot,
     isDeleting: isDeletingSlot,
-  } = useWorkshopTimeSlots(eventId || '');
+  } = useWorkshopTimeSlots(effectiveEventId || '');
 
   // Fetch workshops
   const { data: workshops, isLoading: workshopsLoading } = useQuery({
-    queryKey: ["event-workshops", eventId],
+    queryKey: ["event-workshops", effectiveEventId],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("workshops")
         .select("*")
-        .eq("event_id", eventId)
+        .eq("event_id", effectiveEventId)
         .order("name");
 
       if (error) throw error;
       return data as Workshop[];
     },
-    enabled: !!eventId,
+    enabled: !!effectiveEventId,
   });
 
   // Create workshop mutation
@@ -109,7 +139,7 @@ export default function AdminWorkshops() {
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["event-workshops", eventId] });
+      queryClient.invalidateQueries({ queryKey: ["event-workshops", effectiveEventId] });
       toast.success("Taller creado correctamente");
       setWorkshopDialogOpen(false);
     },
@@ -123,7 +153,7 @@ export default function AdminWorkshops() {
     mutationFn: async ({
       workshopId,
       updates,
-    }: {
+  }: {
       workshopId: string;
       updates: Partial<Workshop>;
     }) => {
@@ -135,7 +165,7 @@ export default function AdminWorkshops() {
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["event-workshops", eventId] });
+      queryClient.invalidateQueries({ queryKey: ["event-workshops", effectiveEventId] });
       toast.success("Taller actualizado correctamente");
       setWorkshopDialogOpen(false);
     },
@@ -151,7 +181,7 @@ export default function AdminWorkshops() {
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["event-workshops", eventId] });
+      queryClient.invalidateQueries({ queryKey: ["event-workshops", effectiveEventId] });
       toast.success("Taller eliminado correctamente");
       setDeleteWorkshopDialogOpen(false);
     },
@@ -199,7 +229,7 @@ export default function AdminWorkshops() {
       if (isEditMode && selectedSlot) {
         await updateSlot({ slotId: selectedSlot.id, updates: data });
       } else {
-        await createSlot({ event_id: eventId!, ...data });
+        await createSlot({ event_id: effectiveEventId!, ...data });
       }
       setSlotDialogOpen(false);
     } catch (error) {
@@ -225,11 +255,96 @@ export default function AdminWorkshops() {
   const workshopCount = workshops?.length || 0;
   const slotCount = timeSlots?.length || 0;
 
-  if (!eventId) {
+  // Show event selector when no eventId
+  if (!effectiveEventId) {
     return (
       <AdminLayout title="Talleres">
-        <div className="text-center py-12 text-muted-foreground">
-          Selecciona un evento para gestionar sus talleres
+        <div className="space-y-6">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+              <Layers className="h-6 w-6" />
+              Talleres
+            </h1>
+            <p className="text-muted-foreground mt-1">
+              Selecciona un evento para ver y gestionar sus talleres
+            </p>
+          </div>
+
+          {/* Event Selector */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Selecciona un Evento</CardTitle>
+              <CardDescription>
+                Elige el evento del que quieres gestionar los talleres
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {allEventsLoading ? (
+                <div className="space-y-3">
+                  {[1, 2, 3].map((i) => (
+                    <Skeleton key={i} className="h-16 w-full" />
+                  ))}
+                </div>
+              ) : allEvents && allEvents.length > 0 ? (
+                <div className="grid gap-3">
+                  {allEvents.map((evt) => {
+                    const workshopCount = (evt.workshops as any)?.[0]?.count || 0;
+                    const slotCount = (evt.time_slots as any)?.[0]?.count || 0;
+                    
+                    return (
+                      <Card 
+                        key={evt.id} 
+                        className="cursor-pointer hover:border-primary transition-colors"
+                        onClick={() => setSelectedEventId(evt.id)}
+                      >
+                        <CardContent className="py-4">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-4">
+                              <div className="p-2 rounded-lg bg-primary/10">
+                                <CalendarDays className="h-5 w-5 text-primary" />
+                              </div>
+                              <div>
+                                <p className="font-semibold">{evt.name}</p>
+                                <p className="text-sm text-muted-foreground">
+                                  {format(new Date(evt.date), "d 'de' MMMM, yyyy", { locale: es })}
+                                  {evt.event_type && (
+                                    <Badge variant="outline" className="ml-2">
+                                      {evt.event_type}
+                                    </Badge>
+                                  )}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                              <div className="flex items-center gap-1">
+                                <Layers className="h-4 w-4" />
+                                <span>{workshopCount} talleres</span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <Clock className="h-4 w-4" />
+                                <span>{slotCount} turnos</span>
+                              </div>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <CalendarDays className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p>No hay eventos disponibles</p>
+                  <Button className="mt-4" asChild>
+                    <Link to="/admin/events">
+                      <Plus className="mr-2 h-4 w-4" />
+                      Crear un evento
+                    </Link>
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </div>
       </AdminLayout>
     );
@@ -241,10 +356,23 @@ export default function AdminWorkshops() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" asChild>
-              <Link to={`/admin/events/${eventId}/edit`}>
-                <ArrowLeft className="h-5 w-5" />
-              </Link>
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              onClick={() => {
+                if (selectedEventId && !eventId) {
+                  setSelectedEventId(null);
+                }
+              }}
+              asChild={!!eventId}
+            >
+              {eventId ? (
+                <Link to={`/admin/events/${effectiveEventId}/edit`}>
+                  <ArrowLeft className="h-5 w-5" />
+                </Link>
+              ) : (
+                <span><ArrowLeft className="h-5 w-5" /></span>
+              )}
             </Button>
             <div>
               <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
@@ -257,19 +385,19 @@ export default function AdminWorkshops() {
           
           <div className="flex gap-2">
             <Button variant="outline" asChild>
-              <Link to={`/admin/events/${eventId}/workshops/preferences`}>
+              <Link to={`/admin/events/${effectiveEventId}/workshops/preferences`}>
                 <BarChart3 className="mr-2 h-4 w-4" />
                 Estado Preferencias
               </Link>
             </Button>
             <Button variant="outline" asChild>
-              <Link to={`/admin/events/${eventId}/workshops/assign`}>
+              <Link to={`/admin/events/${effectiveEventId}/workshops/assign`}>
                 <Shuffle className="mr-2 h-4 w-4" />
                 Asignar
               </Link>
             </Button>
             <Button variant="outline" asChild>
-              <Link to={`/admin/events/${eventId}/workshops/schedule`}>
+              <Link to={`/admin/events/${effectiveEventId}/workshops/schedule`}>
                 <Calendar className="mr-2 h-4 w-4" />
                 Cuadrante
               </Link>
@@ -551,7 +679,7 @@ export default function AdminWorkshops() {
               } else {
                 createWorkshopMutation.mutate({
                   ...data,
-                  event_id: eventId!,
+                  event_id: effectiveEventId!,
                 });
               }
             }}
