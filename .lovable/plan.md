@@ -1,140 +1,228 @@
 
-
-## Plan: Eliminar Lógica de Menores de 14 Años del Onboarding
+## Plan: Validación de Aforo Global en Tipos de Entrada
 
 ### Resumen
 
-Simplificar el registro eliminando la comprobación de edad menor de 14 años y el campo de email del padre/madre/tutor. El campo `parent_email` se mantendrá en la base de datos para ser rellenado a través de la importación CSV.
+Añadir validación en el editor de tipos de entrada para que la suma de capacidades de todos los tipos no supere el aforo global del evento. Mostrar warnings visuales y bloquear la creación/edición si se supera el límite.
+
+---
+
+### Estado Actual
+
+| Elemento | Estado |
+|----------|--------|
+| Campo `max_capacity` en evento | Ya existe y se configura en la pestaña "Lugar" |
+| Validación en tipos de entrada | No existe - se pueden crear sin límite |
+| Indicador visual de uso | No existe |
 
 ---
 
 ### Cambios a Realizar
 
-Se eliminarán únicamente las partes de UI y lógica relacionadas con `isMinor()`. **No se tocará la base de datos.**
+#### 1. Pasar `max_capacity` del evento al TicketTypeManager
 
-#### 1. Eliminar función `isMinor()`
+El componente necesita conocer el aforo global para validar.
 
-```typescript
-// ELIMINAR (líneas 419-424)
-const isMinor = () => {
-  if (!formData.date_of_birth) return false;
-  const age = calculateAge(formData.date_of_birth);
-  return age < 14;
-};
+```text
+┌──────────────────────────────────────────────────────────┐
+│  AdminEventEditor                                        │
+│  ├── formData.max_capacity (500)                        │
+│  │                                                       │
+│  └── <TicketTypeManager                                  │
+│         eventId="..."                                    │
+│         eventMaxCapacity={500}  ← NUEVO                 │
+│      />                                                  │
+└──────────────────────────────────────────────────────────┘
 ```
 
-#### 2. Eliminar validación de `parent_email` en `validateStep1`
+#### 2. Mostrar indicador de uso del aforo en la lista
 
-```typescript
-// ELIMINAR (líneas 209-218)
-if (formData.role === 'participant' && isMinor()) {
-  if (!formData.parent_email?.trim()) {
-    newErrors.parent_email = 'El email del padre/madre/tutor es obligatorio...';
-  } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.parent_email)) {
-    newErrors.parent_email = 'Email inválido';
-  } else if (formData.parent_email.trim().toLowerCase() === user?.email?.toLowerCase()) {
-    newErrors.parent_email = 'El email del tutor debe ser diferente al tuyo';
-  }
-}
+```text
+┌──────────────────────────────────────────────────────────┐
+│  Tipos de Entrada                        [+ Añadir Tipo] │
+├──────────────────────────────────────────────────────────┤
+│  Aforo global: 500                                       │
+│  ████████████████░░░░░░░░░░░░░░░░░░░░░░░░  380/500 (76%) │
+│                                                          │
+│  ┌────────────────────────────────────────────────────┐  │
+│  │ Participantes              250/300    [Editar] [X] │  │
+│  └────────────────────────────────────────────────────┘  │
+│  ┌────────────────────────────────────────────────────┐  │
+│  │ Mentores                   100/130    [Editar] [X] │  │
+│  └────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────┘
 ```
 
-#### 3. Eliminar warning visual de menor de 14 años
+#### 3. Warning en el diálogo de edición/creación
 
-```tsx
-// ELIMINAR (líneas 508-512)
-{formData.role === 'participant' && isMinor() && (
-  <p className="text-sm text-warning">
-    ⚠️ Al ser menor de 14 años, necesitarás el consentimiento de tu padre/madre/tutor.
-  </p>
-)}
+```text
+┌──────────────────────────────────────────────────────────┐
+│  Nuevo Tipo de Entrada                                   │
+├──────────────────────────────────────────────────────────┤
+│  Nombre: Acompañantes                                    │
+│  Capacidad máxima: 150                                   │
+│                                                          │
+│  ┌────────────────────────────────────────────────────┐  │
+│  │ ⚠️ Esta capacidad superaría el aforo global        │  │
+│  │    Aforo total: 500                                 │  │
+│  │    Suma actual: 430 + 150 = 580                     │  │
+│  │    Exceso: 80 plazas                                │  │
+│  └────────────────────────────────────────────────────┘  │
+│                                                          │
+│                         [Cancelar]  [Crear] ← Deshabilitado│
+└──────────────────────────────────────────────────────────┘
 ```
-
-#### 4. Eliminar campo de email del padre
-
-```tsx
-// ELIMINAR (líneas 533-555)
-{formData.role === 'participant' && isMinor() && (
-  <div className="space-y-2">
-    <Label htmlFor="parent_email">Email del padre/madre/tutor *</Label>
-    ...
-  </div>
-)}
-```
-
-#### 5. Simplificar guardado del perfil
-
-```typescript
-// ANTES (línea 306)
-parent_email: isMinor() && formData.parent_email?.trim() ? formData.parent_email.trim() : null,
-
-// DESPUÉS
-// Eliminar esta línea - el parent_email vendrá de la importación CSV
-```
-
-#### 6. Eliminar envío de email de consentimiento
-
-```typescript
-// ELIMINAR (líneas 362-384)
-if (isMinor() && formData.parent_email?.trim()) {
-  try {
-    const consentResult = await supabase.functions.invoke('send-platform-consent', {
-      body: { userId: user.id },
-    });
-    ...
-  } catch (consentError) {
-    ...
-  }
-}
-```
-
-#### 7. Limpiar `OnboardingData` y schema
-
-Eliminar `parent_email` del tipo y del estado inicial del formulario (ya no se usa en el onboarding).
 
 ---
 
-### Archivo a Modificar
+### Lógica de Validación
+
+```typescript
+// Calcular suma de capacidades actuales (excluyendo el ticket que se edita)
+const otherTicketsCapacity = ticketTypes
+  ?.filter(t => t.id !== selectedTicket?.id)
+  .reduce((sum, t) => sum + t.max_capacity, 0) || 0;
+
+// Capacidad total propuesta
+const proposedTotal = otherTicketsCapacity + formData.max_capacity;
+
+// Determinar si hay exceso
+const hasExcess = eventMaxCapacity && proposedTotal > eventMaxCapacity;
+const excessAmount = hasExcess ? proposedTotal - eventMaxCapacity : 0;
+
+// Deshabilitar botón si hay exceso
+const canSubmit = !hasExcess;
+```
+
+---
+
+### Archivos a Modificar
 
 | Archivo | Cambios |
 |---------|---------|
-| `src/pages/Onboarding.tsx` | Eliminar lógica de menores, campo de parent_email, y envío de consentimiento |
-
----
-
-### Lo que NO se elimina
-
-| Elemento | Razón |
-|----------|-------|
-| Columna `parent_email` en `profiles` | Se rellenará vía importación CSV |
-| Edge function `send-platform-consent` | Puede usarse desde otro lugar |
-| Importación de `Mail` icon | Se sigue usando para el campo de tg_email |
+| `src/pages/admin/AdminEventEditor.tsx` | Pasar `eventMaxCapacity` como prop al TicketTypeManager |
+| `src/components/admin/events/TicketTypeManager.tsx` | Añadir validación, warnings y barra de progreso |
 
 ---
 
 ### Sección Técnica
 
-#### Líneas específicas a eliminar/modificar
+#### Cambios en AdminEventEditor.tsx
 
-| Líneas | Descripción |
-|--------|-------------|
-| 88 | Eliminar `parent_email` del schema Zod |
-| 101, 130 | Eliminar `parent_email` del tipo y estado inicial |
-| 209-218 | Eliminar validación de parent_email para menores |
-| 306 | Eliminar guardado de parent_email en profileUpdate |
-| 362-384 | Eliminar envío de email de consentimiento |
-| 419-424 | Eliminar función `isMinor()` |
-| 508-512 | Eliminar warning visual de menor |
-| 533-555 | Eliminar campo de email del padre en UI |
+```tsx
+// Línea ~261, donde se renderiza TicketTypeManager
+<TabsContent value="tickets">
+  {eventId && (
+    <TicketTypeManager 
+      eventId={eventId} 
+      eventMaxCapacity={formData.max_capacity}  // ← NUEVO
+    />
+  )}
+</TabsContent>
+```
+
+#### Cambios en TicketTypeManager.tsx
+
+**1. Actualizar interface de props**
+```typescript
+interface TicketTypeManagerProps {
+  eventId: string;
+  eventMaxCapacity?: number | null;  // ← NUEVO
+}
+```
+
+**2. Calcular uso de aforo**
+```typescript
+// Suma de capacidades de todos los tipos de entrada
+const totalTicketCapacity = ticketTypes?.reduce((sum, t) => sum + t.max_capacity, 0) || 0;
+
+// Para el diálogo: suma excluyendo el ticket que se edita
+const otherTicketsCapacity = ticketTypes
+  ?.filter(t => t.id !== selectedTicket?.id)
+  .reduce((sum, t) => sum + t.max_capacity, 0) || 0;
+
+// Capacidad propuesta con el formulario actual
+const proposedTotal = otherTicketsCapacity + formData.max_capacity;
+
+// Estado de validación
+const exceedsGlobalCapacity = eventMaxCapacity != null && proposedTotal > eventMaxCapacity;
+const excessAmount = exceedsGlobalCapacity ? proposedTotal - eventMaxCapacity : 0;
+const remainingCapacity = eventMaxCapacity != null ? eventMaxCapacity - otherTicketsCapacity : null;
+```
+
+**3. Indicador en el header de la card**
+```tsx
+{eventMaxCapacity && (
+  <div className="mt-4 space-y-2">
+    <div className="flex justify-between text-sm">
+      <span>Aforo global asignado</span>
+      <span className={totalTicketCapacity > eventMaxCapacity ? "text-destructive font-medium" : ""}>
+        {totalTicketCapacity} / {eventMaxCapacity}
+      </span>
+    </div>
+    <Progress 
+      value={(totalTicketCapacity / eventMaxCapacity) * 100} 
+      className={totalTicketCapacity > eventMaxCapacity ? "bg-destructive/20" : ""}
+    />
+    {totalTicketCapacity > eventMaxCapacity && (
+      <p className="text-sm text-destructive">
+        ⚠️ La suma de capacidades supera el aforo global en {totalTicketCapacity - eventMaxCapacity} plazas
+      </p>
+    )}
+  </div>
+)}
+```
+
+**4. Warning en el diálogo**
+```tsx
+{exceedsGlobalCapacity && (
+  <Alert variant="destructive">
+    <AlertTriangle className="h-4 w-4" />
+    <AlertTitle>Excede el aforo global</AlertTitle>
+    <AlertDescription>
+      Esta capacidad superaría el aforo total del evento.
+      <br />
+      Aforo global: {eventMaxCapacity} | Suma propuesta: {proposedTotal} | Exceso: {excessAmount}
+    </AlertDescription>
+  </Alert>
+)}
+
+{remainingCapacity !== null && remainingCapacity > 0 && !exceedsGlobalCapacity && (
+  <p className="text-sm text-muted-foreground">
+    Capacidad disponible para este tipo: {remainingCapacity} plazas
+  </p>
+)}
+```
+
+**5. Deshabilitar botón de guardar**
+```tsx
+<Button
+  onClick={handleSubmit}
+  disabled={
+    createMutation.isPending || 
+    updateMutation.isPending || 
+    exceedsGlobalCapacity  // ← NUEVO
+  }
+>
+```
 
 ---
 
-### Resultado Final
+### Comportamiento Esperado
 
-| Antes | Después |
-|-------|---------|
-| Comprueba si < 14 años | No comprueba edad para consentimiento |
-| Muestra warning ⚠️ | Sin warning |
-| Pide email del tutor | No pide email del tutor |
-| Guarda `parent_email` desde formulario | `parent_email` se obtiene de importación CSV |
-| Envía email automático | No envía email de consentimiento |
+| Escenario | Resultado |
+|-----------|-----------|
+| Aforo global: 500, suma de tipos: 450 | ✅ Verde, se puede añadir hasta 50 más |
+| Aforo global: 500, suma de tipos: 500 | ✅ Amarillo, aforo completo asignado |
+| Aforo global: 500, intentar añadir 100 cuando ya hay 450 | ❌ Warning, botón deshabilitado |
+| Sin aforo global configurado | Sin validación (ilimitado) |
 
+---
+
+### Imports Adicionales
+
+```typescript
+import { AlertTriangle } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+```
