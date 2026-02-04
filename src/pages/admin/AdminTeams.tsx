@@ -64,6 +64,13 @@ interface TeamWithStats extends Team {
 
 type CompletionFilter = "all" | "complete" | "incomplete" | "empty";
 
+interface MentorOption {
+  id: string;
+  email: string;
+  first_name: string | null;
+  last_name: string | null;
+}
+
 export default function AdminTeams() {
   const queryClient = useQueryClient();
   const [selectedTeam, setSelectedTeam] = useState<TeamWithStats | null>(null);
@@ -81,6 +88,8 @@ export default function AdminTeams() {
   // Edit form state
   const [editHubId, setEditHubId] = useState<string>("");
   const [editNotes, setEditNotes] = useState<string>("");
+  const [editMentorId, setEditMentorId] = useState<string>("");
+  const [currentMentorId, setCurrentMentorId] = useState<string | null>(null);
 
   // Fetch teams with member counts, hub info, whitelist stats, and city
   const { data: teams, isLoading } = useQuery({
@@ -200,23 +209,78 @@ export default function AdminTeams() {
     },
   });
 
-  // Update team mutation (only hub and notes)
+  // Fetch mentors (users with mentor role) for dropdown
+  const { data: mentors } = useQuery({
+    queryKey: ["admin-mentors-list"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("user_roles")
+        .select("user_id")
+        .eq("role", "mentor");
+      
+      if (!data || data.length === 0) return [];
+      
+      const mentorIds = data.map(r => r.user_id);
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("id, email, first_name, last_name")
+        .in("id", mentorIds)
+        .order("first_name");
+      
+      return (profiles || []) as MentorOption[];
+    },
+  });
+
+  // Update team mutation (hub, notes, and mentor)
   const updateTeamMutation = useMutation({
     mutationFn: async ({
       teamId,
       hub_id,
       notes,
+      mentorId,
+      previousMentorId,
     }: {
       teamId: string;
       hub_id: string | null;
       notes: string | null;
+      mentorId: string | null;
+      previousMentorId: string | null;
     }) => {
+      // Update team basic info
       const { error } = await supabase
         .from("teams")
         .update({ hub_id, notes })
         .eq("id", teamId);
       
       if (error) throw error;
+
+      // Handle mentor assignment
+      if (mentorId !== previousMentorId) {
+        // Remove previous mentor if exists
+        if (previousMentorId) {
+          await supabase
+            .from("team_members")
+            .delete()
+            .eq("team_id", teamId)
+            .eq("user_id", previousMentorId)
+            .eq("member_type", "mentor");
+        }
+        
+        // Add new mentor if selected
+        if (mentorId) {
+          const { error: insertError } = await supabase
+            .from("team_members")
+            .upsert({
+              team_id: teamId,
+              user_id: mentorId,
+              member_type: "mentor",
+            }, {
+              onConflict: "team_id,user_id",
+            });
+          
+          if (insertError) throw insertError;
+        }
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-teams"] });
@@ -245,10 +309,22 @@ export default function AdminTeams() {
   });
 
   // Open edit dialog with current values
-  const openEditDialog = (team: TeamWithStats) => {
+  const openEditDialog = async (team: TeamWithStats) => {
     setSelectedTeam(team);
     setEditHubId(team.hub_id || "");
     setEditNotes(team.notes || "");
+    
+    // Fetch current mentor for this team
+    const { data: mentorMember } = await supabase
+      .from("team_members")
+      .select("user_id")
+      .eq("team_id", team.id)
+      .eq("member_type", "mentor")
+      .maybeSingle();
+    
+    const mentorId = mentorMember?.user_id || "";
+    setEditMentorId(mentorId);
+    setCurrentMentorId(mentorId || null);
     setEditDialogOpen(true);
   };
 
@@ -260,6 +336,8 @@ export default function AdminTeams() {
       teamId: selectedTeam.id,
       hub_id: editHubId || null,
       notes: editNotes || null,
+      mentorId: editMentorId || null,
+      previousMentorId: currentMentorId,
     });
   };
 
@@ -566,6 +644,28 @@ export default function AdminTeams() {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-mentor">Mentor</Label>
+              <Select value={editMentorId} onValueChange={setEditMentorId}>
+                <SelectTrigger id="edit-mentor">
+                  <SelectValue placeholder="Seleccionar mentor" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">Sin mentor asignado</SelectItem>
+                  {mentors?.map((mentor) => (
+                    <SelectItem key={mentor.id} value={mentor.id}>
+                      {mentor.first_name && mentor.last_name
+                        ? `${mentor.first_name} ${mentor.last_name}`
+                        : mentor.email}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                El mentor seleccionado será vinculado al equipo
+              </p>
             </div>
 
             <div className="space-y-2">
