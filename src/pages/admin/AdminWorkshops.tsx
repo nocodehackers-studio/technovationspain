@@ -28,6 +28,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -527,114 +528,70 @@ export default function AdminWorkshops() {
                   </div>
                 ) : workshops && workshops.length > 0 ? (
                   <div className="overflow-x-auto">
-                    <table className="w-full">
+                    <table className="w-full text-sm">
                       <thead>
-                        <tr className="text-left text-sm font-medium text-muted-foreground border-b">
-                          <th className="pb-3 pr-4">Nombre</th>
-                          <th className="pb-3 pr-4">Empresa</th>
-                          <th className="pb-3 pr-4">Ubicación</th>
-                          <th className="pb-3 pr-4 w-24">Aforo</th>
-                          <th className="pb-3 pr-4">Turnos</th>
-                          <th className="pb-3 w-20"></th>
+                        <tr className="text-left text-xs font-medium text-muted-foreground border-b uppercase tracking-wide">
+                          <th className="pb-2 pr-3">Nombre</th>
+                          <th className="pb-2 pr-3">Empresa</th>
+                          <th className="pb-2 pr-3">Sala</th>
+                          <th className="pb-2 pr-3 text-center w-16">Aforo</th>
+                          <th className="pb-2 pr-3">Turnos</th>
+                          <th className="pb-2 w-20"></th>
                         </tr>
                       </thead>
                       <tbody className="divide-y">
                         {workshops.map((workshop) => (
-                          <tr key={workshop.id} className="hover:bg-muted/50">
-                            <td className="py-3 pr-4">
-                              <Input
-                                defaultValue={workshop.name}
-                                className="font-medium"
-                                onBlur={(e) => {
-                                  if (e.target.value !== workshop.name && e.target.value.trim()) {
-                                    updateWorkshopMutation.mutate({
-                                      workshopId: workshop.id,
-                                      updates: { name: e.target.value.trim() }
-                                    });
-                                  }
-                                }}
-                              />
+                          <tr 
+                            key={workshop.id} 
+                            className="hover:bg-muted/50 cursor-pointer"
+                            onClick={() => handleEditWorkshop(workshop)}
+                          >
+                            <td className="py-2 pr-3">
+                              <span className="font-medium">{workshop.name}</span>
                             </td>
-                            <td className="py-3 pr-4">
-                              <Input
-                                defaultValue={workshop.company || ''}
-                                placeholder="Empresa"
-                                className="text-muted-foreground"
-                                onBlur={(e) => {
-                                  if (e.target.value !== (workshop.company || '')) {
-                                    updateWorkshopMutation.mutate({
-                                      workshopId: workshop.id,
-                                      updates: { company: e.target.value || null }
-                                    });
-                                  }
-                                }}
-                              />
+                            <td className="py-2 pr-3 text-muted-foreground">
+                              {workshop.company || '-'}
                             </td>
-                            <td className="py-3 pr-4">
-                              <Input
-                                defaultValue={workshop.location || ''}
-                                placeholder="Sala/Ubicación"
-                                onBlur={(e) => {
-                                  if (e.target.value !== (workshop.location || '')) {
-                                    updateWorkshopMutation.mutate({
-                                      workshopId: workshop.id,
-                                      updates: { location: e.target.value || null }
-                                    });
-                                  }
-                                }}
-                              />
+                            <td className="py-2 pr-3 text-muted-foreground">
+                              {workshop.location || '-'}
                             </td>
-                            <td className="py-3 pr-4">
-                              <Input
-                                type="number"
-                                defaultValue={workshop.max_capacity}
-                                className="w-20"
-                                min={1}
-                                onBlur={(e) => {
-                                  const newValue = parseInt(e.target.value);
-                                  if (!isNaN(newValue) && newValue !== workshop.max_capacity && newValue > 0) {
-                                    updateWorkshopMutation.mutate({
-                                      workshopId: workshop.id,
-                                      updates: { max_capacity: newValue }
-                                    });
-                                  }
-                                }}
-                              />
+                            <td className="py-2 pr-3 text-center">
+                              {workshop.max_capacity}
                             </td>
-                            <td className="py-3 pr-4">
+                            <td className="py-2 pr-3">
                               <div className="flex flex-wrap gap-1">
                                 {timeSlots && timeSlots.length > 0 ? (
                                   timeSlots.map((slot) => (
                                     <Badge 
                                       key={slot.id} 
                                       variant="secondary"
-                                      className="text-xs font-normal"
+                                      className="text-xs font-normal px-1.5 py-0"
                                     >
                                       T{slot.slot_number}
                                     </Badge>
                                   ))
                                 ) : (
-                                  <span className="text-xs text-muted-foreground">Sin turnos</span>
+                                  <span className="text-xs text-muted-foreground">-</span>
                                 )}
                               </div>
                             </td>
-                            <td className="py-3">
+                            <td className="py-2" onClick={(e) => e.stopPropagation()}>
                               <div className="flex gap-1 justify-end">
                                 <Button
                                   variant="ghost"
                                   size="icon"
-                                  className="h-8 w-8"
+                                  className="h-7 w-7"
                                   onClick={() => handleEditWorkshop(workshop)}
                                 >
-                                  <Edit className="h-4 w-4" />
+                                  <Edit className="h-3.5 w-3.5" />
                                 </Button>
                                 <Button
                                   variant="ghost"
                                   size="icon"
-                                  className="h-8 w-8 text-destructive hover:text-destructive"
+                                  className="h-7 w-7 text-destructive hover:text-destructive"
                                   onClick={() => handleDeleteWorkshop(workshop)}
                                 >
-                                  <Trash2 className="h-4 w-4" />
+                                  <Trash2 className="h-3.5 w-3.5" />
                                 </Button>
                               </div>
                             </td>
@@ -674,6 +631,7 @@ export default function AdminWorkshops() {
           </DialogHeader>
           <WorkshopForm
             workshop={selectedWorkshop}
+            timeSlots={timeSlots || []}
             onSubmit={(data) => {
               if (isEditMode && selectedWorkshop) {
                 updateWorkshopMutation.mutate({
@@ -742,13 +700,28 @@ export default function AdminWorkshops() {
 // Workshop Form Component
 function WorkshopForm({
   workshop,
+  timeSlots,
   onSubmit,
   loading,
 }: {
   workshop?: Workshop | null;
+  timeSlots: WorkshopTimeSlot[];
   onSubmit: (data: any) => void;
   loading: boolean;
 }) {
+  // All slots selected by default (current model: all workshops in all slots)
+  const [selectedSlots, setSelectedSlots] = useState<string[]>(
+    timeSlots.map(s => s.id)
+  );
+
+  const handleSlotToggle = (slotId: string) => {
+    setSelectedSlots(prev => 
+      prev.includes(slotId) 
+        ? prev.filter(id => id !== slotId)
+        : [...prev, slotId]
+    );
+  };
+
   return (
     <form
       onSubmit={(e) => {
@@ -761,6 +734,7 @@ function WorkshopForm({
           max_capacity: parseInt(formData.get("max_capacity") as string) || 20,
           location: formData.get("location") as string || null,
           description: formData.get("description") as string || null,
+          // selectedSlots is ready for future use
         });
       }}
       className="space-y-4"
@@ -820,17 +794,45 @@ function WorkshopForm({
             </SelectContent>
           </Select>
         </div>
-        <div className="space-y-2 md:col-span-2">
-          <Label htmlFor="description">Descripción</Label>
-          <Textarea
-            id="description"
-            name="description"
-            placeholder="Descripción breve del taller..."
-            defaultValue={workshop?.description || ""}
-            rows={3}
-          />
-        </div>
       </div>
+
+      {/* Time Slots Selector */}
+      {timeSlots.length > 0 && (
+        <div className="space-y-3">
+          <Label>Turnos en los que se imparte</Label>
+          <div className="rounded-md border p-3 space-y-2">
+            {timeSlots.map((slot) => (
+              <label
+                key={slot.id}
+                className="flex items-center gap-3 cursor-pointer hover:bg-muted/50 p-2 rounded-md -mx-2"
+              >
+                <Checkbox
+                  checked={selectedSlots.includes(slot.id)}
+                  onCheckedChange={() => handleSlotToggle(slot.id)}
+                />
+                <span className="text-sm">
+                  Turno {slot.slot_number} ({slot.start_time.slice(0, 5)} - {slot.end_time.slice(0, 5)})
+                </span>
+              </label>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Por ahora, todos los talleres se imparten en todos los turnos
+          </p>
+        </div>
+      )}
+
+      <div className="space-y-2">
+        <Label htmlFor="description">Descripción</Label>
+        <Textarea
+          id="description"
+          name="description"
+          placeholder="Descripción breve del taller..."
+          defaultValue={workshop?.description || ""}
+          rows={3}
+        />
+      </div>
+      
       <DialogFooter>
         <Button type="submit" disabled={loading}>
           {loading ? "Guardando..." : workshop ? "Actualizar" : "Crear Taller"}
