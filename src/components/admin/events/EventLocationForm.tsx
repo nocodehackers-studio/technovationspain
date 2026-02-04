@@ -140,9 +140,12 @@ export function EventLocationForm({
             <Input
               id="max_capacity"
               type="number"
-              min="1"
-              value={maxCapacity || ""}
-              onChange={(e) => onUpdate("max_capacity", e.target.value ? parseInt(e.target.value) : null)}
+              min="0"
+              value={maxCapacity ?? ""}
+              onChange={(e) => {
+                const val = e.target.value;
+                onUpdate("max_capacity", val === "" ? null : parseInt(val));
+              }}
               placeholder="Capacidad máxima del evento"
             />
             <p className="text-sm text-muted-foreground">
