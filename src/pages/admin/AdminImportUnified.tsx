@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import Papa from "papaparse";
 import { supabase } from "@/integrations/supabase/client";
@@ -159,6 +159,8 @@ export default function AdminImportUnified() {
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const [showWarningDialog, setShowWarningDialog] = useState(false);
   const [pendingCsvData, setPendingCsvData] = useState<{ headers: string[]; data: CSVRow[] } | null>(null);
+  const [inputKey, setInputKey] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   // Teams to create during import
   const [teamsToCreate, setTeamsToCreate] = useState<{name: string; division: string}[]>([]);
@@ -410,6 +412,11 @@ export default function AdminImportUnified() {
     }
 
     setFile(selectedFile);
+    
+    // Reset input value to allow re-selecting the same file
+    if (inputRef.current) {
+      inputRef.current.value = '';
+    }
 
     Papa.parse(selectedFile, {
       header: true,
@@ -685,6 +692,7 @@ export default function AdminImportUnified() {
     setProgress(0);
     setResult(null);
     setValidationErrors([]);
+    setInputKey(prev => prev + 1);
   };
 
   const downloadErrorsCSV = () => {
@@ -758,6 +766,8 @@ export default function AdminImportUnified() {
                 <p className="text-lg font-medium">Arrastra tu archivo CSV aquí</p>
                 <p className="text-sm text-muted-foreground mt-1">o haz clic para seleccionar</p>
                 <input
+                  key={inputKey}
+                  ref={inputRef}
                   id="csv-upload"
                   type="file"
                   accept=".csv"
