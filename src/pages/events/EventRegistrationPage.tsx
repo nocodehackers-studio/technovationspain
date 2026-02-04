@@ -472,9 +472,6 @@ const selectedTicketId = form.watch('ticket_type_id');
                                     <Badge variant={isSoldOut ? 'destructive' : 'outline'}>
                                       {isSoldOut ? 'Agotado' : 'Gratis'}
                                     </Badge>
-                                    <p className="text-xs text-muted-foreground mt-1">
-                                      {available} disponibles
-                                    </p>
                                   </div>
                                 </div>
                               );

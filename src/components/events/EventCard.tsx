@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { CapacityIndicator } from './CapacityIndicator';
 import { Tables } from '@/integrations/supabase/types';
+import { useAuth } from '@/hooks/useAuth';
 
 type Event = Tables<'events'>;
 
@@ -15,6 +16,9 @@ interface EventCardProps {
 }
 
 export function EventCard({ event }: EventCardProps) {
+  const { role } = useAuth();
+  // Only show capacity to admins and chapter ambassadors
+  const showCapacity = role === 'admin' || role === 'chapter_ambassador';
   const eventDate = new Date(event.date);
   const now = new Date();
   
@@ -66,19 +70,18 @@ export function EventCard({ event }: EventCardProps) {
           </div>
         )}
         
-        {totalCapacity > 0 && (
-          <div className="flex items-center gap-2 text-sm">
-            <Users className="h-4 w-4 text-muted-foreground" />
-            <span>{currentRegistrations} / {totalCapacity} inscritos</span>
-          </div>
-        )}
-        
-        {totalCapacity > 0 && (
-          <CapacityIndicator 
-            current={currentRegistrations} 
-            max={totalCapacity}
-            size="sm"
-          />
+        {showCapacity && totalCapacity > 0 && (
+          <>
+            <div className="flex items-center gap-2 text-sm">
+              <Users className="h-4 w-4 text-muted-foreground" />
+              <span>{currentRegistrations} / {totalCapacity} inscritos</span>
+            </div>
+            <CapacityIndicator 
+              current={currentRegistrations} 
+              max={totalCapacity}
+              size="sm"
+            />
+          </>
         )}
       </CardContent>
       
