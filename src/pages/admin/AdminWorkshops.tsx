@@ -517,105 +517,144 @@ export default function AdminWorkshops() {
               </Button>
             </div>
 
-            {isLoading ? (
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {[1, 2, 3, 4, 5, 6].map((i) => (
-                  <Skeleton key={i} className="h-48" />
-                ))}
-              </div>
-            ) : workshops && workshops.length > 0 ? (
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {workshops.map((workshop) => (
-                  <Card key={workshop.id} className="hover:border-primary/50 transition-colors">
-                    <CardHeader className="pb-3">
-                      <div className="flex items-start justify-between">
-                        <div className="space-y-1">
-                          <CardTitle className="text-base font-semibold">
-                            {workshop.name}
-                          </CardTitle>
-                          {workshop.company && (
-                            <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                              <Building2 className="h-3 w-3" />
-                              {workshop.company}
-                            </div>
-                          )}
-                        </div>
-                        <div className="flex gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8"
-                            onClick={() => handleEditWorkshop(workshop)}
-                          >
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-destructive hover:text-destructive"
-                            onClick={() => handleDeleteWorkshop(workshop)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                      {workshop.location && (
-                        <div className="flex items-center gap-2 text-sm">
-                          <MapPin className="h-4 w-4 text-muted-foreground" />
-                          <span>{workshop.location}</span>
-                        </div>
-                      )}
-                      
-                      <div className="space-y-1">
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="text-muted-foreground">Aforo</span>
-                          <span className="font-medium">{workshop.max_capacity} personas</span>
-                        </div>
-                        <CapacityBar
-                          current={workshop.current_registrations || 0}
-                          max={workshop.max_capacity}
-                          size="sm"
-                        />
-                      </div>
-
-                      {/* Time slot badges */}
-                      {timeSlots && timeSlots.length > 0 && (
-                        <div className="flex flex-wrap gap-1.5 pt-1">
-                          {timeSlots.map((slot) => (
-                            <Badge 
-                              key={slot.id} 
-                              variant="secondary"
-                              className="text-xs font-normal"
-                            >
-                              T{slot.slot_number} {slot.start_time.slice(0, 5)}
-                            </Badge>
-                          ))}
-                        </div>
-                      )}
-
-                      {workshop.category && (
-                        <Badge variant="outline" className="text-xs">
-                          {workshop.category}
-                        </Badge>
-                      )}
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            ) : (
-              <Card className="border-dashed">
-                <CardContent className="py-12 text-center">
-                  <Layers className="h-12 w-12 mx-auto mb-4 text-muted-foreground/50" />
-                  <p className="text-muted-foreground">No hay talleres configurados</p>
-                  <Button className="mt-4" onClick={handleCreateWorkshop}>
-                    <Plus className="mr-2 h-4 w-4" />
-                    Crear primer taller
-                  </Button>
-                </CardContent>
-              </Card>
-            )}
+            <Card>
+              <CardContent className="pt-6">
+                {isLoading ? (
+                  <div className="space-y-3">
+                    {[1, 2, 3].map((i) => (
+                      <Skeleton key={i} className="h-12 w-full" />
+                    ))}
+                  </div>
+                ) : workshops && workshops.length > 0 ? (
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="text-left text-sm font-medium text-muted-foreground border-b">
+                          <th className="pb-3 pr-4">Nombre</th>
+                          <th className="pb-3 pr-4">Empresa</th>
+                          <th className="pb-3 pr-4">Ubicación</th>
+                          <th className="pb-3 pr-4 w-24">Aforo</th>
+                          <th className="pb-3 pr-4">Turnos</th>
+                          <th className="pb-3 w-20"></th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {workshops.map((workshop) => (
+                          <tr key={workshop.id} className="hover:bg-muted/50">
+                            <td className="py-3 pr-4">
+                              <Input
+                                defaultValue={workshop.name}
+                                className="font-medium"
+                                onBlur={(e) => {
+                                  if (e.target.value !== workshop.name && e.target.value.trim()) {
+                                    updateWorkshopMutation.mutate({
+                                      workshopId: workshop.id,
+                                      updates: { name: e.target.value.trim() }
+                                    });
+                                  }
+                                }}
+                              />
+                            </td>
+                            <td className="py-3 pr-4">
+                              <Input
+                                defaultValue={workshop.company || ''}
+                                placeholder="Empresa"
+                                className="text-muted-foreground"
+                                onBlur={(e) => {
+                                  if (e.target.value !== (workshop.company || '')) {
+                                    updateWorkshopMutation.mutate({
+                                      workshopId: workshop.id,
+                                      updates: { company: e.target.value || null }
+                                    });
+                                  }
+                                }}
+                              />
+                            </td>
+                            <td className="py-3 pr-4">
+                              <Input
+                                defaultValue={workshop.location || ''}
+                                placeholder="Sala/Ubicación"
+                                onBlur={(e) => {
+                                  if (e.target.value !== (workshop.location || '')) {
+                                    updateWorkshopMutation.mutate({
+                                      workshopId: workshop.id,
+                                      updates: { location: e.target.value || null }
+                                    });
+                                  }
+                                }}
+                              />
+                            </td>
+                            <td className="py-3 pr-4">
+                              <Input
+                                type="number"
+                                defaultValue={workshop.max_capacity}
+                                className="w-20"
+                                min={1}
+                                onBlur={(e) => {
+                                  const newValue = parseInt(e.target.value);
+                                  if (!isNaN(newValue) && newValue !== workshop.max_capacity && newValue > 0) {
+                                    updateWorkshopMutation.mutate({
+                                      workshopId: workshop.id,
+                                      updates: { max_capacity: newValue }
+                                    });
+                                  }
+                                }}
+                              />
+                            </td>
+                            <td className="py-3 pr-4">
+                              <div className="flex flex-wrap gap-1">
+                                {timeSlots && timeSlots.length > 0 ? (
+                                  timeSlots.map((slot) => (
+                                    <Badge 
+                                      key={slot.id} 
+                                      variant="secondary"
+                                      className="text-xs font-normal"
+                                    >
+                                      T{slot.slot_number}
+                                    </Badge>
+                                  ))
+                                ) : (
+                                  <span className="text-xs text-muted-foreground">Sin turnos</span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="py-3">
+                              <div className="flex gap-1 justify-end">
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8"
+                                  onClick={() => handleEditWorkshop(workshop)}
+                                >
+                                  <Edit className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8 text-destructive hover:text-destructive"
+                                  onClick={() => handleDeleteWorkshop(workshop)}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="py-12 text-center">
+                    <Layers className="h-12 w-12 mx-auto mb-4 text-muted-foreground/50" />
+                    <p className="text-muted-foreground">No hay talleres configurados</p>
+                    <Button className="mt-4" onClick={handleCreateWorkshop}>
+                      <Plus className="mr-2 h-4 w-4" />
+                      Crear primer taller
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
         </Tabs>
       </div>
