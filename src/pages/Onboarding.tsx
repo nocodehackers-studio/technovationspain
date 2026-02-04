@@ -34,7 +34,7 @@ const roleConfig: Record<AllowedRole, {
     requiresTGEmail: true,
   },
   mentor: { 
-    label: 'Mentora', 
+    label: 'Mentor', 
     icon: Users, 
     ageMin: 18, 
     ageMax: null,
@@ -504,7 +504,7 @@ export default function Onboarding() {
                         'Si ya estás registrada en Technovation Global, podrás verificar tu cuenta automáticamente.'
                       }
                       {formData.role === 'mentor' && 
-                        'Las mentoras guían y apoyan a los equipos de estudiantes durante la temporada.'
+                        'Los mentores guían y apoyan a los equipos de estudiantes durante la temporada.'
                       }
                       {formData.role === 'judge' && 
                         'Los jueces evalúan los proyectos de las estudiantes en eventos regionales y nacionales.'
