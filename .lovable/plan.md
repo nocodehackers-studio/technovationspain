@@ -1,180 +1,140 @@
 
 
-## Plan: DNI Obligatorio en Plataforma y Eventos
+## Plan: Eliminar Lógica de Menores de 14 Años del Onboarding
 
 ### Resumen
 
-El cliente quiere que el DNI sea obligatorio tanto en el registro de la plataforma (Onboarding) como en la inscripción a eventos.
-
-### Estado Actual
-
-| Ubicación | DNI | Implementación |
-|-----------|-----|----------------|
-| **Tabla `profiles`** | ❌ No existe | La tabla no tiene columna `dni` |
-| **Onboarding** | ❌ No se pide | El formulario no incluye el campo |
-| **Eventos** | ⚙️ Configurable | Ya implementado con `required_fields` por tipo de entrada |
-
-### Cambios a Realizar
-
-#### 1. Base de Datos
-
-Añadir columna `dni` a la tabla `profiles`:
-
-```sql
-ALTER TABLE profiles ADD COLUMN dni text;
-```
-
-#### 2. Onboarding (Registro en Plataforma)
-
-Añadir campo DNI al formulario de onboarding con validación de formato español (DNI/NIE).
-
-```text
-┌─────────────────────────────────────────────────────┐
-│               DATOS PERSONALES                       │
-├─────────────────────────────────────────────────────┤
-│  Nombre *          │  Apellidos *                   │
-│  [_______________] │  [_______________]             │
-│                                                     │
-│  Fecha de nacimiento *                              │
-│  [_______________]                                  │
-│                                                     │
-│  DNI/NIE *  ← NUEVO                                │
-│  [_______________]                                  │
-│  "8 números + letra (DNI) o X/Y/Z + 7 números"     │
-└─────────────────────────────────────────────────────┘
-```
-
-#### 3. Eventos (Ya Implementado)
-
-El sistema ya permite configurar DNI como obligatorio por tipo de entrada. **No requiere cambios adicionales**, pero ahora el formulario de eventos puede pre-rellenar el DNI desde el perfil del usuario.
+Simplificar el registro eliminando la comprobación de edad menor de 14 años y el campo de email del padre/madre/tutor. El campo `parent_email` se mantendrá en la base de datos para ser rellenado a través de la importación CSV.
 
 ---
 
-### Archivos a Modificar
+### Cambios a Realizar
+
+Se eliminarán únicamente las partes de UI y lógica relacionadas con `isMinor()`. **No se tocará la base de datos.**
+
+#### 1. Eliminar función `isMinor()`
+
+```typescript
+// ELIMINAR (líneas 419-424)
+const isMinor = () => {
+  if (!formData.date_of_birth) return false;
+  const age = calculateAge(formData.date_of_birth);
+  return age < 14;
+};
+```
+
+#### 2. Eliminar validación de `parent_email` en `validateStep1`
+
+```typescript
+// ELIMINAR (líneas 209-218)
+if (formData.role === 'participant' && isMinor()) {
+  if (!formData.parent_email?.trim()) {
+    newErrors.parent_email = 'El email del padre/madre/tutor es obligatorio...';
+  } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.parent_email)) {
+    newErrors.parent_email = 'Email inválido';
+  } else if (formData.parent_email.trim().toLowerCase() === user?.email?.toLowerCase()) {
+    newErrors.parent_email = 'El email del tutor debe ser diferente al tuyo';
+  }
+}
+```
+
+#### 3. Eliminar warning visual de menor de 14 años
+
+```tsx
+// ELIMINAR (líneas 508-512)
+{formData.role === 'participant' && isMinor() && (
+  <p className="text-sm text-warning">
+    ⚠️ Al ser menor de 14 años, necesitarás el consentimiento de tu padre/madre/tutor.
+  </p>
+)}
+```
+
+#### 4. Eliminar campo de email del padre
+
+```tsx
+// ELIMINAR (líneas 533-555)
+{formData.role === 'participant' && isMinor() && (
+  <div className="space-y-2">
+    <Label htmlFor="parent_email">Email del padre/madre/tutor *</Label>
+    ...
+  </div>
+)}
+```
+
+#### 5. Simplificar guardado del perfil
+
+```typescript
+// ANTES (línea 306)
+parent_email: isMinor() && formData.parent_email?.trim() ? formData.parent_email.trim() : null,
+
+// DESPUÉS
+// Eliminar esta línea - el parent_email vendrá de la importación CSV
+```
+
+#### 6. Eliminar envío de email de consentimiento
+
+```typescript
+// ELIMINAR (líneas 362-384)
+if (isMinor() && formData.parent_email?.trim()) {
+  try {
+    const consentResult = await supabase.functions.invoke('send-platform-consent', {
+      body: { userId: user.id },
+    });
+    ...
+  } catch (consentError) {
+    ...
+  }
+}
+```
+
+#### 7. Limpiar `OnboardingData` y schema
+
+Eliminar `parent_email` del tipo y del estado inicial del formulario (ya no se usa en el onboarding).
+
+---
+
+### Archivo a Modificar
 
 | Archivo | Cambios |
 |---------|---------|
-| Nueva migración SQL | Añadir columna `dni` a `profiles` |
-| `src/pages/Onboarding.tsx` | Añadir campo DNI con validación |
-| `src/hooks/useAuth.tsx` | Incluir `dni` en el tipo de perfil |
-| `src/pages/events/EventRegistrationPage.tsx` | Pre-rellenar DNI desde perfil en lugar de buscar en registros anteriores |
+| `src/pages/Onboarding.tsx` | Eliminar lógica de menores, campo de parent_email, y envío de consentimiento |
+
+---
+
+### Lo que NO se elimina
+
+| Elemento | Razón |
+|----------|-------|
+| Columna `parent_email` en `profiles` | Se rellenará vía importación CSV |
+| Edge function `send-platform-consent` | Puede usarse desde otro lugar |
+| Importación de `Mail` icon | Se sigue usando para el campo de tg_email |
 
 ---
 
 ### Sección Técnica
 
-#### Migración SQL
+#### Líneas específicas a eliminar/modificar
 
-```sql
-ALTER TABLE profiles ADD COLUMN dni text;
-
-COMMENT ON COLUMN profiles.dni IS 
-  'DNI o NIE del usuario. Formato: 8 dígitos + letra (DNI) o X/Y/Z + 7 dígitos + letra (NIE)';
-```
-
-#### Validación de DNI/NIE en Onboarding
-
-```typescript
-// Añadir al esquema de validación
-const validateSpanishDNI = (value: string): boolean => {
-  if (!value) return false; // Obligatorio
-  const cleanValue = value.toUpperCase().replace(/\s|-/g, '');
-  // DNI: 8 digits + letter
-  const dniRegex = /^[0-9]{8}[A-Z]$/;
-  // NIE: X/Y/Z + 7 digits + letter
-  const nieRegex = /^[XYZ][0-9]{7}[A-Z]$/;
-  return dniRegex.test(cleanValue) || nieRegex.test(cleanValue);
-};
-
-// En OnboardingData añadir:
-dni: string;
-
-// En formData inicial:
-dni: '',
-
-// Validación en validateStep1():
-if (!formData.dni.trim()) {
-  newErrors.dni = 'El DNI/NIE es obligatorio';
-} else if (!validateSpanishDNI(formData.dni)) {
-  newErrors.dni = 'Formato inválido. Usa 8 números + letra (DNI) o X/Y/Z + 7 números + letra (NIE)';
-}
-```
-
-#### Campo DNI en formulario Onboarding
-
-```tsx
-<div className="space-y-2">
-  <Label htmlFor="dni">DNI/NIE *</Label>
-  <Input
-    id="dni"
-    placeholder="12345678A"
-    value={formData.dni}
-    onChange={(e) => updateField('dni', e.target.value.toUpperCase())}
-    maxLength={9}
-    className="uppercase"
-  />
-  <p className="text-xs text-muted-foreground">
-    8 números + letra (DNI) o X/Y/Z + 7 números + letra (NIE)
-  </p>
-  {errors.dni && (
-    <p className="text-sm text-destructive">{errors.dni}</p>
-  )}
-</div>
-```
-
-#### Guardar DNI en perfil
-
-```typescript
-// En handleSubmit, añadir al profileUpdate:
-const profileUpdate: any = {
-  first_name: formData.first_name.trim(),
-  last_name: formData.last_name.trim(),
-  date_of_birth: formData.date_of_birth,
-  dni: formData.dni.toUpperCase().trim(), // ← NUEVO
-  tg_email: formData.tg_email?.trim() || null,
-  // ... resto de campos
-};
-```
-
-#### Pre-rellenar DNI en eventos desde perfil
-
-```typescript
-// En EventRegistrationPage.tsx, modificar useEffect:
-useEffect(() => {
-  if (profile) {
-    form.setValue('first_name', profile.first_name || '');
-    form.setValue('last_name', profile.last_name || '');
-    form.setValue('email', profile.email || '');
-    form.setValue('phone', profile.phone || '');
-    form.setValue('tg_email', profile.tg_email || '');
-    
-    // Pre-rellenar DNI desde perfil (nuevo)
-    if (profile.dni) {
-      form.setValue('dni', profile.dni);
-    }
-  }
-}, [profile, form]);
-```
+| Líneas | Descripción |
+|--------|-------------|
+| 88 | Eliminar `parent_email` del schema Zod |
+| 101, 130 | Eliminar `parent_email` del tipo y estado inicial |
+| 209-218 | Eliminar validación de parent_email para menores |
+| 306 | Eliminar guardado de parent_email en profileUpdate |
+| 362-384 | Eliminar envío de email de consentimiento |
+| 419-424 | Eliminar función `isMinor()` |
+| 508-512 | Eliminar warning visual de menor |
+| 533-555 | Eliminar campo de email del padre en UI |
 
 ---
 
-### Consideraciones
+### Resultado Final
 
-| Aspecto | Decisión |
-|---------|----------|
-| **Menores sin DNI** | Los menores de 14 años en España sí tienen DNI. Si hay casos excepcionales, se puede usar el DNI del tutor |
-| **Extranjeros sin NIE** | Usuarios con pasaporte deberían gestionar su NIE antes de registrarse. Alternativa: permitir formato pasaporte |
-| **Usuarios existentes** | Los perfiles ya creados tendrán `dni = null`. Se podría forzar completar este dato en su próximo login |
-| **Eventos** | DNI sigue siendo configurable por tipo de entrada (por si hay eventos públicos donde no sea necesario) |
-
----
-
-### Resumen de Cambios
-
-| Cambio | Impacto |
-|--------|---------|
-| Nueva columna `dni` en `profiles` | Almacenar DNI del usuario |
-| Campo DNI obligatorio en Onboarding | Todos los nuevos usuarios deben proporcionarlo |
-| Pre-relleno de DNI en eventos desde perfil | Evita búsqueda en registros anteriores |
-| Eventos mantienen configuración por tipo | Flexibilidad para eventos públicos |
+| Antes | Después |
+|-------|---------|
+| Comprueba si < 14 años | No comprueba edad para consentimiento |
+| Muestra warning ⚠️ | Sin warning |
+| Pide email del tutor | No pide email del tutor |
+| Guarda `parent_email` desde formulario | `parent_email` se obtiene de importación CSV |
+| Envía email automático | No envía email de consentimiento |
 
