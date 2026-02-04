@@ -72,8 +72,18 @@ interface ImportResult {
   created: number;
   updated: number;
   skipped: number;
+  teamsCreated: number;
   errors: { row: number; reason: string; data: CSVRow }[];
 }
+
+// Helper function to map division to category
+const mapDivisionToCategory = (division: string): string => {
+  const d = division?.toLowerCase().trim();
+  if (d === "beginner") return "beginner";
+  if (d === "junior") return "junior";
+  if (d === "senior") return "senior";
+  return "junior"; // Default
+};
 
 // Mapping from CSV headers to DB fields
 const CSV_FIELD_MAPPINGS: Record<string, string> = {
@@ -150,6 +160,9 @@ export default function AdminImportUnified() {
   const [showWarningDialog, setShowWarningDialog] = useState(false);
   const [pendingCsvData, setPendingCsvData] = useState<{ headers: string[]; data: CSVRow[] } | null>(null);
 
+  // Teams to create during import
+  const [teamsToCreate, setTeamsToCreate] = useState<{name: string; division: string}[]>([]);
+
   // Summary stats
   const [summaryData, setSummaryData] = useState({
     byProfileType: { student: 0, mentor: 0, judge: 0, chapter_ambassador: 0 } as Record<ProfileType, number>,
@@ -157,6 +170,9 @@ export default function AdminImportUnified() {
     totalRecords: 0,
     conflictsCount: 0,
     readyToImport: 0,
+    teamsInCSV: 0,
+    teamsToCreate: 0,
+    teamsExisting: 0,
   });
 
   // Helper function to fetch existing authorized users in batches
@@ -331,6 +347,37 @@ export default function AdminImportUnified() {
       }
     }
 
+    // Detect unique teams from CSV
+    const uniqueTeamsMap = new Map<string, { name: string; division: string }>();
+    for (const record of records) {
+      if (record.team_name?.trim() && record.team_division?.trim()) {
+        const key = record.team_name.toLowerCase().trim();
+        if (!uniqueTeamsMap.has(key)) {
+          uniqueTeamsMap.set(key, {
+            name: record.team_name.trim(),
+            division: record.team_division.trim(),
+          });
+        }
+      }
+    }
+
+    // Check which teams already exist
+    let newTeamsToCreate: {name: string; division: string}[] = [];
+    if (uniqueTeamsMap.size > 0) {
+      const { data: existingTeams } = await supabase
+        .from("teams")
+        .select("name");
+      
+      const existingSet = new Set(
+        existingTeams?.map(t => t.name.toLowerCase()) || []
+      );
+      
+      newTeamsToCreate = [...uniqueTeamsMap.entries()]
+        .filter(([key]) => !existingSet.has(key))
+        .map(([_, val]) => val);
+    }
+
+    setTeamsToCreate(newTeamsToCreate);
     setParsedRecords(records);
     setConflicts(detectedConflicts);
     setSummaryData({
@@ -339,6 +386,9 @@ export default function AdminImportUnified() {
       totalRecords: records.length,
       conflictsCount: detectedConflicts.length,
       readyToImport: records.length - detectedConflicts.filter(c => c.action === "skip").length,
+      teamsInCSV: uniqueTeamsMap.size,
+      teamsToCreate: newTeamsToCreate.length,
+      teamsExisting: uniqueTeamsMap.size - newTeamsToCreate.length,
     });
 
     return detectedConflicts;
@@ -452,10 +502,31 @@ export default function AdminImportUnified() {
         created: 0,
         updated: 0,
         skipped: 0,
+        teamsCreated: 0,
         errors: [],
       };
 
-      // Get records to process (excluding skipped conflicts)
+      // Step 1: Create teams first (before importing users)
+      if (teamsToCreate.length > 0) {
+        const batchSize = 50;
+        for (let i = 0; i < teamsToCreate.length; i += batchSize) {
+          const batch = teamsToCreate.slice(i, i + batchSize);
+          const { error } = await supabase
+            .from("teams")
+            .insert(batch.map(t => ({
+              name: t.name,
+              category: mapDivisionToCategory(t.division),
+            })));
+          
+          if (error) {
+            console.error("Error creating teams batch:", error);
+          } else {
+            importResult.teamsCreated += batch.length;
+          }
+        }
+      }
+
+      // Step 2: Get records to process (excluding skipped conflicts)
       const skippedIndices = new Set(
         conflicts.filter(c => c.action === "skip" || c.conflictType === "already_active").map(c => c.csvRowIndex)
       );
@@ -463,7 +534,7 @@ export default function AdminImportUnified() {
       const recordsToProcess = parsedRecords.filter(r => !skippedIndices.has(r._csvRowIndex));
       importResult.skipped = parsedRecords.length - recordsToProcess.length;
 
-      // Process in batches
+      // Step 3: Process users in batches
       const batchSize = 50;
       for (let i = 0; i < recordsToProcess.length; i += batchSize) {
         const batch = recordsToProcess.slice(i, i + batchSize);
@@ -588,7 +659,9 @@ export default function AdminImportUnified() {
       setResult(result);
       setStep("results");
       queryClient.invalidateQueries({ queryKey: ["authorized-users"] });
-      toast.success(`Importación completada: ${result.created} nuevos, ${result.updated} actualizados`);
+      queryClient.invalidateQueries({ queryKey: ["teams"] });
+      const teamsMsg = result.teamsCreated > 0 ? `, ${result.teamsCreated} equipos creados` : "";
+      toast.success(`Importación completada: ${result.created} nuevos, ${result.updated} actualizados${teamsMsg}`);
     },
     onError: (error: Error) => {
       toast.error(`Error en la importación: ${error.message}`);
@@ -608,6 +681,7 @@ export default function AdminImportUnified() {
     setCsvHeaders([]);
     setParsedRecords([]);
     setConflicts([]);
+    setTeamsToCreate([]);
     setProgress(0);
     setResult(null);
     setValidationErrors([]);
@@ -790,7 +864,7 @@ export default function AdminImportUnified() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
                 <div className="p-4 rounded-lg bg-muted/50 text-center">
                   <div className="text-2xl font-bold">{result.total}</div>
                   <div className="text-sm text-muted-foreground">Total procesados</div>
@@ -807,6 +881,12 @@ export default function AdminImportUnified() {
                   <div className="text-2xl font-bold">{result.skipped}</div>
                   <div className="text-sm text-muted-foreground">Ignorados</div>
                 </div>
+                {result.teamsCreated > 0 && (
+                  <div className="p-4 rounded-lg bg-purple-100 dark:bg-purple-900/30 text-center">
+                    <div className="text-2xl font-bold text-purple-700 dark:text-purple-400">{result.teamsCreated}</div>
+                    <div className="text-sm text-muted-foreground">Equipos creados</div>
+                  </div>
+                )}
               </div>
 
               {result.errors.length > 0 && (
