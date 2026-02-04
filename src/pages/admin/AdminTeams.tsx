@@ -631,12 +631,12 @@ export default function AdminTeams() {
           <form onSubmit={handleEditSubmit} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="edit-hub">Hub</Label>
-              <Select value={editHubId} onValueChange={setEditHubId}>
+              <Select value={editHubId || "none"} onValueChange={(v) => setEditHubId(v === "none" ? "" : v)}>
                 <SelectTrigger id="edit-hub">
                   <SelectValue placeholder="Seleccionar hub" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Sin hub</SelectItem>
+                  <SelectItem value="none">Sin hub</SelectItem>
                   {hubs?.map((hub) => (
                     <SelectItem key={hub.id} value={hub.id}>
                       {hub.name}
@@ -648,12 +648,12 @@ export default function AdminTeams() {
 
             <div className="space-y-2">
               <Label htmlFor="edit-mentor">Mentor</Label>
-              <Select value={editMentorId} onValueChange={setEditMentorId}>
+              <Select value={editMentorId || "none"} onValueChange={(v) => setEditMentorId(v === "none" ? "" : v)}>
                 <SelectTrigger id="edit-mentor">
                   <SelectValue placeholder="Seleccionar mentor" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Sin mentor asignado</SelectItem>
+                  <SelectItem value="none">Sin mentor asignado</SelectItem>
                   {mentors?.map((mentor) => (
                     <SelectItem key={mentor.id} value={mentor.id}>
                       {mentor.first_name && mentor.last_name
