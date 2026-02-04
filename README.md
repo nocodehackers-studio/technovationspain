@@ -1,73 +1,211 @@
-# Welcome to your Lovable project
+# Technovation España - Plataforma de Gestión
 
-## Project info
+Plataforma de gestión integral para Technovation España que permite administrar participantes, mentores, jueces, voluntarios y eventos del programa.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+## 🏗️ Arquitectura del Proyecto
 
-## How can I edit this code?
+### Stack Tecnológico
 
-There are several ways of editing your application.
+| Capa | Tecnología |
+|------|------------|
+| **Frontend** | React 18 + TypeScript + Vite |
+| **Estilos** | Tailwind CSS + shadcn/ui |
+| **Estado** | TanStack Query (React Query) + Zustand |
+| **Backend** | Supabase (PostgreSQL + Auth + Storage + Edge Functions) |
+| **Formularios** | React Hook Form + Zod |
 
-**Use Lovable**
+### Estructura de Carpetas
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+```
+src/
+├── components/
+│   ├── admin/           # Componentes del panel de administración
+│   │   ├── events/      # Gestión de eventos (agenda, emails, tickets)
+│   │   ├── import/      # Importación CSV y resolución de conflictos
+│   │   └── users/       # Gestión de usuarios
+│   ├── auth/            # Autenticación y protección de rutas
+│   ├── events/          # Componentes públicos de eventos
+│   └── ui/              # Componentes base (shadcn/ui)
+├── hooks/               # Custom hooks (useAuth, useEventRegistration, etc.)
+├── integrations/
+│   └── supabase/        # Cliente y tipos auto-generados
+├── lib/                 # Utilidades (validaciones, QR, etc.)
+├── pages/
+│   ├── admin/           # Páginas del panel de administración
+│   ├── events/          # Páginas públicas de eventos
+│   ├── mentor/          # Dashboard de mentores
+│   ├── register/        # Flujos de registro por rol
+│   ├── validate/        # Validación de entradas (QR)
+│   └── volunteer/       # Dashboard de voluntarios
+├── types/               # Tipos TypeScript personalizados
+└── App.tsx              # Enrutamiento principal
 
-Changes made via Lovable will be committed automatically to this repo.
-
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
+supabase/
+└── functions/           # Edge Functions (emails, validación tickets)
 ```
 
-**Edit a file directly in GitHub**
+### Modelo de Datos
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                           USUARIOS                                   │
+├─────────────────────────────────────────────────────────────────────┤
+│  profiles ←──┬── user_roles (participant, mentor, judge, volunteer, │
+│              │                admin, chapter_ambassador)             │
+│              │                                                       │
+│              ├── team_members ──→ teams ──→ hubs                    │
+│              │                                                       │
+│              └── parental_consents (menores de edad)                │
+└─────────────────────────────────────────────────────────────────────┘
 
-**Use GitHub Codespaces**
+┌─────────────────────────────────────────────────────────────────────┐
+│                           EVENTOS                                    │
+├─────────────────────────────────────────────────────────────────────┤
+│  events ←──┬── event_ticket_types (tipos de entrada configurables)  │
+│            │                                                         │
+│            ├── event_registrations ←── companions (acompañantes)    │
+│            │                                                         │
+│            ├── event_agenda (programa del evento)                   │
+│            │                                                         │
+│            ├── event_volunteers (asignación de voluntarios)         │
+│            │                                                         │
+│            ├── workshops ←── workshop_registrations                 │
+│            │                                                         │
+│            └── event_email_templates / event_email_sends            │
+└─────────────────────────────────────────────────────────────────────┘
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+┌─────────────────────────────────────────────────────────────────────┐
+│                        WHITELIST / IMPORT                            │
+├─────────────────────────────────────────────────────────────────────┤
+│  authorized_users ──→ matched_profile_id (auto-verificación)        │
+│  csv_imports (historial de importaciones)                           │
+│  audit_logs (registro de acciones)                                  │
+└─────────────────────────────────────────────────────────────────────┘
+```
 
-## What technologies are used for this project?
+### Sistema de Roles y Permisos
 
-This project is built with:
+| Rol | Descripción | Acceso |
+|-----|-------------|--------|
+| `participant` | Estudiantes del programa | Dashboard, eventos |
+| `mentor` | Mentores de equipos | Dashboard mentor, equipos asignados |
+| `judge` | Jueces de competición | Eventos de evaluación |
+| `volunteer` | Voluntarios de eventos | Dashboard voluntario, check-in |
+| `chapter_ambassador` | Líderes de capítulo | Gestión de hub |
+| `admin` | Administradores | Panel completo |
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+**Seguridad**: Los roles se almacenan en tabla separada (`user_roles`) con RLS. La función `has_role()` previene recursión en políticas.
 
-## How can I deploy this project?
+### Flujo de Verificación de Usuarios
 
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
+```
+┌──────────────┐     ┌─────────────────┐     ┌──────────────┐
+│   Registro   │────▶│  ¿En whitelist? │────▶│  Verificado  │
+│   (email)    │     │ authorized_users│ SÍ  │   + Rol      │
+└──────────────┘     └─────────────────┘     └──────────────┘
+                              │ NO
+                              ▼
+                     ┌─────────────────┐
+                     │    Pendiente    │
+                     │ (manual_review) │
+                     └─────────────────┘
+```
 
-## Can I connect a custom domain to my Lovable project?
+### Sistema de Eventos
 
-Yes, you can!
+#### Tipos de Entrada Configurables
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+Cada evento puede tener múltiples tipos de entrada con:
+- **Roles permitidos**: Qué roles pueden adquirir este tipo
+- **Campos obligatorios**: DNI, teléfono, email TG, nombre de equipo
+- **Acompañantes**: Número máximo y campos requeridos para cada uno
+- **Capacidad**: Límite por tipo de entrada
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+#### Gestión de Capacidad
+
+```typescript
+// Funciones SQL para control atómico de capacidad
+increment_registration_count(event_id, ticket_type_id, companions_count)
+decrement_registration_count(event_id, ticket_type_id, companions_count)
+```
+
+### Edge Functions
+
+| Función | Propósito |
+|---------|-----------|
+| `send-auth-email` | Emails de autenticación personalizados |
+| `send-event-email` | Comunicaciones masivas a registrados |
+| `send-registration-confirmation` | Confirmación con QR de entrada |
+| `send-event-consent` | Solicitud de consentimiento para eventos |
+| `send-platform-consent` | Consentimiento parental (menores) |
+| `validate-ticket` | Validación de QR en check-in |
+
+### Patrones de Código
+
+#### Protección de Rutas
+
+```tsx
+<ProtectedRoute requiredRoles={["admin"]}>
+  <AdminDashboard />
+</ProtectedRoute>
+```
+
+#### Queries con TanStack Query
+
+```tsx
+const { data, isLoading } = useQuery({
+  queryKey: ['events', eventId],
+  queryFn: () => supabase.from('events').select('*').eq('id', eventId)
+});
+```
+
+#### Validación con Zod
+
+```tsx
+const schema = z.object({
+  dni: z.string().regex(/^[0-9]{8}[A-Z]$|^[XYZ][0-9]{7}[A-Z]$/)
+});
+```
+
+## 🚀 Desarrollo Local
+
+```bash
+# Instalar dependencias
+npm install
+
+# Iniciar servidor de desarrollo
+npm run dev
+
+# Ejecutar tests
+npm test
+```
+
+## 📦 Variables de Entorno
+
+Las claves de Supabase se gestionan automáticamente. Para Edge Functions, los secrets se configuran en el panel de Supabase:
+
+- `BREVO_API_KEY` - API de envío de emails
+- `BREVO_SENDER_EMAIL` / `BREVO_SENDER_NAME`
+- `BREVO_REPLY_TO_EMAIL`
+
+## 🔐 Seguridad
+
+- **RLS habilitado** en todas las tablas
+- **Roles en tabla separada** para prevenir escalación de privilegios
+- **Funciones SECURITY DEFINER** para operaciones privilegiadas
+- **Validación de DNI/NIE** con formato español
+- **Tokens únicos** para consentimientos parentales
+
+## 📊 Panel de Administración
+
+- **Dashboard**: Métricas de registro (whitelist vs perfiles)
+- **Usuarios**: CRUD completo con roles múltiples
+- **Equipos**: Gestión y asignación de miembros
+- **Hubs**: Organización geográfica
+- **Eventos**: Creación, tipos de entrada, agenda, emails
+- **Importación**: CSV con resolución de conflictos
+- **Reportes**: Exportación de datos
+
+---
+
+Desarrollado con [Lovable](https://lovable.dev)
