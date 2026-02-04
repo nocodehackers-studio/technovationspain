@@ -126,17 +126,37 @@ export function useWorkshopPreferencesEligibility(userId: string | undefined): W
       // 5. Check if preferences have already been submitted for each team+event
       const { data: existingPreferences, error: prefsError } = await supabase
         .from('workshop_preferences')
-        .select(`
-          team_id,
-          event_id,
-          submitted_by,
-          submitter:profiles!workshop_preferences_submitted_by_fkey(id, first_name, last_name, email)
-        `)
+        .select('team_id, event_id, submitted_by')
         .in('team_id', teamIds)
         .in('event_id', eventIds);
 
       console.log('[WorkshopEligibility] Step 5b - Existing preferences:', existingPreferences, 'Error:', prefsError);
       if (prefsError) throw prefsError;
+
+      // Get submitter profiles separately (no FK constraint exists)
+      const submitterIds = [...new Set(
+        existingPreferences?.map(p => p.submitted_by).filter(Boolean) || []
+      )];
+
+      let submittersMap = new Map<string, { id: string; firstName: string | null; lastName: string | null; email: string }>();
+
+      if (submitterIds.length > 0) {
+        const { data: submitters } = await supabase
+          .from('profiles')
+          .select('id, first_name, last_name, email')
+          .in('id', submitterIds);
+
+        submitters?.forEach(s => {
+          submittersMap.set(s.id, {
+            id: s.id,
+            firstName: s.first_name,
+            lastName: s.last_name,
+            email: s.email,
+          });
+        });
+      }
+
+      console.log('[WorkshopEligibility] Step 5c - Submitters map:', submittersMap.size, 'entries');
 
       // Group preferences by team+event
       const preferencesMap = new Map<string, {
@@ -147,15 +167,10 @@ export function useWorkshopPreferencesEligibility(userId: string | undefined): W
       existingPreferences?.forEach(pref => {
         const key = `${pref.team_id}|${pref.event_id}`;
         if (!preferencesMap.has(key)) {
-          const submitter = (pref.submitter as any);
+          const submitter = submittersMap.get(pref.submitted_by);
           preferencesMap.set(key, {
             submitted: true,
-            submittedBy: submitter ? {
-              id: submitter.id,
-              firstName: submitter.first_name,
-              lastName: submitter.last_name,
-              email: submitter.email,
-            } : undefined,
+            submittedBy: submitter,
           });
         }
       });
