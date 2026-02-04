@@ -1,6 +1,5 @@
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import { GraduationCap, Users, Scale, Sparkles } from 'lucide-react';
 
 const LOGO_TECHNOVATION = "https://orvkqnbshkxzyhqpjsdw.supabase.co/storage/v1/object/public/Assets/LOGO_Technovation_Girls_Transparente.png";
@@ -37,6 +36,9 @@ const roles = [
 ];
 
 export default function RegisterSelect() {
+  const location = useLocation();
+  const prefilledEmail = (location.state as { email?: string })?.email;
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-secondary via-background to-muted p-4">
       <div className="w-full max-w-2xl space-y-6">
@@ -73,7 +75,7 @@ export default function RegisterSelect() {
               {roles.map((role) => {
                 const Icon = role.icon;
                 return (
-                  <Link key={role.id} to={role.href} className="block">
+                  <Link key={role.id} to={role.href} state={{ email: prefilledEmail }} className="block">
                     <div className="group relative rounded-xl border-2 border-muted p-6 text-center transition-all hover:border-primary hover:shadow-lg h-full flex flex-col">
                       <div className={`mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full ${role.color} transition-transform group-hover:scale-110`}>
                         <Icon className="h-8 w-8" />

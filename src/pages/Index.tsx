@@ -64,7 +64,22 @@ export default function Index() {
 
     setLoading(true);
     
-    // Always use production URL except for localhost development
+    // Check if the email exists in profiles before sending OTP
+    const { data: emailExists, error: checkError } = await supabase
+      .rpc('check_email_exists', { check_email: email });
+    
+    if (checkError) {
+      console.error('Error checking email:', checkError);
+      // On error, continue with normal flow as fallback
+    } else if (!emailExists) {
+      // Email not registered: redirect to registration
+      setLoading(false);
+      toast.info("Este email no está registrado. Por favor, crea una cuenta.");
+      navigate('/register', { state: { email } });
+      return;
+    }
+    
+    // Email exists: proceed with OTP
     const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
     const baseUrl = isLocalhost ? window.location.origin : 'https://technovationspain.lovable.app';
     

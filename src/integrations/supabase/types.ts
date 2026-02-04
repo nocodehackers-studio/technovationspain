@@ -1434,6 +1434,7 @@ export type Database = {
         Args: { user_email: string }
         Returns: boolean
       }
+      check_email_exists: { Args: { check_email: string }; Returns: boolean }
       decrement_registration_count:
         | {
             Args: { p_event_id: string; p_ticket_type_id: string }
