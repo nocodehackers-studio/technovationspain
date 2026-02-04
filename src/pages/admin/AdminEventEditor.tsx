@@ -6,7 +6,7 @@ import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { ArrowLeft, Save, Info, MapPin, Ticket, Calendar, Eye, Mail, BarChart3, Heart } from "lucide-react";
+import { ArrowLeft, Save, Info, MapPin, Ticket, Calendar, Eye, Mail, BarChart3, Heart, GraduationCap } from "lucide-react";
 import { EventBasicInfoForm } from "@/components/admin/events/EventBasicInfoForm";
 import { EventLocationForm } from "@/components/admin/events/EventLocationForm";
 import { TicketTypeManager } from "@/components/admin/events/TicketTypeManager";
@@ -15,6 +15,7 @@ import { EventPublishSection } from "@/components/admin/events/EventPublishSecti
 import { EventEmailManager } from "@/components/admin/events/EventEmailManager";
 import { EventStatsView } from "@/components/admin/events/EventStatsView";
 import { EventVolunteersView } from "@/components/admin/events/EventVolunteersView";
+import { WorkshopManager } from "@/components/admin/events/WorkshopManager";
 import { Event, EventType } from "@/types/database";
 
 interface EventFormData {
@@ -306,7 +307,7 @@ export default function AdminEventEditor() {
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-8">
+          <TabsList className="grid w-full grid-cols-9">
             <TabsTrigger value="basic" className="gap-2">
               <Info className="h-4 w-4" />
               <span className="hidden sm:inline">Info</span>
@@ -318,6 +319,10 @@ export default function AdminEventEditor() {
             <TabsTrigger value="tickets" className="gap-2" disabled={!isEditing}>
               <Ticket className="h-4 w-4" />
               <span className="hidden sm:inline">Entradas</span>
+            </TabsTrigger>
+            <TabsTrigger value="workshops" className="gap-2" disabled={!isEditing}>
+              <GraduationCap className="h-4 w-4" />
+              <span className="hidden sm:inline">Talleres</span>
             </TabsTrigger>
             <TabsTrigger value="agenda" className="gap-2" disabled={!isEditing}>
               <Calendar className="h-4 w-4" />
@@ -374,6 +379,10 @@ export default function AdminEventEditor() {
                   eventMaxCapacity={formData.max_capacity}
                 />
               )}
+            </TabsContent>
+
+            <TabsContent value="workshops">
+              {eventId && <WorkshopManager eventId={eventId} />}
             </TabsContent>
 
             <TabsContent value="agenda">
