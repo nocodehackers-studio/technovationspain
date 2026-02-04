@@ -110,7 +110,7 @@ export default function RegisterMentor() {
           </CardHeader>
           <CardContent className="space-y-6">
             <p className="text-center text-sm text-muted-foreground">
-              Haz clic en el enlace del correo para completar tu registro como mentora. 
+              Haz clic en el enlace del correo para completar tu registro como mentor. 
               El enlace expira en 1 hora.
             </p>
 
@@ -195,7 +195,7 @@ export default function RegisterMentor() {
           <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-secondary/20">
             <Users className="h-6 w-6 text-secondary" />
           </div>
-          <CardTitle className="text-xl font-display">Registro de Mentora</CardTitle>
+          <CardTitle className="text-xl font-display">Registro de Mentor</CardTitle>
           <CardDescription className="text-base">
             Para personas mayores de 18 años que guían equipos
           </CardDescription>
@@ -205,8 +205,8 @@ export default function RegisterMentor() {
             <Alert className="border-muted bg-secondary/5">
               <Info className="h-4 w-4 text-secondary" />
               <AlertDescription className="text-sm">
-                <strong>Requisito:</strong> Debes tener al menos 18 años y estar registrada 
-                en Technovation Global como mentora.
+                <strong>Requisito:</strong> Debes tener al menos 18 años y estar registrado/a 
+                en Technovation Global como mentor.
               </AlertDescription>
             </Alert>
             
