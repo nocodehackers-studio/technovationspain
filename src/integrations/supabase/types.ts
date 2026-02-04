@@ -545,6 +545,7 @@ export type Database = {
           image_consent: boolean | null
           is_companion: boolean | null
           last_name: string | null
+          participant_count: number | null
           phone: string | null
           qr_code: string
           registration_number: string | null
@@ -570,6 +571,7 @@ export type Database = {
           image_consent?: boolean | null
           is_companion?: boolean | null
           last_name?: string | null
+          participant_count?: number | null
           phone?: string | null
           qr_code: string
           registration_number?: string | null
@@ -595,6 +597,7 @@ export type Database = {
           image_consent?: boolean | null
           is_companion?: boolean | null
           last_name?: string | null
+          participant_count?: number | null
           phone?: string | null
           qr_code?: string
           registration_number?: string | null
@@ -1108,6 +1111,126 @@ export type Database = {
         }
         Relationships: []
       }
+      workshop_assignments: {
+        Row: {
+          assigned_at: string | null
+          assigned_by: string | null
+          assignment_slot: string
+          assignment_type: string | null
+          event_id: string
+          id: string
+          preference_matched: number | null
+          team_id: string
+          time_slot_id: string
+          workshop_id: string
+        }
+        Insert: {
+          assigned_at?: string | null
+          assigned_by?: string | null
+          assignment_slot: string
+          assignment_type?: string | null
+          event_id: string
+          id?: string
+          preference_matched?: number | null
+          team_id: string
+          time_slot_id: string
+          workshop_id: string
+        }
+        Update: {
+          assigned_at?: string | null
+          assigned_by?: string | null
+          assignment_slot?: string
+          assignment_type?: string | null
+          event_id?: string
+          id?: string
+          preference_matched?: number | null
+          team_id?: string
+          time_slot_id?: string
+          workshop_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workshop_assignments_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workshop_assignments_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workshop_assignments_time_slot_id_fkey"
+            columns: ["time_slot_id"]
+            isOneToOne: false
+            referencedRelation: "workshop_time_slots"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workshop_assignments_workshop_id_fkey"
+            columns: ["workshop_id"]
+            isOneToOne: false
+            referencedRelation: "workshops"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workshop_preferences: {
+        Row: {
+          event_id: string
+          id: string
+          preference_order: number
+          submitted_at: string | null
+          submitted_by: string
+          team_id: string
+          workshop_id: string
+        }
+        Insert: {
+          event_id: string
+          id?: string
+          preference_order: number
+          submitted_at?: string | null
+          submitted_by: string
+          team_id: string
+          workshop_id: string
+        }
+        Update: {
+          event_id?: string
+          id?: string
+          preference_order?: number
+          submitted_at?: string | null
+          submitted_by?: string
+          team_id?: string
+          workshop_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workshop_preferences_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workshop_preferences_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workshop_preferences_workshop_id_fkey"
+            columns: ["workshop_id"]
+            isOneToOne: false
+            referencedRelation: "workshops"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       workshop_registrations: {
         Row: {
           assigned: boolean | null
@@ -1150,9 +1273,45 @@ export type Database = {
           },
         ]
       }
+      workshop_time_slots: {
+        Row: {
+          created_at: string | null
+          end_time: string
+          event_id: string
+          id: string
+          slot_number: number
+          start_time: string
+        }
+        Insert: {
+          created_at?: string | null
+          end_time: string
+          event_id: string
+          id?: string
+          slot_number: number
+          start_time: string
+        }
+        Update: {
+          created_at?: string | null
+          end_time?: string
+          event_id?: string
+          id?: string
+          slot_number?: number
+          start_time?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workshop_time_slots_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       workshops: {
         Row: {
           category: string | null
+          company: string | null
           created_at: string | null
           current_registrations: number | null
           description: string | null
@@ -1165,6 +1324,7 @@ export type Database = {
         }
         Insert: {
           category?: string | null
+          company?: string | null
           created_at?: string | null
           current_registrations?: number | null
           description?: string | null
@@ -1177,6 +1337,7 @@ export type Database = {
         }
         Update: {
           category?: string | null
+          company?: string | null
           created_at?: string | null
           current_registrations?: number | null
           description?: string | null

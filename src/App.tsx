@@ -36,6 +36,10 @@ import AdminHubs from "./pages/admin/AdminHubs";
 import AdminEvents from "./pages/admin/AdminEvents";
 import AdminEventEditor from "./pages/admin/AdminEventEditor";
 import AdminWorkshops from "./pages/admin/AdminWorkshops";
+import AdminWorkshopCapacity from "./pages/admin/AdminWorkshopCapacity";
+import AdminWorkshopPreferences from "./pages/admin/AdminWorkshopPreferences";
+import AdminWorkshopAssignment from "./pages/admin/AdminWorkshopAssignment";
+import AdminWorkshopSchedule from "./pages/admin/AdminWorkshopSchedule";
 import AdminImportUnified from "./pages/admin/AdminImportUnified";
 import AdminImportTeams from "./pages/admin/AdminImportTeams";
 import AdminReports from "./pages/admin/AdminReports";
@@ -48,6 +52,7 @@ import EventDetailPage from "./pages/events/EventDetailPage";
 import EventRegistrationPage from "./pages/events/EventRegistrationPage";
 import RegistrationConfirmationPage from "./pages/events/RegistrationConfirmationPage";
 import TicketDetailPage from "./pages/events/TicketDetailPage";
+import WorkshopPreferencesPage from "./pages/events/WorkshopPreferencesPage";
 import ValidatePage from "./pages/validate/ValidatePage";
 
 const queryClient = new QueryClient();

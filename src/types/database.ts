@@ -117,12 +117,45 @@ export interface Workshop {
   event_id: string;
   name: string;
   description?: string | null;
+  company?: string | null;
   category?: TeamCategory | 'general' | null;
   time_slot?: string | null;
   max_capacity: number;
   current_registrations: number;
   location?: string | null;
   created_at: string;
+}
+
+export interface WorkshopTimeSlot {
+  id: string;
+  event_id: string;
+  slot_number: number;
+  start_time: string;
+  end_time: string;
+  created_at: string;
+}
+
+export interface WorkshopPreference {
+  id: string;
+  team_id: string;
+  event_id: string;
+  workshop_id: string;
+  preference_order: number;
+  submitted_by: string;
+  submitted_at: string;
+}
+
+export interface WorkshopAssignment {
+  id: string;
+  team_id: string;
+  event_id: string;
+  workshop_id: string;
+  time_slot_id: string;
+  assignment_slot: 'A' | 'B';
+  preference_matched: number | null;
+  assignment_type: 'algorithm' | 'manual';
+  assigned_at: string;
+  assigned_by: string | null;
 }
 
 export interface EventRegistration {
@@ -133,6 +166,7 @@ export interface EventRegistration {
   registration_status: RegistrationStatus;
   qr_code: string;
   checked_in_at?: string | null;
+  participant_count?: number | null;
   created_at: string;
 }
 
