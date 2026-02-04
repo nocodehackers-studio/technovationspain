@@ -776,6 +776,7 @@ export type Database = {
           registration_open_date: string | null
           start_time: string | null
           status: string | null
+          workshop_preferences_open: boolean
         }
         Insert: {
           created_at?: string | null
@@ -797,6 +798,7 @@ export type Database = {
           registration_open_date?: string | null
           start_time?: string | null
           status?: string | null
+          workshop_preferences_open?: boolean
         }
         Update: {
           created_at?: string | null
@@ -818,6 +820,7 @@ export type Database = {
           registration_open_date?: string | null
           start_time?: string | null
           status?: string | null
+          workshop_preferences_open?: boolean
         }
         Relationships: []
       }
