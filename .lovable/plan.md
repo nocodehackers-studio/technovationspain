@@ -1,97 +1,192 @@
 
-## Plan: Validación de Aforo Global en Tipos de Entrada
 
-### Resumen
+## Plan: Crear Equipos Automáticamente en Importación de Participantes
 
-Añadir validación en el editor de tipos de entrada para que la suma de capacidades de todos los tipos no supere el aforo global del evento. Mostrar warnings visuales y bloquear la creación/edición si se supera el límite.
+### Problema Detectado
+
+Actualmente, si se importa el CSV de participantes **antes** del CSV de equipos:
+
+```text
+┌───────────────────────────────────────────────────────────────────────┐
+│  CSV Participantes                                                    │
+│  ├── Email: ana@ejemplo.com                                          │
+│  ├── Team Name: "Tech Girls"                                         │
+│  └── Team Division: "Junior"                                         │
+│                                      ↓                                │
+│  authorized_users (✓ se crea)                                        │
+│  └── team_name = "Tech Girls"                                        │
+│                                                                       │
+│  teams (✗ NO existe "Tech Girls")                                    │
+│                                                                       │
+│  → Cuando Ana se registra, el trigger NO la vincula al equipo        │
+│    porque el equipo no existe en la tabla teams                      │
+└───────────────────────────────────────────────────────────────────────┘
+```
+
+### Solución Propuesta
+
+Modificar la importación de participantes para que **cree automáticamente los equipos** que no existen:
+
+```text
+┌───────────────────────────────────────────────────────────────────────┐
+│  CSV Participantes                                                    │
+│  ├── Detectar team_name únicos: ["Tech Girls", "Code Warriors", ...]  │
+│  ├── Consultar tabla teams                                           │
+│  ├── Identificar equipos nuevos a crear                              │
+│  └── Crear equipos en la base de datos ANTES de insertar usuarios    │
+│                                                                       │
+│  → Al registrarse Ana, el equipo "Tech Girls" ya existe              │
+│  → El trigger la vincula automáticamente                             │
+└───────────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
-### Estado Actual
+### Flujo Actualizado
 
-| Elemento | Estado |
-|----------|--------|
-| Campo `max_capacity` en evento | Ya existe y se configura en la pestaña "Lugar" |
-| Validación en tipos de entrada | No existe - se pueden crear sin límite |
-| Indicador visual de uso | No existe |
+```text
+┌────────────────────┐     ┌──────────────────────┐     ┌────────────────────┐
+│   Subir CSV        │────▶│  Análisis:           │────▶│  Preview muestra:  │
+│   Participantes    │     │  - Emails únicos     │     │  - X participantes │
+│                    │     │  - Equipos únicos    │     │  - Y equipos nuevos│
+└────────────────────┘     │  - ¿Qué equipos      │     │    a crear         │
+                           │    existen ya?       │     └────────────────────┘
+                           └──────────────────────┘
+                                                              │
+                                                              ▼
+┌────────────────────┐     ┌──────────────────────┐     ┌────────────────────┐
+│   Resultado:       │◀────│  Procesamiento:      │◀────│  Usuario confirma  │
+│   - Z equipos      │     │  1. Crear equipos    │     │                    │
+│     creados        │     │  2. Insertar en      │     │                    │
+│   - W usuarios     │     │     authorized_users │     │                    │
+│     importados     │     └──────────────────────┘     └────────────────────┘
+└────────────────────┘
+```
 
 ---
 
 ### Cambios a Realizar
 
-#### 1. Pasar `max_capacity` del evento al TicketTypeManager
+#### 1. Fase de Análisis - Detectar Equipos Nuevos
 
-El componente necesita conocer el aforo global para validar.
-
-```text
-┌──────────────────────────────────────────────────────────┐
-│  AdminEventEditor                                        │
-│  ├── formData.max_capacity (500)                        │
-│  │                                                       │
-│  └── <TicketTypeManager                                  │
-│         eventId="..."                                    │
-│         eventMaxCapacity={500}  ← NUEVO                 │
-│      />                                                  │
-└──────────────────────────────────────────────────────────┘
-```
-
-#### 2. Mostrar indicador de uso del aforo en la lista
-
-```text
-┌──────────────────────────────────────────────────────────┐
-│  Tipos de Entrada                        [+ Añadir Tipo] │
-├──────────────────────────────────────────────────────────┤
-│  Aforo global: 500                                       │
-│  ████████████████░░░░░░░░░░░░░░░░░░░░░░░░  380/500 (76%) │
-│                                                          │
-│  ┌────────────────────────────────────────────────────┐  │
-│  │ Participantes              250/300    [Editar] [X] │  │
-│  └────────────────────────────────────────────────────┘  │
-│  ┌────────────────────────────────────────────────────┐  │
-│  │ Mentores                   100/130    [Editar] [X] │  │
-│  └────────────────────────────────────────────────────┘  │
-└──────────────────────────────────────────────────────────┘
-```
-
-#### 3. Warning en el diálogo de edición/creación
-
-```text
-┌──────────────────────────────────────────────────────────┐
-│  Nuevo Tipo de Entrada                                   │
-├──────────────────────────────────────────────────────────┤
-│  Nombre: Acompañantes                                    │
-│  Capacidad máxima: 150                                   │
-│                                                          │
-│  ┌────────────────────────────────────────────────────┐  │
-│  │ ⚠️ Esta capacidad superaría el aforo global        │  │
-│  │    Aforo total: 500                                 │  │
-│  │    Suma actual: 430 + 150 = 580                     │  │
-│  │    Exceso: 80 plazas                                │  │
-│  └────────────────────────────────────────────────────┘  │
-│                                                          │
-│                         [Cancelar]  [Crear] ← Deshabilitado│
-└──────────────────────────────────────────────────────────┘
-```
-
----
-
-### Lógica de Validación
+En `processCSVData`, añadir lógica para:
 
 ```typescript
-// Calcular suma de capacidades actuales (excluyendo el ticket que se edita)
-const otherTicketsCapacity = ticketTypes
-  ?.filter(t => t.id !== selectedTicket?.id)
-  .reduce((sum, t) => sum + t.max_capacity, 0) || 0;
+// Extraer equipos únicos del CSV
+const uniqueTeams = new Map<string, { name: string; division: string }>();
+for (const record of records) {
+  if (record.team_name && record.team_division) {
+    const key = record.team_name.toLowerCase();
+    if (!uniqueTeams.has(key)) {
+      uniqueTeams.set(key, {
+        name: record.team_name,
+        division: record.team_division,
+      });
+    }
+  }
+}
 
-// Capacidad total propuesta
-const proposedTotal = otherTicketsCapacity + formData.max_capacity;
+// Consultar qué equipos ya existen
+const teamNames = [...uniqueTeams.keys()];
+const { data: existingTeams } = await supabase
+  .from("teams")
+  .select("name")
+  .filter("name", "in", `(${teamNames.map(n => `"${n}"`).join(",")})`);
 
-// Determinar si hay exceso
-const hasExcess = eventMaxCapacity && proposedTotal > eventMaxCapacity;
-const excessAmount = hasExcess ? proposedTotal - eventMaxCapacity : 0;
+const existingTeamNames = new Set(
+  existingTeams?.map(t => t.name.toLowerCase()) || []
+);
 
-// Deshabilitar botón si hay exceso
-const canSubmit = !hasExcess;
+// Identificar equipos a crear
+const teamsToCreate = [...uniqueTeams.entries()]
+  .filter(([key]) => !existingTeamNames.has(key))
+  .map(([_, value]) => value);
+```
+
+#### 2. Actualizar Estado del Resumen
+
+```typescript
+// Añadir al summaryData
+setSummaryData({
+  ...prev,
+  teamsToCreate: teamsToCreate.length,
+  totalTeamsInCSV: uniqueTeams.size,
+  existingTeams: uniqueTeams.size - teamsToCreate.length,
+});
+```
+
+#### 3. Mostrar en Vista Previa
+
+```text
+┌─────────────────────────────────────────────────────────────────────────┐
+│  Resumen de Importación                                                 │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  👥 Participantes                                                       │
+│  ┌────────┬───────────┬──────────────┬─────────────┐                   │
+│  │  250   │    80     │     120      │     35      │                   │
+│  │  Total │ Estudiantes│  Mentores   │   Jueces    │                   │
+│  └────────┴───────────┴──────────────┴─────────────┘                   │
+│                                                                         │
+│  📦 Equipos                         ← NUEVO                             │
+│  ┌────────────────────────────────────────────────┐                    │
+│  │  45 equipos detectados en el CSV              │                     │
+│  │  ✓ 12 ya existen en la plataforma             │                     │
+│  │  + 33 equipos NUEVOS se crearán               │                     │
+│  └────────────────────────────────────────────────┘                    │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+#### 4. Fase de Procesamiento - Crear Equipos
+
+Antes de insertar usuarios en `authorized_users`:
+
+```typescript
+// Crear equipos nuevos primero
+if (teamsToCreate.length > 0) {
+  const teamInserts = teamsToCreate.map(team => ({
+    name: team.name,
+    category: mapDivisionToCategory(team.division), // beginner, junior, senior
+    // tg_team_id: null - se llenará si luego se importa CSV de equipos
+  }));
+
+  const { error } = await supabase
+    .from("teams")
+    .insert(teamInserts);
+
+  if (error) {
+    console.error("Error creando equipos:", error);
+  } else {
+    result.teamsCreated = teamsToCreate.length;
+  }
+}
+
+// Continuar con la importación de usuarios...
+```
+
+#### 5. Manejar Conflictos con CSV de Equipos Posterior
+
+Si después se importa el CSV de equipos con más información:
+
+```text
+┌───────────────────────────────────────────────────────────────────────┐
+│  Escenario: CSV Equipos importado DESPUÉS de CSV Participantes       │
+│                                                                       │
+│  CSV Equipos contiene:                                                │
+│  - Team ID: 41425                                                     │
+│  - Name: "Tech Girls"  ← Ya existe (creado por import participantes) │
+│  - Division: Junior                                                   │
+│  - Student emails: ana@ejemplo.com, ...                               │
+│                                                                       │
+│  Comportamiento actual de AdminImportTeams:                           │
+│  → Busca por tg_team_id (41425) → No existe                           │
+│  → Crea nuevo equipo "Tech Girls" → ¡DUPLICADO!                       │
+│                                                                       │
+│  Solución: Buscar también por nombre exacto                           │
+│  → Si existe "Tech Girls", ACTUALIZAR con tg_team_id en lugar de     │
+│    crear nuevo                                                        │
+└───────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -100,129 +195,198 @@ const canSubmit = !hasExcess;
 
 | Archivo | Cambios |
 |---------|---------|
-| `src/pages/admin/AdminEventEditor.tsx` | Pasar `eventMaxCapacity` como prop al TicketTypeManager |
-| `src/components/admin/events/TicketTypeManager.tsx` | Añadir validación, warnings y barra de progreso |
+| `src/pages/admin/AdminImportUnified.tsx` | Añadir detección de equipos, crear equipos antes de usuarios |
+| `src/components/admin/import/ImportSummaryCard.tsx` | Mostrar estadísticas de equipos a crear |
+| `src/pages/admin/AdminImportTeams.tsx` | Buscar equipos por nombre además de tg_team_id |
 
 ---
 
 ### Sección Técnica
 
-#### Cambios en AdminEventEditor.tsx
+#### Cambios en AdminImportUnified.tsx
 
-```tsx
-// Línea ~261, donde se renderiza TicketTypeManager
-<TabsContent value="tickets">
-  {eventId && (
-    <TicketTypeManager 
-      eventId={eventId} 
-      eventMaxCapacity={formData.max_capacity}  // ← NUEVO
-    />
-  )}
-</TabsContent>
+**1. Nuevo estado para equipos**
+
+```typescript
+const [teamsToCreate, setTeamsToCreate] = useState<{name: string; division: string}[]>([]);
 ```
 
-#### Cambios en TicketTypeManager.tsx
+**2. Función para mapear división a categoría**
 
-**1. Actualizar interface de props**
 ```typescript
-interface TicketTypeManagerProps {
-  eventId: string;
-  eventMaxCapacity?: number | null;  // ← NUEVO
+const mapDivisionToCategory = (division: string): string => {
+  const d = division?.toLowerCase().trim();
+  if (d === "beginner") return "beginner";
+  if (d === "junior") return "junior";
+  if (d === "senior") return "senior";
+  return "junior"; // Default
+};
+```
+
+**3. En processCSVData, después de calcular summaryData**
+
+```typescript
+// Detectar equipos únicos
+const uniqueTeamsMap = new Map<string, { name: string; division: string }>();
+for (const record of records) {
+  if (record.team_name?.trim() && record.team_division?.trim()) {
+    const key = record.team_name.toLowerCase().trim();
+    if (!uniqueTeamsMap.has(key)) {
+      uniqueTeamsMap.set(key, {
+        name: record.team_name.trim(),
+        division: record.team_division.trim(),
+      });
+    }
+  }
+}
+
+// Verificar cuáles ya existen
+let newTeamsToCreate: {name: string; division: string}[] = [];
+if (uniqueTeamsMap.size > 0) {
+  const teamNames = [...uniqueTeamsMap.values()].map(t => t.name);
+  
+  // Buscar en batches si hay muchos
+  const { data: existingTeams } = await supabase
+    .from("teams")
+    .select("name");
+  
+  const existingSet = new Set(
+    existingTeams?.map(t => t.name.toLowerCase()) || []
+  );
+  
+  newTeamsToCreate = [...uniqueTeamsMap.entries()]
+    .filter(([key]) => !existingSet.has(key))
+    .map(([_, val]) => val);
+}
+
+setTeamsToCreate(newTeamsToCreate);
+```
+
+**4. Actualizar summaryData**
+
+```typescript
+setSummaryData({
+  ...prev,
+  teamsInCSV: uniqueTeamsMap.size,
+  teamsToCreate: newTeamsToCreate.length,
+  teamsExisting: uniqueTeamsMap.size - newTeamsToCreate.length,
+});
+```
+
+**5. En importMutation, ANTES del loop de usuarios**
+
+```typescript
+// Crear equipos nuevos primero
+if (teamsToCreate.length > 0) {
+  const batchSize = 50;
+  for (let i = 0; i < teamsToCreate.length; i += batchSize) {
+    const batch = teamsToCreate.slice(i, i + batchSize);
+    const { error } = await supabase
+      .from("teams")
+      .insert(batch.map(t => ({
+        name: t.name,
+        category: mapDivisionToCategory(t.division),
+      })));
+    
+    if (error) {
+      console.error("Error creating teams batch:", error);
+    }
+  }
 }
 ```
 
-**2. Calcular uso de aforo**
+**6. Actualizar ImportResult**
+
 ```typescript
-// Suma de capacidades de todos los tipos de entrada
-const totalTicketCapacity = ticketTypes?.reduce((sum, t) => sum + t.max_capacity, 0) || 0;
-
-// Para el diálogo: suma excluyendo el ticket que se edita
-const otherTicketsCapacity = ticketTypes
-  ?.filter(t => t.id !== selectedTicket?.id)
-  .reduce((sum, t) => sum + t.max_capacity, 0) || 0;
-
-// Capacidad propuesta con el formulario actual
-const proposedTotal = otherTicketsCapacity + formData.max_capacity;
-
-// Estado de validación
-const exceedsGlobalCapacity = eventMaxCapacity != null && proposedTotal > eventMaxCapacity;
-const excessAmount = exceedsGlobalCapacity ? proposedTotal - eventMaxCapacity : 0;
-const remainingCapacity = eventMaxCapacity != null ? eventMaxCapacity - otherTicketsCapacity : null;
+interface ImportResult {
+  total: number;
+  created: number;
+  updated: number;
+  skipped: number;
+  teamsCreated: number;  // ← NUEVO
+  errors: { row: number; reason: string; data: CSVRow }[];
+}
 ```
 
-**3. Indicador en el header de la card**
+#### Cambios en ImportSummaryCard.tsx
+
+Añadir sección de equipos si hay equipos detectados:
+
 ```tsx
-{eventMaxCapacity && (
-  <div className="mt-4 space-y-2">
-    <div className="flex justify-between text-sm">
-      <span>Aforo global asignado</span>
-      <span className={totalTicketCapacity > eventMaxCapacity ? "text-destructive font-medium" : ""}>
-        {totalTicketCapacity} / {eventMaxCapacity}
-      </span>
+{data.teamsInCSV > 0 && (
+  <div className="p-4 rounded-lg border bg-card">
+    <div className="flex items-center gap-2 mb-3">
+      <Users className="h-5 w-5 text-primary" />
+      <h4 className="font-medium">Equipos Detectados</h4>
     </div>
-    <Progress 
-      value={(totalTicketCapacity / eventMaxCapacity) * 100} 
-      className={totalTicketCapacity > eventMaxCapacity ? "bg-destructive/20" : ""}
-    />
-    {totalTicketCapacity > eventMaxCapacity && (
-      <p className="text-sm text-destructive">
-        ⚠️ La suma de capacidades supera el aforo global en {totalTicketCapacity - eventMaxCapacity} plazas
-      </p>
-    )}
+    <div className="grid grid-cols-3 gap-4 text-center">
+      <div>
+        <div className="text-2xl font-bold">{data.teamsInCSV}</div>
+        <div className="text-sm text-muted-foreground">En CSV</div>
+      </div>
+      <div>
+        <div className="text-2xl font-bold text-muted-foreground">{data.teamsExisting}</div>
+        <div className="text-sm text-muted-foreground">Ya existen</div>
+      </div>
+      <div>
+        <div className="text-2xl font-bold text-green-600">{data.teamsToCreate}</div>
+        <div className="text-sm text-muted-foreground">Se crearán</div>
+      </div>
+    </div>
   </div>
 )}
 ```
 
-**4. Warning en el diálogo**
-```tsx
-{exceedsGlobalCapacity && (
-  <Alert variant="destructive">
-    <AlertTriangle className="h-4 w-4" />
-    <AlertTitle>Excede el aforo global</AlertTitle>
-    <AlertDescription>
-      Esta capacidad superaría el aforo total del evento.
-      <br />
-      Aforo global: {eventMaxCapacity} | Suma propuesta: {proposedTotal} | Exceso: {excessAmount}
-    </AlertDescription>
-  </Alert>
-)}
+#### Cambios en AdminImportTeams.tsx
 
-{remainingCapacity !== null && remainingCapacity > 0 && !exceedsGlobalCapacity && (
-  <p className="text-sm text-muted-foreground">
-    Capacidad disponible para este tipo: {remainingCapacity} plazas
-  </p>
-)}
-```
-
-**5. Deshabilitar botón de guardar**
-```tsx
-<Button
-  onClick={handleSubmit}
-  disabled={
-    createMutation.isPending || 
-    updateMutation.isPending || 
-    exceedsGlobalCapacity  // ← NUEVO
-  }
->
-```
-
----
-
-### Comportamiento Esperado
-
-| Escenario | Resultado |
-|-----------|-----------|
-| Aforo global: 500, suma de tipos: 450 | ✅ Verde, se puede añadir hasta 50 más |
-| Aforo global: 500, suma de tipos: 500 | ✅ Amarillo, aforo completo asignado |
-| Aforo global: 500, intentar añadir 100 cuando ya hay 450 | ❌ Warning, botón deshabilitado |
-| Sin aforo global configurado | Sin validación (ilimitado) |
-
----
-
-### Imports Adicionales
+Modificar la lógica de búsqueda de equipos para evitar duplicados:
 
 ```typescript
-import { AlertTriangle } from "lucide-react";
-import { Progress } from "@/components/ui/progress";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+// Buscar primero por tg_team_id, luego por nombre
+let existingTeam: { id: string } | null = null;
+
+// Primero buscar por tg_team_id (más específico)
+const { data: teamByTgId } = await supabase
+  .from("teams")
+  .select("id")
+  .eq("tg_team_id", team.tgTeamId)
+  .maybeSingle();
+
+if (teamByTgId) {
+  existingTeam = teamByTgId;
+} else {
+  // Si no existe por tg_team_id, buscar por nombre exacto
+  const { data: teamByName } = await supabase
+    .from("teams")
+    .select("id")
+    .ilike("name", team.name)
+    .maybeSingle();
+  
+  existingTeam = teamByName;
+}
+
+if (existingTeam) {
+  // Actualizar equipo existente (añadir tg_team_id si no lo tenía)
+  const { error: updateError } = await supabase
+    .from("teams")
+    .update({
+      name: team.name,
+      category: team.division,
+      tg_team_id: team.tgTeamId,  // ← Actualizar el ID de TG
+    })
+    .eq("id", existingTeam.id);
+  // ...
+}
 ```
+
+---
+
+### Resultado Esperado
+
+| Orden de Importación | Antes | Después |
+|----------------------|-------|---------|
+| Participantes → Equipos | ❌ Usuarios sin vincular a equipo | ✅ Equipos creados automáticamente, usuarios vinculados |
+| Equipos → Participantes | ✅ Funciona correctamente | ✅ Sigue funcionando igual |
+| Solo Participantes | ❌ Equipos no existen | ✅ Equipos creados, listos para vincular |
+| Reimportar Equipos | ❌ Posibles duplicados | ✅ Busca por nombre, actualiza con tg_team_id |
+
