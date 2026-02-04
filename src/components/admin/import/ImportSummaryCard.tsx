@@ -1,6 +1,6 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Users, GraduationCap, Scale, Crown, AlertTriangle, CheckCircle2, Package } from "lucide-react";
+import { Users, GraduationCap, Scale, Crown, AlertTriangle, CheckCircle2, Package, UserPlus } from "lucide-react";
 import { ProfileType } from "./ProfileTypeBadge";
 
 interface ImportSummaryData {
@@ -12,6 +12,10 @@ interface ImportSummaryData {
   teamsInCSV?: number;
   teamsToCreate?: number;
   teamsExisting?: number;
+  usersInCSV?: number;
+  usersNew?: number;
+  usersInWhitelist?: number;
+  usersAlreadyActive?: number;
 }
 
 interface ImportSummaryCardProps {
@@ -88,6 +92,34 @@ export function ImportSummaryCard({ data }: ImportSummaryCardProps) {
                     {division}: {count.toLocaleString()}
                   </Badge>
                 ))}
+            </div>
+          </div>
+        )}
+
+        {/* Users Summary */}
+        {data.usersInCSV != null && data.usersInCSV > 0 && (
+          <div className="p-4 rounded-lg border bg-card">
+            <div className="flex items-center gap-2 mb-3">
+              <UserPlus className="h-5 w-5 text-primary" />
+              <h4 className="font-medium">Usuarios Detectados</h4>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
+              <div>
+                <div className="text-2xl font-bold">{data.usersInCSV}</div>
+                <div className="text-sm text-muted-foreground">En CSV</div>
+              </div>
+              <div>
+                <div className="text-2xl font-bold text-green-600">{data.usersNew || 0}</div>
+                <div className="text-sm text-muted-foreground">Nuevos</div>
+              </div>
+              <div>
+                <div className="text-2xl font-bold text-blue-600">{data.usersInWhitelist || 0}</div>
+                <div className="text-sm text-muted-foreground">En whitelist</div>
+              </div>
+              <div>
+                <div className="text-2xl font-bold text-muted-foreground">{data.usersAlreadyActive || 0}</div>
+                <div className="text-sm text-muted-foreground">Ya activos</div>
+              </div>
             </div>
           </div>
         )}
