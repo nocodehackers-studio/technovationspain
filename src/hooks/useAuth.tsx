@@ -22,9 +22,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [role, setRole] = useState<AppRole | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
+  const [isProfileLoading, setIsProfileLoading] = useState(false);
+
+  // Combined loading state - true until both auth AND profile are loaded
+  const isLoading = isAuthLoading || isProfileLoading;
 
   const fetchProfile = async (userId: string) => {
+    setIsProfileLoading(true);
     try {
       // Fetch profile
       const { data: profileData, error: profileError } = await supabase
@@ -55,6 +60,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     } catch (error) {
       console.error('Error in fetchProfile:', error);
+    } finally {
+      setIsProfileLoading(false);
     }
   };
 
@@ -95,10 +102,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       
       if (session?.user) {
         fetchProfile(session.user.id).finally(() => {
-          setIsLoading(false);
+          setIsAuthLoading(false);
         });
       } else {
-        setIsLoading(false);
+        setIsAuthLoading(false);
       }
     });
 
