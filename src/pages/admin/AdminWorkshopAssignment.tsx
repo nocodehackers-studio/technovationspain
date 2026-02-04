@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useWorkshopAssignment } from '@/hooks/useWorkshopAssignment';
 import { useAllTeamsPreferences } from '@/hooks/useWorkshopPreferences';
+import { useDemoData } from '@/hooks/useDemoData';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { AdminLayout } from '@/components/admin/AdminLayout';
@@ -29,7 +30,9 @@ import {
   AlertTriangle, 
   X, 
   Trash2,
-  CheckCircle2
+  CheckCircle2,
+  FlaskConical,
+  Loader2
 } from 'lucide-react';
 
 interface AssignmentResult {
@@ -55,6 +58,7 @@ export default function AdminWorkshopAssignment() {
   const { eventId } = useParams();
   const [previewResults, setPreviewResults] = useState<{ results: AssignmentResult[]; stats: AssignmentStats } | null>(null);
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
+  const [clearDemoDialogOpen, setClearDemoDialogOpen] = useState(false);
 
   const {
     workshops,
@@ -68,6 +72,16 @@ export default function AdminWorkshopAssignment() {
   } = useWorkshopAssignment(eventId || '');
 
   const { data: teamsData } = useAllTeamsPreferences(eventId || '');
+
+  // Demo data management
+  const {
+    demoTeamsCount,
+    hasDemoData,
+    isGenerating,
+    isClearing: isClearingDemo,
+    generateDemoData,
+    clearDemoData,
+  } = useDemoData(eventId || '');
 
   // Fetch event
   const { data: event } = useQuery({
@@ -111,6 +125,12 @@ export default function AdminWorkshopAssignment() {
   const handleClear = async () => {
     await clearAssignments();
     setClearDialogOpen(false);
+    setPreviewResults(null);
+  };
+
+  const handleClearDemo = async () => {
+    await clearDemoData();
+    setClearDemoDialogOpen(false);
     setPreviewResults(null);
   };
 
@@ -181,6 +201,66 @@ export default function AdminWorkshopAssignment() {
             </AlertDescription>
           </Alert>
         )}
+
+        {/* Demo Data Section */}
+        <Card className="border-dashed border-2 border-muted-foreground/30">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <FlaskConical className="h-5 w-5" />
+              Datos de Demostración
+              {hasDemoData && (
+                <Badge variant="secondary" className="ml-2">
+                  {demoTeamsCount} equipos DEMO
+                </Badge>
+              )}
+            </CardTitle>
+            <CardDescription>
+              Genera equipos ficticios con preferencias para probar el algoritmo
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex gap-3">
+              {!hasDemoData ? (
+                <Button 
+                  variant="outline"
+                  onClick={generateDemoData}
+                  disabled={isGenerating}
+                >
+                  {isGenerating ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Generando...
+                    </>
+                  ) : (
+                    <>
+                      <FlaskConical className="mr-2 h-4 w-4" />
+                      Generar 10 Equipos DEMO
+                    </>
+                  )}
+                </Button>
+              ) : (
+                <Button 
+                  variant="outline"
+                  className="text-destructive hover:text-destructive"
+                  onClick={() => setClearDemoDialogOpen(true)}
+                  disabled={isClearingDemo}
+                >
+                  {isClearingDemo ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Eliminando...
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Eliminar Datos DEMO
+                    </>
+                  )}
+                </Button>
+              )}
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Pre-validation */}
         <Card>
@@ -372,6 +452,18 @@ export default function AdminWorkshopAssignment() {
           variant="danger"
           onConfirm={handleClear}
           loading={isClearing}
+        />
+
+        {/* Clear Demo Data Confirmation */}
+        <ConfirmDialog
+          open={clearDemoDialogOpen}
+          onOpenChange={setClearDemoDialogOpen}
+          title="¿Eliminar todos los datos DEMO?"
+          description="Esta acción eliminará todos los equipos DEMO, sus registros, preferencias y asignaciones. Los datos reales no se verán afectados."
+          confirmText="Eliminar DEMO"
+          variant="danger"
+          onConfirm={handleClearDemo}
+          loading={isClearingDemo}
         />
       </div>
     </AdminLayout>
