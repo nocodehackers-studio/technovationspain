@@ -368,7 +368,7 @@ export default function AdminWorkshops() {
               asChild={!!eventId}
             >
               {eventId ? (
-                <Link to={`/admin/events/${effectiveEventId}/edit`}>
+                <Link to="/admin/workshops">
                   <ArrowLeft className="h-5 w-5" />
                 </Link>
               ) : (
