@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
@@ -113,16 +113,17 @@ export function useDemoData(eventId: string) {
       }
 
       // Get ticket type for teams (usually "Equipos Participantes")
-      const { data: ticketType } = await supabase
+      // NOTE: We use maybeSingle to avoid errors if none exists.
+      const { data: ticketType, error: ticketTypeError } = await supabase
         .from('event_ticket_types')
         .select('id')
         .eq('event_id', eventId)
         .eq('requires_team', true)
         .limit(1)
-        .single();
+        .maybeSingle();
 
-      if (!ticketType) {
-        throw new Error('No se encontró un tipo de ticket para equipos');
+      if (ticketTypeError) {
+        console.error('Error fetching ticket type:', ticketTypeError);
       }
 
       let teamsCreated = 0;
@@ -157,11 +158,13 @@ export function useDemoData(eventId: string) {
           .insert({
             event_id: eventId,
             team_id: team.id,
+            user_id: user.id,
             team_name: teamConfig.name,
             registration_number: `DEMO-${uniqueSuffix}`,
             participant_count: teamConfig.participantCount,
             qr_code: qrCode,
             registration_status: 'confirmed',
+            ticket_type_id: ticketType?.id ?? null,
           });
 
         if (regError) {
@@ -228,26 +231,29 @@ export function useDemoData(eventId: string) {
         return;
       }
 
-      // 1. Delete workshop preferences
+      // 1. Delete workshop preferences (for this event)
       const { error: prefError } = await supabase
         .from('workshop_preferences')
         .delete()
+        .eq('event_id', eventId)
         .in('team_id', demoTeamIds);
 
       if (prefError) console.error('Error deleting preferences:', prefError);
 
-      // 2. Delete workshop assignments
+      // 2. Delete workshop assignments (for this event)
       const { error: assignError } = await supabase
         .from('workshop_assignments')
         .delete()
+        .eq('event_id', eventId)
         .in('team_id', demoTeamIds);
 
       if (assignError) console.error('Error deleting assignments:', assignError);
 
-      // 3. Delete event registrations
+      // 3. Delete event registrations (for this event)
       const { error: regError } = await supabase
         .from('event_registrations')
         .delete()
+        .eq('event_id', eventId)
         .in('team_id', demoTeamIds);
 
       if (regError) console.error('Error deleting registrations:', regError);
