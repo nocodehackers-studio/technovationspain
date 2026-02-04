@@ -405,74 +405,16 @@ export default function AdminWorkshops() {
           </div>
         </div>
 
-        {/* Stats Overview */}
-        <div className="grid gap-4 md:grid-cols-3">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Turnos</CardTitle>
-              <Clock className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{slotCount}</div>
-              <p className="text-xs text-muted-foreground">
-                turnos horarios configurados
-              </p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Talleres</CardTitle>
-              <Layers className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{workshopCount}</div>
-              <p className="text-xs text-muted-foreground">
-                talleres simultáneos
-              </p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Aforo Total</CardTitle>
-              <Users className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{totalCapacity}</div>
-              <p className="text-xs text-muted-foreground">
-                plazas por turno
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Info about how it works */}
-        <Card className="bg-muted/50 border-muted-foreground/20">
-          <CardContent className="pt-4">
-            <div className="flex gap-3">
-              <AlertTriangle className="h-5 w-5 text-primary shrink-0 mt-0.5" />
-              <div className="text-sm text-foreground">
-                <p className="font-medium mb-1">¿Cómo funciona?</p>
-                <ul className="list-disc pl-4 space-y-1 text-muted-foreground">
-                  <li><strong className="text-foreground">{workshopCount} talleres</strong> se realizan <strong className="text-foreground">simultáneamente</strong> en cada turno</li>
-                  <li>Hay <strong className="text-foreground">{slotCount} turnos horarios</strong> a lo largo del evento</li>
-                  <li>Cada equipo será asignado a <strong className="text-foreground">2 talleres diferentes</strong> en turnos distintos</li>
-                  <li>Los mentores eligen sus <strong className="text-foreground">preferencias</strong> y el algoritmo asigna automáticamente</li>
-                </ul>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
         {/* Main Content Tabs */}
-        <Tabs defaultValue="slots" className="space-y-4">
+        <Tabs defaultValue="workshops" className="space-y-4">
           <TabsList>
-            <TabsTrigger value="slots" className="gap-2">
-              <Clock className="h-4 w-4" />
-              Turnos Horarios
-            </TabsTrigger>
             <TabsTrigger value="workshops" className="gap-2">
               <Layers className="h-4 w-4" />
-              Talleres
+              Talleres ({workshopCount})
+            </TabsTrigger>
+            <TabsTrigger value="slots" className="gap-2">
+              <Clock className="h-4 w-4" />
+              Turnos Horarios ({slotCount})
             </TabsTrigger>
           </TabsList>
 
@@ -629,6 +571,21 @@ export default function AdminWorkshops() {
                           size="sm"
                         />
                       </div>
+
+                      {/* Time slot badges */}
+                      {timeSlots && timeSlots.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 pt-1">
+                          {timeSlots.map((slot) => (
+                            <Badge 
+                              key={slot.id} 
+                              variant="secondary"
+                              className="text-xs font-normal"
+                            >
+                              T{slot.slot_number} {slot.start_time.slice(0, 5)}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
 
                       {workshop.category && (
                         <Badge variant="outline" className="text-xs">
