@@ -1,25 +1,27 @@
 
-# Plan: Añadir Indicador de Carga y Resumen de Usuarios en Importación CSV
 
-## Problema 1: No hay feedback visual mientras se procesa el CSV
-Después de seleccionar un archivo, el sistema queda aparentemente "congelado" mientras procesa los datos (detecta conflictos, consulta la base de datos, etc.). El usuario no sabe si está funcionando.
+# Plan: Redirigir a Registro si el Email No Está Registrado
 
-## Problema 2: No hay resumen de usuarios como el de equipos
-Actualmente se muestra un resumen de equipos (En CSV / Ya existen / Se crearán), pero no hay un resumen equivalente para usuarios.
+## Problema Actual
+Cuando un usuario intenta iniciar sesión con un email que no está registrado en la plataforma:
+1. El sistema envía un código de verificación (OTP) de todas formas
+2. Si el usuario usa ese código, se crea una cuenta nueva sin completar el flujo de registro adecuado
+3. Esto genera usuarios "huérfanos" sin rol ni datos completos
 
----
+## Comportamiento Deseado
+1. Usuario introduce email en la pantalla de inicio de sesión
+2. **Antes de enviar el OTP**, verificar si el email existe en `profiles`
+3. Si **NO existe**: redirigir a `/register` (pantalla de selección de rol)
+4. Si **existe**: proceder normalmente con el envío del código OTP
+
+## Desafío Técnico
+Las políticas RLS de `profiles` no permiten consultar la tabla sin estar autenticado. Necesitamos una forma segura de verificar si un email existe.
 
 ## Solución Propuesta
 
-### Parte 1: Indicador de Carga
-Añadir un estado `isParsing` que se active mientras se procesa el CSV y muestre un mensaje de carga debajo del área de arrastrar/soltar.
+### Opción Elegida: Función de Base de Datos `SECURITY DEFINER`
 
-### Parte 2: Resumen de Usuarios
-Extender los datos de resumen para incluir:
-- **Usuarios en CSV**: Total de registros
-- **Ya registrados**: Usuarios que ya tienen perfil activo (conflictos `already_active`)
-- **Ya en whitelist**: Usuarios que ya están en la whitelist (conflictos `already_in_whitelist`)
-- **Nuevos**: Usuarios que se añadirán por primera vez
+Crear una función PostgreSQL que verifique si un email existe sin exponer datos sensibles.
 
 ---
 
@@ -27,151 +29,137 @@ Extender los datos de resumen para incluir:
 
 | Archivo | Cambio |
 |---------|--------|
-| `src/pages/admin/AdminImportUnified.tsx` | Añadir estado `isParsing` y calcular contadores de usuarios |
-| `src/components/admin/import/ImportSummaryCard.tsx` | Añadir sección de resumen de usuarios similar a equipos |
+| `supabase/migrations/` | Nueva migración con función `check_email_exists` |
+| `src/pages/Index.tsx` | Llamar a la función antes de enviar OTP y redirigir si no existe |
 
 ---
 
 ## Cambios Técnicos
 
-### AdminImportUnified.tsx
+### 1. Nueva Migración: Función `check_email_exists`
 
-**1. Nuevo estado para parsing:**
-```typescript
-const [isParsing, setIsParsing] = useState(false);
+```sql
+CREATE OR REPLACE FUNCTION public.check_email_exists(check_email text)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM profiles
+    WHERE lower(email) = lower(check_email)
+  )
+$$;
+
+-- Permitir que usuarios anónimos llamen a esta función
+GRANT EXECUTE ON FUNCTION public.check_email_exists(text) TO anon;
+GRANT EXECUTE ON FUNCTION public.check_email_exists(text) TO authenticated;
 ```
 
-**2. Activar/desactivar en handleFileUpload:**
+Esta función:
+- Es `SECURITY DEFINER`: se ejecuta con los permisos del creador (admin), no del usuario
+- Solo devuelve `true` o `false`, sin exponer datos del usuario
+- Usa comparación case-insensitive para mayor robustez
+
+### 2. Modificar `Index.tsx` - handleSignUp
+
 ```typescript
-const handleFileUpload = useCallback(async (e) => {
-  // ... validaciones iniciales ...
+const handleSignUp = async (e: React.FormEvent) => {
+  e.preventDefault();
   
-  setFile(selectedFile);
-  setIsParsing(true);  // <-- Activar loader
+  if (!email) {
+    toast.error("Por favor, introduce tu email");
+    return;
+  }
+
+  setLoading(true);
   
-  Papa.parse(selectedFile, {
-    // ... config ...
-    complete: async (results) => {
-      // ... procesamiento ...
-      await processCSVData(headers, data);
-      setStep("preview");
-      setIsParsing(false);  // <-- Desactivar loader
-    },
-    error: (error) => {
-      toast.error(`Error al leer el archivo: ${error.message}`);
-      setIsParsing(false);  // <-- Desactivar en error
+  // Verificar si el email ya está registrado
+  const { data: emailExists, error: checkError } = await supabase
+    .rpc('check_email_exists', { check_email: email });
+  
+  if (checkError) {
+    console.error('Error checking email:', checkError);
+    // En caso de error, continuamos con el flujo normal
+  } else if (!emailExists) {
+    // Email no registrado: redirigir a registro
+    setLoading(false);
+    toast.info("Este email no está registrado. Por favor, crea una cuenta.");
+    navigate('/register', { state: { email } }); // Pasar el email para pre-rellenarlo
+    return;
+  }
+  
+  // Email existe: continuar con OTP
+  const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  const baseUrl = isLocalhost ? window.location.origin : 'https://technovationspain.lovable.app';
+  
+  const { error } = await supabase.auth.signInWithOtp({
+    email,
+    options: {
+      emailRedirectTo: `${baseUrl}/auth/callback`,
     },
   });
-}, [processCSVData]);
+  
+  // ... resto del código
+};
 ```
 
-**3. Extender summaryData con contadores de usuarios:**
-```typescript
-const [summaryData, setSummaryData] = useState({
-  // ... campos existentes ...
-  usersInCSV: 0,
-  usersNew: 0,
-  usersInWhitelist: 0,
-  usersAlreadyActive: 0,
-});
-```
+### 3. (Opcional) Pre-rellenar email en RegisterSelect
 
-**4. Calcular contadores en processCSVData:**
-```typescript
-const alreadyActiveCount = detectedConflicts.filter(c => c.conflictType === "already_active").length;
-const alreadyInWhitelistCount = detectedConflicts.filter(c => c.conflictType === "already_in_whitelist").length;
-const duplicatesCount = detectedConflicts.filter(c => c.conflictType === "duplicate_in_csv").length;
+Si queremos una mejor UX, podemos pasar el email como state y pre-rellenarlo en los formularios de registro:
 
-setSummaryData({
-  // ... existente ...
-  usersInCSV: records.length,
-  usersNew: records.length - alreadyActiveCount - alreadyInWhitelistCount - duplicatesCount,
-  usersInWhitelist: alreadyInWhitelistCount,
-  usersAlreadyActive: alreadyActiveCount,
-});
-```
-
-**5. Mostrar loader en la UI (debajo del área de drop):**
 ```tsx
-{isParsing && (
-  <div className="flex items-center justify-center gap-3 mt-4 p-4 rounded-lg bg-muted/50 border">
-    <LoadingSpinner size="sm" />
-    <span className="text-sm text-muted-foreground">
-      Procesando archivo CSV...
-    </span>
-  </div>
-)}
-```
+// En RegisterSelect.tsx - recibir el email del state
+const location = useLocation();
+const prefilledEmail = location.state?.email;
 
-### ImportSummaryCard.tsx
-
-**Añadir sección de resumen de usuarios (similar a equipos):**
-```tsx
-{/* Users Summary */}
-<div className="p-4 rounded-lg border bg-card">
-  <div className="flex items-center gap-2 mb-3">
-    <UserPlus className="h-5 w-5 text-primary" />
-    <h4 className="font-medium">Usuarios Detectados</h4>
-  </div>
-  <div className="grid grid-cols-4 gap-4 text-center">
-    <div>
-      <div className="text-2xl font-bold">{data.usersInCSV}</div>
-      <div className="text-sm text-muted-foreground">En CSV</div>
-    </div>
-    <div>
-      <div className="text-2xl font-bold text-green-600">{data.usersNew}</div>
-      <div className="text-sm text-muted-foreground">Nuevos</div>
-    </div>
-    <div>
-      <div className="text-2xl font-bold text-blue-600">{data.usersInWhitelist}</div>
-      <div className="text-sm text-muted-foreground">En whitelist</div>
-    </div>
-    <div>
-      <div className="text-2xl font-bold text-muted-foreground">{data.usersAlreadyActive}</div>
-      <div className="text-sm text-muted-foreground">Ya activos</div>
-    </div>
-  </div>
-</div>
+// Pasar a los formularios de registro
+<Link to={role.href} state={{ email: prefilledEmail }}>
 ```
 
 ---
 
-## Visualización del Resultado
+## Flujo Visual
 
-**Durante el procesamiento:**
 ```text
 ┌─────────────────────────────────────────────────────────────────┐
-│  📄 Arrastra tu archivo CSV aquí                                 │
-│     o haz clic para seleccionar                                  │
+│  📧 Iniciar sesión                                               │
+│  Email: [usuario@ejemplo.com]                                    │
+│  [Continuar con email]                                           │
 └─────────────────────────────────────────────────────────────────┘
-┌─────────────────────────────────────────────────────────────────┐
-│  ⏳ Procesando archivo CSV...                                    │
-└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+                    ┌─────────────────┐
+                    │ ¿Email existe   │
+                    │ en profiles?    │
+                    └─────────────────┘
+                     /              \
+                   Sí                No
+                   /                  \
+                  ▼                    ▼
+    ┌───────────────────┐    ┌───────────────────────────────┐
+    │ Enviar OTP        │    │ Toast: "Email no registrado"  │
+    │ → Verificar código│    │ Redirigir a /register         │
+    │ → Dashboard       │    │ (con email pre-rellenado)     │
+    └───────────────────┘    └───────────────────────────────┘
 ```
 
-**En el resumen de importación:**
-```text
-┌─────────────────────────────────────────────────────────────────┐
-│  👤 Usuarios Detectados                                          │
-│  ┌──────────┬──────────┬──────────────┬───────────────┐         │
-│  │  1,234   │   1,100  │      80      │      54       │         │
-│  │  En CSV  │  Nuevos  │ En whitelist │  Ya activos   │         │
-│  └──────────┴──────────┴──────────────┴───────────────┘         │
-└─────────────────────────────────────────────────────────────────┘
+---
 
-┌─────────────────────────────────────────────────────────────────┐
-│  📦 Equipos Detectados                                           │
-│  ┌──────────┬──────────────┬───────────────┐                    │
-│  │   245    │      200     │      45       │                    │
-│  │  En CSV  │  Ya existen  │  Se crearán   │                    │
-│  └──────────┴──────────────┴───────────────┘                    │
-└─────────────────────────────────────────────────────────────────┘
-```
+## Consideraciones de Seguridad
+
+1. **No se exponen datos sensibles**: La función solo devuelve `true`/`false`
+2. **Prevención de enumeración**: Un atacante podría detectar qué emails están registrados, pero esto es aceptable para este caso de uso (muchas plataformas lo hacen)
+3. **Rate limiting**: Supabase tiene rate limiting por defecto que mitiga ataques de fuerza bruta
 
 ---
 
 ## Resultado Esperado
 
-1. **Feedback inmediato**: El usuario verá "Procesando archivo CSV..." mientras se analiza el archivo
-2. **Información clara de usuarios**: Sabrá exactamente cuántos usuarios son nuevos, cuántos ya están en la whitelist y cuántos ya tienen cuenta activa
-3. **Mejor UX**: No más confusión sobre si el sistema está funcionando o congelado
+1. Si el usuario introduce un email **registrado**: flujo normal de OTP
+2. Si el usuario introduce un email **no registrado**: 
+   - Mensaje informativo: "Este email no está registrado. Por favor, crea una cuenta."
+   - Redirección automática a `/register`
+   - Email pre-rellenado para mejor UX
+
