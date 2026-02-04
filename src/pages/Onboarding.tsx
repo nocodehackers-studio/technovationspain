@@ -62,10 +62,25 @@ const roleConfig: Record<AllowedRole, {
   },
 };
 
+// Spanish DNI/NIE validation
+const validateSpanishDNI = (value: string): boolean => {
+  if (!value) return false; // Required field
+  const cleanValue = value.toUpperCase().replace(/\s|-/g, '');
+  // DNI: 8 digits + letter
+  const dniRegex = /^[0-9]{8}[A-Z]$/;
+  // NIE: X/Y/Z + 7 digits + letter
+  const nieRegex = /^[XYZ][0-9]{7}[A-Z]$/;
+  return dniRegex.test(cleanValue) || nieRegex.test(cleanValue);
+};
+
 const createOnboardingSchema = (role: AllowedRole) => z.object({
   first_name: z.string().min(1, 'El nombre es obligatorio').max(100),
   last_name: z.string().min(1, 'Los apellidos son obligatorios').max(100),
   date_of_birth: z.string().min(1, 'La fecha de nacimiento es obligatoria'),
+  dni: z.string().min(1, 'El DNI/NIE es obligatorio').refine(
+    validateSpanishDNI,
+    'Formato inválido. Usa 8 números + letra (DNI) o X/Y/Z + 7 números + letra (NIE)'
+  ),
   role: z.enum(['participant', 'mentor', 'judge', 'volunteer']),
   tg_email: z.string().email('Email inválido').optional().or(z.literal('')),
   phone: z.string().max(20).optional(),
@@ -77,6 +92,7 @@ type OnboardingData = {
   first_name: string;
   last_name: string;
   date_of_birth: string;
+  dni: string;
   role: AllowedRole;
   tg_email: string;
   hub_id: string;
@@ -105,6 +121,7 @@ export default function Onboarding() {
     first_name: '',
     last_name: '',
     date_of_birth: '',
+    dni: '',
     role: initialRole,
     tg_email: user?.email || '',
     hub_id: '',
@@ -180,6 +197,13 @@ export default function Onboarding() {
           newErrors.date_of_birth = `Para registrarte como ${currentRoleConfig.label.toLowerCase()} debes tener entre ${ageMin} y ${ageMax} años`;
         }
       }
+    }
+    
+    // Validate DNI/NIE
+    if (!formData.dni.trim()) {
+      newErrors.dni = 'El DNI/NIE es obligatorio';
+    } else if (!validateSpanishDNI(formData.dni)) {
+      newErrors.dni = 'Formato inválido. Usa 8 números + letra (DNI) o X/Y/Z + 7 números + letra (NIE)';
     }
 
     // Validate parent_email for minors
@@ -273,6 +297,7 @@ export default function Onboarding() {
         first_name: formData.first_name.trim(),
         last_name: formData.last_name.trim(),
         date_of_birth: formData.date_of_birth,
+        dni: formData.dni.toUpperCase().trim(),
         tg_email: formData.tg_email?.trim() || null,
         hub_id: formData.hub_id || null,
         phone: formData.phone?.trim() || null,
@@ -484,6 +509,24 @@ export default function Onboarding() {
                       <p className="text-sm text-warning">
                         ⚠️ Al ser menor de 14 años, necesitarás el consentimiento de tu padre/madre/tutor.
                       </p>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="dni">DNI/NIE *</Label>
+                    <Input
+                      id="dni"
+                      placeholder="12345678A"
+                      value={formData.dni}
+                      onChange={(e) => updateField('dni', e.target.value.toUpperCase())}
+                      maxLength={9}
+                      className="uppercase"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      8 números + letra (DNI) o X/Y/Z + 7 números + letra (NIE)
+                    </p>
+                    {errors.dni && (
+                      <p className="text-sm text-destructive">{errors.dni}</p>
                     )}
                   </div>
 

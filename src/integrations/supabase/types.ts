@@ -905,6 +905,7 @@ export type Database = {
           created_at: string | null
           custom_fields: Json | null
           date_of_birth: string | null
+          dni: string | null
           email: string
           first_name: string | null
           hub_id: string | null
@@ -925,6 +926,7 @@ export type Database = {
           created_at?: string | null
           custom_fields?: Json | null
           date_of_birth?: string | null
+          dni?: string | null
           email: string
           first_name?: string | null
           hub_id?: string | null
@@ -945,6 +947,7 @@ export type Database = {
           created_at?: string | null
           custom_fields?: Json | null
           date_of_birth?: string | null
+          dni?: string | null
           email?: string
           first_name?: string | null
           hub_id?: string | null
