@@ -1,98 +1,54 @@
 
-## Plan: Tabla Compacta de Talleres con Edición Modal
 
-### Cambios a Realizar
+## Plan: Corregir Navegación "Atrás" en Páginas de Talleres
 
-**Archivo: `src/pages/admin/AdminWorkshops.tsx`**
+### Problema
+Actualmente, cuando navegas desde `/admin/workshops` a un evento específico (como "Encuentro Equipos Technovation") y entras en sus talleres, el botón de "atrás" te lleva a `/admin/events/${eventId}/edit` (editor del evento) en lugar de volver a `/admin/workshops`.
 
-#### 1. Tabla compacta de solo lectura (líneas 529-644)
+Lo mismo ocurre en las sub-páginas de talleres (Estado Preferencias, Asignar, Cuadrante).
 
-Cambiar la tabla con inputs editables a una tabla de solo lectura más compacta:
+### Solución
 
-```text
-┌────────────────────────────────────────────────────────────────────────┐
-│ Nombre              │ Empresa    │ Sala   │ Aforo │ Turnos   │ Acciones│
-├────────────────────────────────────────────────────────────────────────┤
-│ Ética e IA          │ Santander  │ Sala 1 │ 30    │ T1 T2 T3 │ ✏️ 🗑️  │
-│ Comunicación        │ Repsol     │ Sala 2 │ 30    │ T1 T2 T3 │ ✏️ 🗑️  │
-│ Diseño UX           │ GFT        │ Sala 3 │ 30    │ T1 T2    │ ✏️ 🗑️  │
-│ ML 4 Kids           │ Verisure   │ Sala 4 │ 30    │ T2 T3    │ ✏️ 🗑️  │
-└────────────────────────────────────────────────────────────────────────┘
-```
+Cambiar el destino del botón "atrás" en 4 archivos:
 
-Cambios en la tabla:
-- Eliminar todos los `<Input>` y mostrar texto plano con `<span>`
-- Usar `text-sm` para texto más compacto
-- Padding reducido: `py-2 pr-3` en lugar de `py-3 pr-4`
-- Mostrar "-" cuando no hay valor en campos opcionales
-- Click en la fila completa abre el modal de edición (UX mejorada)
+| Archivo | Línea | Cambio |
+|---------|-------|--------|
+| `AdminWorkshops.tsx` | 371 | `/admin/events/${eventId}/edit` → `/admin/workshops` |
+| `AdminWorkshopPreferences.tsx` | 100 | `/admin/events/${eventId}/edit` → `/admin/workshops` |
+| `AdminWorkshopSchedule.tsx` | 145 | `/admin/events/${eventId}/edit` → `/admin/workshops` |
+| `AdminWorkshopAssignment.tsx` | 149 | `/admin/events/${eventId}/edit` → `/admin/workshops` |
 
-#### 2. Selector de turnos en el modal de edición (WorkshopForm)
-
-Añadir al formulario existente (líneas 742-840) un campo de selección múltiple de turnos:
+### Flujo de navegación corregido
 
 ```text
-┌──────────────────────────────────────────────────────┐
-│                   Editar Taller                       │
-├──────────────────────────────────────────────────────┤
-│ Nombre del taller *    │ Empresa/Patrocinador        │
-│ [Ética e IA_________]  │ [Santander____________]     │
-│                                                       │
-│ Sala/Ubicación         │ Aforo Máximo *              │
-│ [Sala 1_____________]  │ [30____]                    │
-│                                                       │
-│ Categoría              │                             │
-│ [General (todas)___▼]  │                             │
-│                                                       │
-│ Turnos en los que se imparte                         │
-│ ┌─────────────────────────────────────────────┐     │
-│ │ ☑ Turno 1 (10:30 - 11:15)                   │     │
-│ │ ☑ Turno 2 (11:30 - 12:15)                   │     │
-│ │ ☑ Turno 3 (12:30 - 13:00)                   │     │
-│ └─────────────────────────────────────────────┘     │
-│                                                       │
-│ Descripción                                           │
-│ [________________________________]                    │
-│                                                       │
-│                              [Actualizar]            │
-└──────────────────────────────────────────────────────┘
+/admin/workshops (lista de eventos con talleres)
+    │
+    ├── Click en evento "Encuentro Equipos" 
+    │       ↓
+    │   /admin/workshops (con eventId seleccionado - muestra talleres del evento)
+    │       │
+    │       ├── [←] Vuelve a lista de eventos en /admin/workshops ✓
+    │       │
+    │       ├── Click "Estado Preferencias"
+    │       │       ↓
+    │       │   /admin/events/{id}/workshops/preferences
+    │       │       [←] Vuelve a /admin/workshops ✓
+    │       │
+    │       ├── Click "Asignar"  
+    │       │       ↓
+    │       │   /admin/events/{id}/workshops/assign
+    │       │       [←] Vuelve a /admin/workshops ✓
+    │       │
+    │       └── Click "Cuadrante"
+    │               ↓
+    │           /admin/events/{id}/workshops/schedule
+    │               [←] Vuelve a /admin/workshops ✓
 ```
 
-### Cambios Técnicos
+### Archivos a modificar
 
-**1. Modificar la tabla (líneas 529-644)**
+1. **`src/pages/admin/AdminWorkshops.tsx`** - Línea 371
+2. **`src/pages/admin/AdminWorkshopPreferences.tsx`** - Línea 100
+3. **`src/pages/admin/AdminWorkshopSchedule.tsx`** - Línea 145
+4. **`src/pages/admin/AdminWorkshopAssignment.tsx`** - Línea 149
 
-Reemplazar los inputs por texto plano:
-- `<Input defaultValue={workshop.name} ...>` → `<span className="font-medium">{workshop.name}</span>`
-- `<Input defaultValue={workshop.company} ...>` → `<span className="text-muted-foreground">{workshop.company || '-'}</span>`
-- Igual para location y max_capacity
-- Hacer la fila clickeable con `onClick={() => handleEditWorkshop(workshop)}`
-
-**2. Ampliar WorkshopForm (líneas 742-840)**
-
-- Añadir prop `timeSlots` para recibir los turnos disponibles
-- Añadir estado local `selectedSlots` para los turnos seleccionados
-- Añadir prop `workshopSlots` (turnos actuales del taller, por ahora todos)
-- Renderizar checkboxes para cada turno con formato `Turno X (HH:MM - HH:MM)`
-
-**3. Actualizar llamada a WorkshopForm (línea 675)**
-
-Pasar las props adicionales:
-```tsx
-<WorkshopForm
-  workshop={selectedWorkshop}
-  timeSlots={timeSlots || []}
-  onSubmit={(data) => { ... }}
-  loading={...}
-/>
-```
-
-### Nota sobre los turnos
-
-Por ahora, todos los talleres se imparten en todos los turnos (modelo actual). El selector de turnos servirá como base para una futura funcionalidad donde cada taller pueda estar solo en ciertos turnos. Por ahora, mostraremos todos los turnos seleccionados por defecto y el campo será informativo/preparatorio.
-
-### Archivos a Modificar
-
-| Archivo | Cambio |
-|---------|--------|
-| `src/pages/admin/AdminWorkshops.tsx` | Tabla compacta sin inputs + selector turnos en modal |
