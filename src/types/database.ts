@@ -9,7 +9,7 @@ export type TeamCategory = 'beginner' | 'junior' | 'senior';
 
 export type EventType = 'intermediate' | 'regional_final' | 'workshop';
 
-export type RegistrationStatus = 'confirmed' | 'cancelled' | 'checked_in';
+export type RegistrationStatus = 'confirmed' | 'cancelled' | 'checked_in' | 'waitlisted';
 
 export type ConsentType = 'participation' | 'image_rights' | 'data_processing';
 

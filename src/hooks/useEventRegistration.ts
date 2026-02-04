@@ -134,14 +134,7 @@ export function useEventRegistration(eventId: string) {
       }
       
       const availableSpots = (ticketType.max_capacity ?? 0) - (ticketType.current_count ?? 0);
-      
-      if (availableSpots < totalSpotsNeeded) {
-        if (companionsCount > 0) {
-          throw new Error(`No hay suficientes plazas disponibles. Necesitas ${totalSpotsNeeded} plazas (tú + ${companionsCount} acompañante${companionsCount > 1 ? 's' : ''}) pero solo quedan ${availableSpots}.`);
-        } else {
-          throw new Error('Lo sentimos, no quedan plazas disponibles para este tipo de entrada');
-        }
-      }
+      const isWaitlist = availableSpots < totalSpotsNeeded;
       
       // 2. Generate codes for main registration
       const qrCode = generateQRCode();
@@ -166,7 +159,7 @@ export function useEventRegistration(eventId: string) {
           companion_of_registration_id: formData.companion_of_registration_id || null,
           qr_code: qrCode,
           registration_number: registrationNumber,
-          registration_status: 'confirmed',
+          registration_status: isWaitlist ? 'waitlisted' : 'confirmed',
           image_consent: formData.image_consent,
           data_consent: formData.data_consent,
         })
@@ -175,8 +168,8 @@ export function useEventRegistration(eventId: string) {
       
       if (error) throw error;
       
-// 4. Create companions if any
-      if (formData.companions && formData.companions.length > 0) {
+      // 4. Create companions if any (only for confirmed registrations)
+      if (!isWaitlist && formData.companions && formData.companions.length > 0) {
         const companionsToInsert = formData.companions.map(companion => ({
           event_registration_id: registration.id,
           first_name: companion.first_name || null,
@@ -196,44 +189,48 @@ export function useEventRegistration(eventId: string) {
         }
       }
       
-      // 5. Update counters (including companions in the count)
-      const companionsCreated = formData.companions?.length || 0;
-      await supabase.rpc('increment_registration_count', {
-        p_event_id: eventId,
-        p_ticket_type_id: formData.ticket_type_id,
-        p_companions_count: companionsCreated,
-      });
-      
-      // 6. Send confirmation email (QR ticket)
-      try {
-        await supabase.functions.invoke('send-registration-confirmation', {
-          body: { registrationId: registration.id },
+      // 5. Update counters only for confirmed registrations (waitlist doesn't consume capacity)
+      if (!isWaitlist) {
+        const companionsCreated = formData.companions?.length || 0;
+        await supabase.rpc('increment_registration_count', {
+          p_event_id: eventId,
+          p_ticket_type_id: formData.ticket_type_id,
+          p_companions_count: companionsCreated,
         });
-      } catch (emailError) {
-        console.error('Error sending confirmation email:', emailError);
-        // Don't throw - registration was successful, email is secondary
       }
-
-      // 7. Send event consent email
-      try {
-        const consentResult = await supabase.functions.invoke('send-event-consent', {
-          body: { registrationId: registration.id },
-        });
-
-        // Check for compliance warning and log prominently
-        if (consentResult.data?.compliance_warning) {
-          console.warn('COMPLIANCE: Event consent sent to minor user email (missing parent_email)', {
-            registrationId: registration.id,
-            userId: user?.id
+      
+      // 6. Send confirmation email (QR ticket) only for confirmed registrations
+      if (!isWaitlist) {
+        try {
+          await supabase.functions.invoke('send-registration-confirmation', {
+            body: { registrationId: registration.id },
           });
+        } catch (emailError) {
+          console.error('Error sending confirmation email:', emailError);
+          // Don't throw - registration was successful, email is secondary
         }
-      } catch (consentError) {
-        // Log failure prominently for manual follow-up
-        console.error('CONSENT_EMAIL_FAILED: Manual intervention required', {
-          registrationId: registration.id,
-          error: consentError
-        });
-        // Don't throw - registration was successful, but admin should resend consent
+
+        // 7. Send event consent email only for confirmed registrations
+        try {
+          const consentResult = await supabase.functions.invoke('send-event-consent', {
+            body: { registrationId: registration.id },
+          });
+
+          // Check for compliance warning and log prominently
+          if (consentResult.data?.compliance_warning) {
+            console.warn('COMPLIANCE: Event consent sent to minor user email (missing parent_email)', {
+              registrationId: registration.id,
+              userId: user?.id
+            });
+          }
+        } catch (consentError) {
+          // Log failure prominently for manual follow-up
+          console.error('CONSENT_EMAIL_FAILED: Manual intervention required', {
+            registrationId: registration.id,
+            error: consentError
+          });
+          // Don't throw - registration was successful, but admin should resend consent
+        }
       }
 
       return registration;
@@ -336,6 +333,8 @@ export function useCancelRegistration() {
         throw new Error('Esta entrada ya está cancelada');
       }
       
+      const wasWaitlisted = registration.registration_status === 'waitlisted';
+      
       // 2. Update status to cancelled
       const { error: updateError } = await supabase
         .from('event_registrations')
@@ -346,14 +345,16 @@ export function useCancelRegistration() {
         throw new Error('Error al cancelar la entrada');
       }
       
-      // 3. Decrement counters (including companions)
-      const companionsCount = (registration.companions as any[])?.length || 0;
-      
-      await supabase.rpc('decrement_registration_count', {
-        p_event_id: registration.event_id,
-        p_ticket_type_id: registration.ticket_type_id,
-        p_companions_count: companionsCount,
-      });
+      // 3. Decrement counters only if was confirmed (waitlisted didn't consume capacity)
+      if (!wasWaitlisted) {
+        const companionsCount = (registration.companions as any[])?.length || 0;
+        
+        await supabase.rpc('decrement_registration_count', {
+          p_event_id: registration.event_id,
+          p_ticket_type_id: registration.ticket_type_id,
+          p_companions_count: companionsCount,
+        });
+      }
       
       return registration;
     },

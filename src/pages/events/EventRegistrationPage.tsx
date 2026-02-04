@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { ArrowLeft, ArrowRight, Check, Loader2, Ticket } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, Loader2, Ticket, AlertTriangle } from 'lucide-react';
 import { useEvent, useEventRegistration, useExistingRegistration } from '@/hooks/useEventRegistration';
 import { useAuth } from '@/hooks/useAuth';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
@@ -15,6 +15,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { toast } from 'sonner';
 import {
   Form,
@@ -437,22 +438,20 @@ const selectedTicketId = form.watch('ticket_type_id');
                               const isSoldOut = available <= 0;
                               const ticketMaxCompanions = ticket.max_companions || 0;
                               
-                              return (
+                                              return (
                                 <div
                                   key={ticket.id}
                                   className={`
                                     flex items-center justify-between p-4 border rounded-lg cursor-pointer
                                     transition-colors
                                     ${field.value === ticket.id ? 'border-primary bg-primary/5' : 'hover:bg-muted/50'}
-                                    ${isSoldOut ? 'opacity-50 cursor-not-allowed' : ''}
                                   `}
-                                  onClick={() => !isSoldOut && field.onChange(ticket.id)}
+                                  onClick={() => field.onChange(ticket.id)}
                                 >
                                   <div className="flex items-center gap-3">
                                     <RadioGroupItem 
                                       value={ticket.id} 
                                       id={ticket.id}
-                                      disabled={isSoldOut}
                                     />
                                     <div>
                                       <Label htmlFor={ticket.id} className="font-medium cursor-pointer">
@@ -461,16 +460,22 @@ const selectedTicketId = form.watch('ticket_type_id');
                                       {ticket.description && (
                                         <p className="text-sm text-muted-foreground">{ticket.description}</p>
                                       )}
-                                      {ticketMaxCompanions > 0 && (
+                                      {ticketMaxCompanions > 0 && !isSoldOut && (
                                         <p className="text-xs text-primary mt-1">
                                           Permite {ticketMaxCompanions} acompañante{ticketMaxCompanions > 1 ? 's' : ''}
+                                        </p>
+                                      )}
+                                      {isSoldOut && (
+                                        <p className="text-xs text-warning mt-1 flex items-center gap-1">
+                                          <AlertTriangle className="h-3 w-3" />
+                                          Sin plazas - entrarás en lista de espera
                                         </p>
                                       )}
                                     </div>
                                   </div>
                                   <div className="text-right">
-                                    <Badge variant={isSoldOut ? 'destructive' : 'outline'}>
-                                      {isSoldOut ? 'Agotado' : 'Gratis'}
+                                    <Badge variant={isSoldOut ? 'orange' : 'outline'}>
+                                      {isSoldOut ? 'Lista espera' : 'Gratis'}
                                     </Badge>
                                   </div>
                                 </div>
