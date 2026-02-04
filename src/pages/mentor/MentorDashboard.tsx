@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -20,6 +20,7 @@ import {
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useMentorTeams } from '@/hooks/useMentorTeams';
+import { useWorkshopPreferencesEligibility } from '@/hooks/useWorkshopPreferencesEligibility';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -27,11 +28,27 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { WorkshopPreferencesPopup } from '@/components/mentor/WorkshopPreferencesPopup';
 
 export default function MentorDashboard() {
   const { user, profile, role, signOut, isVerified } = useAuth();
   const { data: myTeams, isLoading: teamsLoading } = useMentorTeams(user?.id);
   const [expandedTeams, setExpandedTeams] = useState<Set<string>>(new Set());
+  const [preferencesPopupOpen, setPreferencesPopupOpen] = useState(false);
+
+  // Hook for workshop preferences eligibility
+  const { eligibleTeams, isLoading: eligibilityLoading } = useWorkshopPreferencesEligibility(user?.id);
+
+  // Auto-show popup when there are pending teams
+  useEffect(() => {
+    if (!eligibilityLoading && eligibleTeams.length > 0) {
+      // Check if there are pending teams (not submitted yet)
+      const hasPending = eligibleTeams.some(t => !t.hasSubmittedPreferences);
+      if (hasPending) {
+        setPreferencesPopupOpen(true);
+      }
+    }
+  }, [eligibleTeams, eligibilityLoading]);
 
   // Fetch user's hub name for display (read-only)
   const { data: userHub } = useQuery({
@@ -514,6 +531,14 @@ export default function MentorDashboard() {
           </div>
         </div>
       </main>
+
+      {/* Workshop Preferences Popup */}
+      <WorkshopPreferencesPopup
+        open={preferencesPopupOpen}
+        onOpenChange={setPreferencesPopupOpen}
+        eligibleTeams={eligibleTeams}
+        currentUserId={user?.id}
+      />
     </div>
   );
 }

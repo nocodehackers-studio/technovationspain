@@ -32,6 +32,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
 import { 
   Plus, 
@@ -43,7 +44,8 @@ import {
   Users,
   BarChart3,
   ClipboardList,
-  Shuffle
+  Shuffle,
+  ToggleLeft
 } from 'lucide-react';
 import { CapacityBar } from '../CapacityBar';
 import { ConfirmDialog } from '../ConfirmDialog';
@@ -61,6 +63,42 @@ export function WorkshopManager({ eventId }: WorkshopManagerProps) {
   const [timeSlotsDialogOpen, setTimeSlotsDialogOpen] = useState(false);
 
   const { timeSlots, isLoading: timeSlotsLoading, saveAllSlots, isSaving } = useWorkshopTimeSlots(eventId);
+
+  // Fetch event to get workshop_preferences_open status
+  const { data: eventData } = useQuery({
+    queryKey: ['event-preferences-status', eventId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('events')
+        .select('workshop_preferences_open')
+        .eq('id', eventId)
+        .single();
+
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  // Toggle workshop preferences mutation
+  const togglePreferencesMutation = useMutation({
+    mutationFn: async (open: boolean) => {
+      const { error } = await supabase
+        .from('events')
+        .update({ workshop_preferences_open: open })
+        .eq('id', eventId);
+      if (error) throw error;
+    },
+    onSuccess: (_, open) => {
+      queryClient.invalidateQueries({ queryKey: ['event-preferences-status', eventId] });
+      toast.success(open 
+        ? 'Preferencias de talleres abiertas. Los mentores pueden asignar.' 
+        : 'Preferencias de talleres cerradas.'
+      );
+    },
+    onError: (error) => {
+      toast.error(`Error: ${error.message}`);
+    },
+  });
 
   // Fetch workshops for this event
   const { data: workshops, isLoading: workshopsLoading } = useQuery({
@@ -192,6 +230,46 @@ export function WorkshopManager({ eventId }: WorkshopManagerProps) {
 
   return (
     <div className="space-y-6">
+      {/* Mentor Preferences Toggle */}
+      <Card className="border-secondary/50">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <ToggleLeft className="h-5 w-5" />
+                Preferencias de Mentores
+              </CardTitle>
+              <CardDescription>
+                Controla cuándo los mentores pueden enviar las preferencias de talleres de sus equipos
+              </CardDescription>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-muted-foreground">
+                {eventData?.workshop_preferences_open ? 'Abiertas' : 'Cerradas'}
+              </span>
+              <Switch
+                checked={eventData?.workshop_preferences_open || false}
+                onCheckedChange={(checked) => togglePreferencesMutation.mutate(checked)}
+                disabled={togglePreferencesMutation.isPending}
+              />
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            {eventData?.workshop_preferences_open ? (
+              <span className="text-green-600 font-medium">
+                ✓ Los mentores pueden asignar preferencias para sus equipos (si tienen al menos un participante inscrito).
+              </span>
+            ) : (
+              <span>
+                Las preferencias están cerradas. Activa el toggle cuando quieras que los mentores empiecen a asignar.
+              </span>
+            )}
+          </p>
+        </CardContent>
+      </Card>
+
       {/* Time Slots Section */}
       <Card>
         <CardHeader className="pb-3">
