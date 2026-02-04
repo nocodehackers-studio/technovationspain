@@ -131,19 +131,21 @@ export function useDemoData(eventId: string) {
       }
 
       let teamsCreated = 0;
+      const timestamp = Date.now().toString(36); // Short unique suffix
 
       for (let i = 0; i < DEMO_TEAMS.length; i++) {
         const teamConfig = DEMO_TEAMS[i];
         const demoIndex = String(i + 1).padStart(3, '0');
+        const uniqueSuffix = `${timestamp}-${demoIndex}`;
 
-        // 1. Create team
+        // 1. Create team with unique tg_team_id
         const { data: team, error: teamError } = await supabase
           .from('teams')
           .insert({
             name: teamConfig.name,
             category: teamConfig.category,
             notes: '[DEMO] Equipo de prueba para asignación de talleres',
-            tg_team_id: `DEMO-${demoIndex}`,
+            tg_team_id: `DEMO-${uniqueSuffix}`,
           })
           .select()
           .single();
@@ -161,7 +163,7 @@ export function useDemoData(eventId: string) {
             event_id: eventId,
             team_id: team.id,
             team_name: teamConfig.name,
-            registration_number: `DEMO-${demoIndex}`,
+            registration_number: `DEMO-${uniqueSuffix}`,
             participant_count: teamConfig.participantCount,
             qr_code: qrCode,
             registration_status: 'confirmed',
