@@ -24,6 +24,7 @@ export interface Profile {
   first_name?: string | null;
   last_name?: string | null;
   phone?: string | null;
+  dni?: string | null;
   date_of_birth?: string | null;
   postal_code?: string | null;
   hub_id?: string | null;
