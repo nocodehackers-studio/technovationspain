@@ -529,12 +529,7 @@ export default function Onboarding() {
                   {/* TG Email - Only show for roles that require it */}
                   {currentRoleConfig.requiresTGEmail && (
                     <div className="space-y-2">
-                      <Label htmlFor="tg_email">
-                        {formData.role === 'participant' 
-                          ? 'Email en Technovation Global'
-                          : 'Email de contacto'
-                        }
-                      </Label>
+                      <Label htmlFor="tg_email">Email de Technovation Global</Label>
                       <div className="relative">
                         <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                         <Input
@@ -547,9 +542,7 @@ export default function Onboarding() {
                         />
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        {formData.role === 'participant'
-                          ? 'Si ya estás registrada en Technovation Global, introduce el email que usaste allí.'
-                          : 'Email donde podemos contactarte para coordinación de eventos.'}
+                        Introduce el email con el que estás registrado en Technovation Global.
                       </p>
                       {errors.tg_email && (
                         <p className="text-sm text-destructive">{errors.tg_email}</p>
