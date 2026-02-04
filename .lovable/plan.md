@@ -1,83 +1,154 @@
 
-# Plan: Corregir Política RLS para Permitir a Mentores Ver Registros de su Equipo
 
-## Problema Identificado
+# Plan: Corregir Problemas de Navegación y Popup de Preferencias de Talleres
 
-El popup de preferencias de talleres no aparece porque la **política RLS de `event_registrations`** impide que el mentor vea los registros de inscripción de los participantes de su equipo.
+## Resumen de Problemas Identificados
 
-La política actual dice:
+Se han detectado **2 problemas principales**:
 
-```text
-SELECT: user_id = auth.uid() OR has_role(auth.uid(), 'admin')
-```
+### Problema 1: Navegación incorrecta para mentores
+Cuando un mentor navega desde páginas de eventos/tickets y vuelve atrás, es redirigido a `/dashboard` en lugar de `/mentor/dashboard`.
 
-Esto significa que un mentor **solo puede ver sus propias inscripciones**, no las de los participantes de sus equipos.
+**Archivos afectados:**
+- `src/pages/events/TicketDetailPage.tsx` (líneas 61, 120)
+- `src/pages/events/EventsListPage.tsx` (línea 34)  
+- `src/pages/events/RegistrationConfirmationPage.tsx` (línea 258)
+- `src/pages/events/EventRegistrationPage.tsx` (línea 265)
+- `src/pages/Onboarding.tsx` (línea 365)
 
-## Flujo del Hook que Falla
+### Problema 2: Popup de preferencias de talleres no aparece
+El popup no se muestra para el mentor a pesar de que:
+- La política RLS está correctamente aplicada
+- El equipo Tech Innovators tiene 3 participantes registrados
+- El evento tiene `workshop_preferences_open = true`
+- No hay preferencias ya enviadas
 
-```text
-┌─────────────────────────────────────────────────────────┐
-│ useWorkshopPreferencesEligibility                       │
-├─────────────────────────────────────────────────────────┤
-│ 1. Obtener equipos donde soy mentor        ✅ Funciona │
-│ 2. Obtener eventos con preferencias open   ✅ Funciona │
-│ 3. Obtener participantes del equipo        ✅ Funciona │
-│ 4. Consultar registrations de participantes ❌ BLOQUEADO│
-│    → RLS devuelve 0 filas porque user_id   │
-│      no es auth.uid()                                   │
-│ 5. registeredTeamEvents está vacío                      │
-│ 6. eligibleTeams = []                                   │
-└─────────────────────────────────────────────────────────┘
-```
+**Causa probable:** Sin logs de consola no puedo confirmar exactamente dónde falla, pero la arquitectura del hook es correcta. Añadiré logging para debugging.
+
+---
 
 ## Solución Propuesta
 
-Añadir una nueva política RLS que permita a los **mentores** ver las inscripciones de los **participantes de sus equipos**.
+### Parte 1: Crear función helper para rutas de dashboard
 
-### Cambio en Base de Datos
+Crear un utility que determine la ruta correcta del dashboard según el rol del usuario:
 
-Nueva migración SQL:
+```text
+Archivo nuevo: src/lib/dashboard-routes.ts
 
-```sql
--- Permitir a mentores ver registros de participantes de sus equipos
-CREATE POLICY "Mentors can view team participant registrations"
-ON event_registrations
-FOR SELECT
-USING (
-  -- El usuario inscrito es participante de un equipo donde yo soy mentor
-  user_id IN (
-    SELECT tm_participant.user_id
-    FROM team_members tm_participant
-    WHERE tm_participant.member_type = 'participant'
-    AND tm_participant.team_id IN (
-      SELECT tm_mentor.team_id
-      FROM team_members tm_mentor
-      WHERE tm_mentor.user_id = auth.uid()
-      AND tm_mentor.member_type = 'mentor'
-    )
-  )
-);
+Función: getDashboardPath(role: AppRole | null): string
+- admin → '/admin'
+- mentor → '/mentor/dashboard'  
+- volunteer → '/voluntario/dashboard'
+- otros → '/dashboard'
 ```
 
-### Lógica de la Política
+### Parte 2: Actualizar navegación en páginas de eventos
 
-1. Obtiene todos los `team_id` donde el usuario actual es mentor
-2. Para cada uno de esos equipos, obtiene los `user_id` de los participantes
-3. Permite ver inscripciones donde el `user_id` esté en esa lista
+Modificar las siguientes páginas para usar la función helper:
 
-## Impacto
+1. **TicketDetailPage.tsx**
+   - Importar `useAuth` y `getDashboardPath`
+   - Línea 61: Cambiar `navigate('/dashboard')` → `navigate(getDashboardPath(role))`
+   - Línea 120: Cambiar `navigate('/dashboard')` → `navigate(getDashboardPath(role))`
 
-- **Seguridad**: Mentores solo ven registros de participantes de SUS equipos, no de todos
-- **Funcionalidad**: El hook podrá detectar inscripciones y mostrar el popup correctamente
-- **Rendimiento**: La consulta usa índices existentes en `team_members`
+2. **EventsListPage.tsx**
+   - Línea 34: Cambiar `<Link to="/dashboard">` → usar ruta dinámica
+
+3. **RegistrationConfirmationPage.tsx**
+   - Línea 258: Cambiar `<Link to="/dashboard">` → usar ruta dinámica
+
+4. **EventRegistrationPage.tsx**
+   - Línea 265: Cambiar `<Link to="/dashboard">` → usar ruta dinámica
+
+5. **Onboarding.tsx**
+   - Línea 365: Añadir caso para `mentor`:
+   ```typescript
+   const redirectPath = isVolunteer 
+     ? '/voluntario/dashboard' 
+     : (userRoles.includes('mentor') ? '/mentor/dashboard' : '/dashboard');
+   ```
+
+### Parte 3: Añadir logging al hook de elegibilidad
+
+Modificar `useWorkshopPreferencesEligibility.ts` para añadir logs de debugging:
+
+```text
+Después de cada consulta, añadir:
+console.log('[WorkshopEligibility] Step X result:', data);
+
+Esto permitirá identificar exactamente dónde falla la cadena de consultas.
+```
+
+---
 
 ## Archivos a Modificar
 
-1. **Nueva migración SQL**: `supabase/migrations/XXXXX_mentor_registration_policy.sql`
+| Archivo | Cambio |
+|---------|--------|
+| `src/lib/dashboard-routes.ts` | **Crear nuevo** - función helper |
+| `src/pages/events/TicketDetailPage.tsx` | Actualizar 2 navegaciones |
+| `src/pages/events/EventsListPage.tsx` | Actualizar 1 link |
+| `src/pages/events/RegistrationConfirmationPage.tsx` | Actualizar 1 link |
+| `src/pages/events/EventRegistrationPage.tsx` | Actualizar 1 link |
+| `src/pages/Onboarding.tsx` | Añadir caso mentor |
+| `src/hooks/useWorkshopPreferencesEligibility.ts` | Añadir logs de debug |
+
+---
+
+## Detalles Técnicos
+
+### Nueva función getDashboardPath
+
+```typescript
+import { AppRole } from '@/types/database';
+
+export function getDashboardPath(role: AppRole | null): string {
+  switch (role) {
+    case 'admin':
+      return '/admin';
+    case 'mentor':
+      return '/mentor/dashboard';
+    case 'volunteer':
+      return '/voluntario/dashboard';
+    default:
+      return '/dashboard';
+  }
+}
+```
+
+### Ejemplo de uso en componentes
+
+```typescript
+import { getDashboardPath } from '@/lib/dashboard-routes';
+import { useAuth } from '@/hooks/useAuth';
+
+// En el componente:
+const { role } = useAuth();
+
+// En navegación:
+<Link to={getDashboardPath(role)}>Volver al dashboard</Link>
+
+// O con navigate:
+navigate(getDashboardPath(role));
+```
+
+### Logging para debugging
+
+```typescript
+// En useWorkshopPreferencesEligibility.ts
+console.log('[WorkshopEligibility] Step 1 - Mentor teams:', mentorTeams);
+console.log('[WorkshopEligibility] Step 2 - Open events:', openEvents);
+console.log('[WorkshopEligibility] Step 3 - Team participants:', teamParticipants);
+console.log('[WorkshopEligibility] Step 4 - Registrations:', registrations);
+console.log('[WorkshopEligibility] Final eligible teams:', eligibleTeams);
+```
+
+---
 
 ## Resultado Esperado
 
-Después del cambio, cuando el mentor entre a su dashboard:
-- El hook consultará las inscripciones de sus participantes exitosamente
-- Detectará que hay participantes inscritos en el evento con preferencias abiertas
-- El popup aparecerá automáticamente
+1. **Navegación:** Mentores serán redirigidos a `/mentor/dashboard` al volver desde cualquier página de eventos
+2. **Debugging:** Los logs en consola mostrarán exactamente en qué paso falla la detección de elegibilidad
+3. **Próximo paso:** Una vez identificada la causa con los logs, se podrá aplicar la corrección específica
+
