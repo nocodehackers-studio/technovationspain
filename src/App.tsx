@@ -142,6 +142,26 @@ const App = () => (
                 <AdminWorkshops />
               </ProtectedRoute>
             } />
+            <Route path="/admin/events/:eventId/workshops/capacity" element={
+              <ProtectedRoute requiredRoles={["admin"]}>
+                <AdminWorkshopCapacity />
+              </ProtectedRoute>
+            } />
+            <Route path="/admin/events/:eventId/workshops/preferences" element={
+              <ProtectedRoute requiredRoles={["admin"]}>
+                <AdminWorkshopPreferences />
+              </ProtectedRoute>
+            } />
+            <Route path="/admin/events/:eventId/workshops/assign" element={
+              <ProtectedRoute requiredRoles={["admin"]}>
+                <AdminWorkshopAssignment />
+              </ProtectedRoute>
+            } />
+            <Route path="/admin/events/:eventId/workshops/schedule" element={
+              <ProtectedRoute requiredRoles={["admin"]}>
+                <AdminWorkshopSchedule />
+              </ProtectedRoute>
+            } />
             <Route path="/admin/import-csv" element={
               <ProtectedRoute requiredRoles={["admin"]}>
                 <AdminImportUnified />
@@ -196,13 +216,16 @@ const App = () => (
                 <RegistrationConfirmationPage />
               </ProtectedRoute>
             } />
+            <Route path="/events/:eventId/workshop-preferences" element={
+              <ProtectedRoute requiredRoles={["mentor", "admin"]}>
+                <WorkshopPreferencesPage />
+              </ProtectedRoute>
+            } />
             <Route path="/tickets/:registrationId" element={
               <ProtectedRoute>
                 <TicketDetailPage />
               </ProtectedRoute>
             } />
-            
-            {/* Validation routes (admin-only, handles own auth) */}
             <Route path="/validate" element={<ValidatePage />} />
             <Route path="/validate/:code" element={<ValidatePage />} />
 
