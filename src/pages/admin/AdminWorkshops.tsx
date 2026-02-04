@@ -427,71 +427,79 @@ export default function AdminWorkshops() {
                   Define los bloques horarios en los que se realizarán los talleres
                 </p>
               </div>
-              <Button onClick={handleCreateSlot}>
-                <Plus className="mr-2 h-4 w-4" />
-                Añadir Turno
-              </Button>
             </div>
 
-            {isLoading ? (
-              <div className="space-y-3">
-                {[1, 2, 3].map((i) => (
-                  <Skeleton key={i} className="h-20 w-full" />
-                ))}
-              </div>
-            ) : timeSlots && timeSlots.length > 0 ? (
-              <div className="grid gap-3">
-                {timeSlots.map((slot) => (
-                  <Card key={slot.id} className="hover:border-primary/50 transition-colors">
-                    <CardContent className="py-4">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-4">
-                          <Badge variant="secondary" className="text-lg px-3 py-1">
-                            Turno {slot.slot_number}
-                          </Badge>
-                          <div>
-                            <p className="font-mono text-lg font-medium">
-                              {slot.start_time.slice(0, 5)} - {slot.end_time.slice(0, 5)}
-                            </p>
-                            <p className="text-sm text-muted-foreground">
-                              {workshopCount} talleres simultáneos
-                            </p>
-                          </div>
-                        </div>
-                        <div className="flex gap-2">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleEditSlot(slot)}
-                          >
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-destructive hover:text-destructive"
-                            onClick={() => handleDeleteSlot(slot)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            ) : (
-              <Card className="border-dashed">
-                <CardContent className="py-12 text-center">
-                  <Clock className="h-12 w-12 mx-auto mb-4 text-muted-foreground/50" />
-                  <p className="text-muted-foreground">No hay turnos configurados</p>
-                  <Button className="mt-4" onClick={handleCreateSlot}>
-                    <Plus className="mr-2 h-4 w-4" />
-                    Crear primer turno
-                  </Button>
-                </CardContent>
-              </Card>
-            )}
+            <Card>
+              <CardContent className="pt-6">
+                <div className="space-y-3">
+                  {/* Header */}
+                  <div className="grid grid-cols-[60px_1fr_1fr_40px] gap-4 text-sm font-medium text-muted-foreground px-2">
+                    <span>Turno</span>
+                    <span>Hora inicio</span>
+                    <span>Hora fin</span>
+                    <span></span>
+                  </div>
+                  
+                  {/* Slots list */}
+                  {timeSlots && timeSlots.map((slot) => (
+                    <div 
+                      key={slot.id} 
+                      className="grid grid-cols-[60px_1fr_1fr_40px] gap-4 items-center p-2 rounded-lg hover:bg-muted/50"
+                    >
+                      <Badge variant="secondary" className="justify-center">
+                        T{slot.slot_number}
+                      </Badge>
+                      <Input
+                        type="time"
+                        defaultValue={slot.start_time.slice(0, 5)}
+                        className="font-mono"
+                        onBlur={(e) => {
+                          if (e.target.value !== slot.start_time.slice(0, 5)) {
+                            updateSlot({ 
+                              slotId: slot.id, 
+                              updates: { start_time: e.target.value + ':00' } 
+                            });
+                          }
+                        }}
+                      />
+                      <Input
+                        type="time"
+                        defaultValue={slot.end_time.slice(0, 5)}
+                        className="font-mono"
+                        onBlur={(e) => {
+                          if (e.target.value !== slot.end_time.slice(0, 5)) {
+                            updateSlot({ 
+                              slotId: slot.id, 
+                              updates: { end_time: e.target.value + ':00' } 
+                            });
+                          }
+                        }}
+                      />
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-destructive hover:text-destructive"
+                        onClick={() => handleDeleteSlot(slot)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+
+                  {/* Add new slot row */}
+                  <div className="pt-2 border-t">
+                    <Button 
+                      variant="outline" 
+                      className="w-full"
+                      onClick={handleCreateSlot}
+                    >
+                      <Plus className="mr-2 h-4 w-4" />
+                      Añadir Turno {(timeSlots?.length || 0) + 1}
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           </TabsContent>
 
           {/* Workshops Tab */}
