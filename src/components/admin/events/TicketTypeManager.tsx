@@ -18,8 +18,10 @@ import {
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Progress } from "@/components/ui/progress";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { toast } from "sonner";
-import { Plus, Edit, Trash2, Users, UserPlus, Settings } from "lucide-react";
+import { Plus, Edit, Trash2, Users, UserPlus, Settings, AlertTriangle } from "lucide-react";
 import { ConfirmDialog } from "@/components/admin/ConfirmDialog";
 
 interface TicketType {
@@ -54,6 +56,7 @@ const REGISTRATION_FIELDS = [
 
 interface TicketTypeManagerProps {
   eventId: string;
+  eventMaxCapacity?: number | null;
 }
 
 const AVAILABLE_ROLES = [
@@ -63,7 +66,7 @@ const AVAILABLE_ROLES = [
   { value: "volunteer", label: "Voluntario" },
 ];
 
-export function TicketTypeManager({ eventId }: TicketTypeManagerProps) {
+export function TicketTypeManager({ eventId, eventMaxCapacity }: TicketTypeManagerProps) {
   const queryClient = useQueryClient();
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -270,6 +273,17 @@ const openEditDialog = (ticket?: TicketType) => {
     );
   }
 
+  // Capacity validation calculations
+  const totalTicketCapacity = ticketTypes?.reduce((sum, t) => sum + t.max_capacity, 0) || 0;
+  const otherTicketsCapacity = ticketTypes
+    ?.filter(t => t.id !== selectedTicket?.id)
+    .reduce((sum, t) => sum + t.max_capacity, 0) || 0;
+  const proposedTotal = otherTicketsCapacity + formData.max_capacity;
+  const exceedsGlobalCapacity = eventMaxCapacity != null && proposedTotal > eventMaxCapacity;
+  const excessAmount = exceedsGlobalCapacity ? proposedTotal - eventMaxCapacity : 0;
+  const remainingCapacity = eventMaxCapacity != null ? eventMaxCapacity - otherTicketsCapacity : null;
+  const capacityExceeded = eventMaxCapacity != null && totalTicketCapacity > eventMaxCapacity;
+
   return (
     <>
       <Card>
@@ -286,6 +300,28 @@ const openEditDialog = (ticket?: TicketType) => {
               Añadir Tipo
             </Button>
           </div>
+          
+          {/* Global capacity indicator */}
+          {eventMaxCapacity != null && eventMaxCapacity > 0 && (
+            <div className="mt-4 space-y-2">
+              <div className="flex justify-between text-sm">
+                <span>Aforo global asignado</span>
+                <span className={capacityExceeded ? "text-destructive font-medium" : ""}>
+                  {totalTicketCapacity} / {eventMaxCapacity}
+                </span>
+              </div>
+              <Progress 
+                value={Math.min((totalTicketCapacity / eventMaxCapacity) * 100, 100)} 
+                className={capacityExceeded ? "[&>div]:bg-destructive" : ""}
+              />
+              {capacityExceeded && (
+                <p className="text-sm text-destructive flex items-center gap-1">
+                  <AlertTriangle className="h-4 w-4" />
+                  La suma de capacidades supera el aforo global en {totalTicketCapacity - eventMaxCapacity} plazas
+                </p>
+              )}
+            </div>
+          )}
         </CardHeader>
         <CardContent>
           {ticketTypes && ticketTypes.length > 0 ? (
@@ -430,6 +466,27 @@ const openEditDialog = (ticket?: TicketType) => {
                     />
                   </div>
                 </div>
+
+                {/* Capacity warning */}
+                {exceedsGlobalCapacity && (
+                  <Alert variant="destructive">
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertTitle>Excede el aforo global</AlertTitle>
+                    <AlertDescription>
+                      Esta capacidad superaría el aforo total del evento.
+                      <br />
+                      <span className="font-medium">
+                        Aforo global: {eventMaxCapacity} | Suma propuesta: {proposedTotal} | Exceso: {excessAmount}
+                      </span>
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                {remainingCapacity !== null && remainingCapacity > 0 && !exceedsGlobalCapacity && (
+                  <p className="text-sm text-muted-foreground">
+                    Capacidad disponible para este tipo: {remainingCapacity} plazas
+                  </p>
+                )}
               </TabsContent>
               
               {/* Tab 2: Companions */}
@@ -583,7 +640,7 @@ const openEditDialog = (ticket?: TicketType) => {
             </Button>
             <Button
               onClick={handleSubmit}
-              disabled={createMutation.isPending || updateMutation.isPending}
+              disabled={createMutation.isPending || updateMutation.isPending || exceedsGlobalCapacity}
             >
               {createMutation.isPending || updateMutation.isPending
                 ? "Guardando..."

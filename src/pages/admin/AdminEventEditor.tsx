@@ -368,7 +368,12 @@ export default function AdminEventEditor() {
             </TabsContent>
 
             <TabsContent value="tickets">
-              {eventId && <TicketTypeManager eventId={eventId} />}
+              {eventId && (
+                <TicketTypeManager 
+                  eventId={eventId} 
+                  eventMaxCapacity={formData.max_capacity}
+                />
+              )}
             </TabsContent>
 
             <TabsContent value="agenda">
