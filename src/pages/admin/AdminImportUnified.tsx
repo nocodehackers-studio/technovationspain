@@ -18,7 +18,7 @@ import { toast } from "sonner";
 import { 
   Upload, FileSpreadsheet, CheckCircle2, XCircle, AlertCircle, 
   ArrowLeft, ArrowRight, Users, UserPlus, RefreshCw, AlertTriangle,
-  Download
+  Download, Loader2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -161,6 +161,7 @@ export default function AdminImportUnified() {
   const [pendingCsvData, setPendingCsvData] = useState<{ headers: string[]; data: CSVRow[] } | null>(null);
   const [inputKey, setInputKey] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const [isParsing, setIsParsing] = useState(false);
 
   // Teams to create during import
   const [teamsToCreate, setTeamsToCreate] = useState<{name: string; division: string}[]>([]);
@@ -175,6 +176,10 @@ export default function AdminImportUnified() {
     teamsInCSV: 0,
     teamsToCreate: 0,
     teamsExisting: 0,
+    usersInCSV: 0,
+    usersNew: 0,
+    usersInWhitelist: 0,
+    usersAlreadyActive: 0,
   });
 
   // Helper function to fetch existing authorized users in batches
@@ -382,6 +387,12 @@ export default function AdminImportUnified() {
     setTeamsToCreate(newTeamsToCreate);
     setParsedRecords(records);
     setConflicts(detectedConflicts);
+    
+    // Calculate user stats
+    const alreadyActiveCount = detectedConflicts.filter(c => c.conflictType === "already_active").length;
+    const alreadyInWhitelistCount = detectedConflicts.filter(c => c.conflictType === "already_in_whitelist").length;
+    const duplicatesCount = detectedConflicts.filter(c => c.conflictType === "duplicate_in_csv").length;
+    
     setSummaryData({
       byProfileType,
       byDivision,
@@ -391,6 +402,10 @@ export default function AdminImportUnified() {
       teamsInCSV: uniqueTeamsMap.size,
       teamsToCreate: newTeamsToCreate.length,
       teamsExisting: uniqueTeamsMap.size - newTeamsToCreate.length,
+      usersInCSV: records.length,
+      usersNew: records.length - alreadyActiveCount - alreadyInWhitelistCount - duplicatesCount,
+      usersInWhitelist: alreadyInWhitelistCount,
+      usersAlreadyActive: alreadyActiveCount,
     });
 
     return detectedConflicts;
@@ -412,6 +427,7 @@ export default function AdminImportUnified() {
     }
 
     setFile(selectedFile);
+    setIsParsing(true);
     
     // Reset input value to allow re-selecting the same file
     if (inputRef.current) {
@@ -422,40 +438,48 @@ export default function AdminImportUnified() {
       header: true,
       skipEmptyLines: true,
       complete: async (results) => {
-        const headers = results.meta.fields || [];
-        const data = results.data as CSVRow[];
-        
-        // Validate required columns
-        const hasEmail = headers.some(h => normalizeHeader(h).includes("email"));
-        const hasProfileType = headers.some(h => normalizeHeader(h).includes("profile type"));
-        
-        if (!hasEmail) {
-          setValidationErrors(["No se encontró una columna de Email."]);
-          setStep("validation-error");
-          return;
-        }
+        try {
+          const headers = results.meta.fields || [];
+          const data = results.data as CSVRow[];
+          
+          // Validate required columns
+          const hasEmail = headers.some(h => normalizeHeader(h).includes("email"));
+          const hasProfileType = headers.some(h => normalizeHeader(h).includes("profile type"));
+          
+          if (!hasEmail) {
+            setValidationErrors(["No se encontró una columna de Email."]);
+            setStep("validation-error");
+            setIsParsing(false);
+            return;
+          }
 
-        if (!hasProfileType) {
-          setValidationErrors(["No se encontró la columna 'Profile type'. Este CSV no parece ser de Technovation Global."]);
-          setStep("validation-error");
-          return;
-        }
+          if (!hasProfileType) {
+            setValidationErrors(["No se encontró la columna 'Profile type'. Este CSV no parece ser de Technovation Global."]);
+            setStep("validation-error");
+            setIsParsing(false);
+            return;
+          }
 
-        if (data.length > 5000) {
-          setValidationErrors([`El archivo tiene ${data.length.toLocaleString()} filas. El máximo permitido es 5,000.`]);
-          setStep("validation-error");
-          return;
-        }
+          if (data.length > 5000) {
+            setValidationErrors([`El archivo tiene ${data.length.toLocaleString()} filas. El máximo permitido es 5,000.`]);
+            setStep("validation-error");
+            setIsParsing(false);
+            return;
+          }
 
-        setCsvHeaders(headers);
-        setCsvData(data);
-        
-        // Process and detect conflicts
-        await processCSVData(headers, data);
-        setStep("preview");
+          setCsvHeaders(headers);
+          setCsvData(data);
+          
+          // Process and detect conflicts
+          await processCSVData(headers, data);
+          setStep("preview");
+        } finally {
+          setIsParsing(false);
+        }
       },
       error: (error) => {
         toast.error(`Error al leer el archivo: ${error.message}`);
+        setIsParsing(false);
       },
     });
   }, [processCSVData]);
@@ -775,6 +799,16 @@ export default function AdminImportUnified() {
                   className="hidden"
                 />
               </div>
+              
+              {/* Loading indicator while parsing */}
+              {isParsing && (
+                <div className="flex items-center justify-center gap-3 mt-4 p-4 rounded-lg bg-muted/50 border">
+                  <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                  <span className="text-sm text-muted-foreground">
+                    Procesando archivo CSV...
+                  </span>
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
