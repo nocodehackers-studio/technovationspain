@@ -379,9 +379,15 @@ export default function ParticipantDashboard() {
                               </div>
                             </div>
                             <Badge 
-                              variant={reg.registration_status === 'confirmed' ? 'default' : 'secondary'}
+                              variant={
+                                reg.registration_status === 'confirmed' ? 'default' : 
+                                reg.registration_status === 'waitlisted' ? 'orange' : 
+                                'secondary'
+                              }
                             >
-                              {reg.registration_status === 'confirmed' ? 'Confirmada' : 'Pendiente'}
+                              {reg.registration_status === 'confirmed' ? 'Confirmada' : 
+                               reg.registration_status === 'waitlisted' ? 'Lista de espera' : 
+                               'Pendiente'}
                             </Badge>
                           </Link>
                           

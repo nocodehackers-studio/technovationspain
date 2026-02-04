@@ -1,7 +1,7 @@
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { CheckCircle, Calendar, MapPin, Download, CalendarPlus, Ticket, Users } from 'lucide-react';
+import { CheckCircle, Calendar, MapPin, Download, CalendarPlus, Ticket, Users, Clock } from 'lucide-react';
 import { useRegistration, useRegistrationCompanions } from '@/hooks/useEventRegistration';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Button } from '@/components/ui/button';
@@ -78,35 +78,66 @@ export default function RegistrationConfirmationPage() {
     return `https://calendar.google.com/calendar/render?${params.toString()}`;
   };
   
+  const isWaitlisted = registration.registration_status === 'waitlisted';
+  
   return (
     <div className="min-h-screen bg-muted/30 py-12 px-4">
       <div className="max-w-lg mx-auto space-y-6">
-        {/* Success Message */}
+        {/* Success Message - Different for waitlist */}
         <div className="text-center space-y-4">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-green-100">
-            <CheckCircle className="h-8 w-8 text-green-600" />
-          </div>
-          <h1 className="text-2xl font-bold">¡Inscripción completada!</h1>
-          <p className="text-muted-foreground">
-            Hemos enviado un email de confirmación a {registration.email}
-          </p>
+          {isWaitlisted ? (
+            <>
+              <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-warning/20">
+                <Clock className="h-8 w-8 text-warning" />
+              </div>
+              <h1 className="text-2xl font-bold">Te has apuntado a la lista de espera</h1>
+              <p className="text-muted-foreground">
+                Te notificaremos a {registration.email} si se libera una plaza
+              </p>
+            </>
+          ) : (
+            <>
+              <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-success/20">
+                <CheckCircle className="h-8 w-8 text-success" />
+              </div>
+              <h1 className="text-2xl font-bold">¡Inscripción completada!</h1>
+              <p className="text-muted-foreground">
+                Hemos enviado un email de confirmación a {registration.email}
+              </p>
+            </>
+          )}
         </div>
         
         {/* Main Ticket Card */}
         <Card className="overflow-hidden">
           {/* Header with gradient */}
-          <CardHeader className="bg-gradient-to-r from-primary to-primary/80 text-primary-foreground p-6">
+          <CardHeader className={`${isWaitlisted ? 'bg-gradient-to-r from-warning to-warning/80' : 'bg-gradient-to-r from-primary to-primary/80'} text-primary-foreground p-6`}>
             <div className="text-center">
-              <p className="text-sm opacity-90 font-medium tracking-wider">TECHNOVATION GIRLS ESPAÑA</p>
+              <p className="text-sm opacity-90 font-medium tracking-wider">
+                {isWaitlisted ? 'LISTA DE ESPERA' : 'TECHNOVATION GIRLS ESPAÑA'}
+              </p>
               <h2 className="text-xl font-bold mt-1">{event?.name}</h2>
             </div>
           </CardHeader>
           
           <CardContent className="p-6 space-y-6">
-            {/* QR Code */}
-            <div className="flex justify-center py-4">
-              <QRTicket code={registration.qr_code} size={180} />
-            </div>
+            {/* QR Code - Only for confirmed */}
+            {!isWaitlisted && (
+              <div className="flex justify-center py-4">
+                <QRTicket code={registration.qr_code} size={180} />
+              </div>
+            )}
+            
+            {/* Waitlist notice */}
+            {isWaitlisted && (
+              <Alert className="border-warning/50 bg-warning/10">
+                <Clock className="h-4 w-4 text-warning" />
+                <AlertDescription className="text-sm">
+                  <strong>No tienes entrada confirmada todavía.</strong> Estás en lista de espera. 
+                  Si se libera una plaza, te avisaremos por email.
+                </AlertDescription>
+              </Alert>
+            )}
             
             <div className="text-center">
               <p className="text-sm text-muted-foreground">Número de registro</p>
@@ -153,23 +184,25 @@ export default function RegistrationConfirmationPage() {
             </div>
           </CardContent>
           
-          {/* Actions */}
-          <div className="border-t p-4 flex gap-3">
-            <Button variant="outline" className="flex-1 gap-2" disabled>
-              <Download className="h-4 w-4" />
-              Descargar PDF
-            </Button>
-            <Button variant="outline" className="flex-1 gap-2" asChild>
-              <a href={generateCalendarUrl()} target="_blank" rel="noopener noreferrer">
-                <CalendarPlus className="h-4 w-4" />
-                Añadir al calendario
-              </a>
-            </Button>
-          </div>
+          {/* Actions - Only for confirmed */}
+          {!isWaitlisted && (
+            <div className="border-t p-4 flex gap-3">
+              <Button variant="outline" className="flex-1 gap-2" disabled>
+                <Download className="h-4 w-4" />
+                Descargar PDF
+              </Button>
+              <Button variant="outline" className="flex-1 gap-2" asChild>
+                <a href={generateCalendarUrl()} target="_blank" rel="noopener noreferrer">
+                  <CalendarPlus className="h-4 w-4" />
+                  Añadir al calendario
+                </a>
+              </Button>
+            </div>
+          )}
         </Card>
         
-        {/* Companion Tickets */}
-        {companions && companions.length > 0 && (
+        {/* Companion Tickets - Only for confirmed */}
+        {!isWaitlisted && companions && companions.length > 0 && (
           <div className="space-y-4">
             <div className="flex items-center gap-2 text-lg font-semibold">
               <Users className="h-5 w-5" />
@@ -204,12 +237,20 @@ export default function RegistrationConfirmationPage() {
         )}
         
         {/* Info Alert */}
-        <Alert>
-          <AlertDescription>
-            <strong>⚠️ Importante:</strong> Cada persona debe presentar su propio QR en la entrada del evento para acceder. 
-            {companions && companions.length > 0 && ' Los acompañantes también necesitan mostrar sus entradas individuales.'}
-          </AlertDescription>
-        </Alert>
+        {isWaitlisted ? (
+          <Alert>
+            <AlertDescription>
+              <strong>📋 Información:</strong> Guarda tu número de registro. Te contactaremos si se libera una plaza.
+            </AlertDescription>
+          </Alert>
+        ) : (
+          <Alert>
+            <AlertDescription>
+              <strong>⚠️ Importante:</strong> Cada persona debe presentar su propio QR en la entrada del evento para acceder. 
+              {companions && companions.length > 0 && ' Los acompañantes también necesitan mostrar sus entradas individuales.'}
+            </AlertDescription>
+          </Alert>
+        )}
         
         {/* Links */}
         <div className="text-center">
