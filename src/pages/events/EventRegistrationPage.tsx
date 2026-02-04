@@ -707,9 +707,9 @@ const selectedTicketId = form.watch('ticket_type_id');
                           {form.getValues('first_name')} {form.getValues('last_name')}
                         </p>
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <p className="text-muted-foreground">Email</p>
-                        <p className="font-medium">{form.getValues('email')}</p>
+                        <p className="font-medium break-all">{form.getValues('email')}</p>
                       </div>
                     </div>
                     
@@ -778,20 +778,24 @@ const selectedTicketId = form.watch('ticket_type_id');
                     <FormField
                       control={form.control}
                       name="data_consent"
-                      render={({ field }) => (
-                        <FormItem className="flex flex-row items-start space-x-3 space-y-0">
-                          <FormControl>
-                            <Checkbox
-                              checked={field.value}
-                              onCheckedChange={field.onChange}
-                            />
-                          </FormControl>
-                          <div className="space-y-1 leading-none">
-                            <FormLabel className="font-normal text-sm">
-                              He leído y acepto la política de privacidad y el tratamiento de mis datos personales {companions.length > 0 ? '(y los de mis acompañantes)' : ''} *
-                            </FormLabel>
+                      render={({ field, fieldState }) => (
+                        <FormItem className="space-y-2">
+                          <div className="flex flex-row items-start space-x-3">
+                            <FormControl>
+                              <Checkbox
+                                checked={field.value}
+                                onCheckedChange={field.onChange}
+                              />
+                            </FormControl>
+                            <div className="space-y-1 leading-none">
+                              <FormLabel className="font-normal text-sm">
+                                He leído y acepto la política de privacidad y el tratamiento de mis datos personales {companions.length > 0 ? '(y los de mis acompañantes)' : ''} *
+                              </FormLabel>
+                            </div>
                           </div>
-                          <FormMessage />
+                          {fieldState.isTouched && fieldState.error && (
+                            <p className="text-sm font-medium text-destructive">{fieldState.error.message}</p>
+                          )}
                         </FormItem>
                       )}
                     />
