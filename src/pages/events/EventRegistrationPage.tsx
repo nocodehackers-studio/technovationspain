@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { ArrowLeft, ArrowRight, Check, Loader2, Ticket, AlertTriangle } from 'lucide-react';
 import { useEvent, useEventRegistration, useExistingRegistration } from '@/hooks/useEventRegistration';
 import { useAuth } from '@/hooks/useAuth';
+import { getDashboardPath } from '@/lib/dashboard-routes';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -127,6 +128,7 @@ export default function EventRegistrationPage() {
   const { eventId } = useParams<{ eventId: string }>();
   const navigate = useNavigate();
   const { profile, role } = useAuth();
+  const dashboardPath = getDashboardPath(role);
   const [step, setStep] = useState(1);
   const [companions, setCompanions] = useState<CompanionData[]>([]);
   
@@ -262,7 +264,7 @@ const selectedTicketId = form.watch('ticket_type_id');
                   </Link>
                 </Button>
                 <Button variant="outline" asChild>
-                  <Link to="/dashboard">
+                  <Link to={dashboardPath}>
                     Ir al dashboard
                   </Link>
                 </Button>

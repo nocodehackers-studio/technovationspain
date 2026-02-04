@@ -33,7 +33,11 @@ export function useWorkshopPreferencesEligibility(userId: string | undefined): W
   const { data, isLoading, error } = useQuery({
     queryKey: ['workshop-preferences-eligibility', userId],
     queryFn: async () => {
-      if (!userId) return [];
+      console.log('[WorkshopEligibility] Starting eligibility check for userId:', userId);
+      if (!userId) {
+        console.log('[WorkshopEligibility] No userId provided, returning empty');
+        return [];
+      }
 
       // 1. Get teams where user is mentor
       const { data: mentorTeams, error: teamsError } = await supabase
@@ -42,8 +46,12 @@ export function useWorkshopPreferencesEligibility(userId: string | undefined): W
         .eq('user_id', userId)
         .eq('member_type', 'mentor');
 
+      console.log('[WorkshopEligibility] Step 1 - Mentor teams:', mentorTeams, 'Error:', teamsError);
       if (teamsError) throw teamsError;
-      if (!mentorTeams?.length) return [];
+      if (!mentorTeams?.length) {
+        console.log('[WorkshopEligibility] No mentor teams found, returning empty');
+        return [];
+      }
 
       const teamIds = mentorTeams.map(t => t.team_id).filter(Boolean) as string[];
 
@@ -54,8 +62,12 @@ export function useWorkshopPreferencesEligibility(userId: string | undefined): W
         .eq('workshop_preferences_open', true)
         .eq('status', 'published');
 
+      console.log('[WorkshopEligibility] Step 2 - Open events:', openEvents, 'Error:', eventsError);
       if (eventsError) throw eventsError;
-      if (!openEvents?.length) return [];
+      if (!openEvents?.length) {
+        console.log('[WorkshopEligibility] No open events found, returning empty');
+        return [];
+      }
 
       const eventIds = openEvents.map(e => e.id);
       const eventsMap = new Map(openEvents.map(e => [e.id, e.name]));
@@ -67,6 +79,7 @@ export function useWorkshopPreferencesEligibility(userId: string | undefined): W
         .in('team_id', teamIds)
         .eq('member_type', 'participant');
 
+      console.log('[WorkshopEligibility] Step 3 - Team participants:', teamParticipants, 'Error:', participantsError);
       if (participantsError) throw participantsError;
 
       const participantsByTeam = new Map<string, string[]>();
@@ -79,8 +92,12 @@ export function useWorkshopPreferencesEligibility(userId: string | undefined): W
 
       // 4. Get registrations for these events where participant is registered
       const allParticipantIds = Array.from(new Set(teamParticipants?.map(tp => tp.user_id).filter(Boolean) || []));
+      console.log('[WorkshopEligibility] Step 4a - All participant IDs:', allParticipantIds);
       
-      if (!allParticipantIds.length) return [];
+      if (!allParticipantIds.length) {
+        console.log('[WorkshopEligibility] No participant IDs found, returning empty');
+        return [];
+      }
 
       const { data: registrations, error: regsError } = await supabase
         .from('event_registrations')
@@ -89,6 +106,7 @@ export function useWorkshopPreferencesEligibility(userId: string | undefined): W
         .in('user_id', allParticipantIds)
         .neq('registration_status', 'cancelled');
 
+      console.log('[WorkshopEligibility] Step 4b - Registrations found:', registrations, 'Error:', regsError);
       if (regsError) throw regsError;
 
       // Build a set of "teamId|eventId" combinations where at least one participant is registered
@@ -103,6 +121,8 @@ export function useWorkshopPreferencesEligibility(userId: string | undefined): W
         }
       });
 
+      console.log('[WorkshopEligibility] Step 5a - Registered team-events:', Array.from(registeredTeamEvents));
+
       // 5. Check if preferences have already been submitted for each team+event
       const { data: existingPreferences, error: prefsError } = await supabase
         .from('workshop_preferences')
@@ -115,6 +135,7 @@ export function useWorkshopPreferencesEligibility(userId: string | undefined): W
         .in('team_id', teamIds)
         .in('event_id', eventIds);
 
+      console.log('[WorkshopEligibility] Step 5b - Existing preferences:', existingPreferences, 'Error:', prefsError);
       if (prefsError) throw prefsError;
 
       // Group preferences by team+event
@@ -165,6 +186,7 @@ export function useWorkshopPreferencesEligibility(userId: string | undefined): W
         }
       }
 
+      console.log('[WorkshopEligibility] Final eligible teams:', eligibleTeams);
       return eligibleTeams;
     },
     enabled: !!userId,
