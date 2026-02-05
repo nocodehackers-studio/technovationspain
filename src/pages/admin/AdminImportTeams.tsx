@@ -696,20 +696,36 @@ export default function AdminImportTeams() {
         {step === "preview" && previewStats && (
           <div className="space-y-6">
             {/* Stats Cards */}
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardDescription>Total Equipos</CardDescription>
-                  <CardTitle className="text-2xl">{previewStats.totalTeams}</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex gap-2 text-sm">
-                    <span className="text-success">+{previewStats.newTeams} nuevos</span>
-                    <span className="text-muted-foreground">·</span>
-                    <span className="text-accent-foreground">{previewStats.existingTeams} existentes</span>
+            {/* Teams Summary Card */}
+            <Card className="border-primary/20 bg-primary/5">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Users className="h-5 w-5 text-primary" />
+                  Equipos Detectados
+                </CardTitle>
+                <CardDescription>
+                  {previewStats.totalTeams} equipos encontrados en el archivo CSV
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-3 gap-4 text-center">
+                  <div className="p-4 rounded-lg bg-background border">
+                    <div className="text-3xl font-bold">{previewStats.totalTeams}</div>
+                    <div className="text-sm text-muted-foreground">En CSV</div>
                   </div>
-                </CardContent>
-              </Card>
+                  <div className="p-4 rounded-lg bg-background border">
+                    <div className="text-3xl font-bold text-success">{previewStats.newTeams}</div>
+                    <div className="text-sm text-muted-foreground">Se crearán</div>
+                  </div>
+                  <div className="p-4 rounded-lg bg-background border">
+                    <div className="text-3xl font-bold text-primary">{previewStats.existingTeams}</div>
+                    <div className="text-sm text-muted-foreground">Se actualizarán</div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <div className="grid gap-4 md:grid-cols-3">
 
               <Card>
                 <CardHeader className="pb-2">
