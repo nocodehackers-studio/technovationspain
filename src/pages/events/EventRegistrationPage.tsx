@@ -802,17 +802,21 @@ const selectedTicketId = form.watch('ticket_type_id');
                       )}
                     />
                     
-                    <Collapsible>
-                      <CollapsibleTrigger className="text-primary text-sm hover:underline">
-                        Ver política de privacidad completa
-                      </CollapsibleTrigger>
-                      <CollapsibleContent className="mt-2 p-4 bg-muted rounded-lg text-sm text-muted-foreground">
-                        Este evento puede ser retransmitido, grabado y/o publicado en nuestro canal de Youtube. 
-                        Cuando te registras, estás autorizando a Asociación Power to Code a la captación de imágenes 
-                        de tu persona y/o de la menor participante y sus acompañantes, en fotografía o vídeo, durante el transcurso del evento.
-                        Los datos proporcionados serán tratados conforme al RGPD y la LOPDGDD.
-                      </CollapsibleContent>
-                    </Collapsible>
+                    <a 
+                      href="https://powertocode.org/privacy-policy/" 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-primary text-sm hover:underline"
+                    >
+                      Ver política de privacidad completa
+                    </a>
+                    
+                    <div className="p-4 bg-muted rounded-lg text-sm text-muted-foreground">
+                      Este evento puede ser retransmitido, grabado y/o publicado en nuestro canal de Youtube. 
+                      Cuando te registras, estás autorizando a Asociación Power to Code a la captación de imágenes 
+                      de tu persona y/o de la menor participante y sus acompañantes, en fotografía o vídeo, durante el transcurso del evento.
+                      Los datos proporcionados serán tratados conforme al RGPD y la LOPDGDD.
+                    </div>
                   </CardContent>
                 </Card>
               </div>
