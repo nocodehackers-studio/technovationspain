@@ -1,165 +1,133 @@
 
+# Plan: Añadir Logs de Debugging para el Procesamiento CSV
 
-# Plan: Redirigir a Registro si el Email No Está Registrado
+## Problema
+El sistema se queda en "Procesando archivo CSV..." y nunca avanza al paso de preview. Esto indica que algo está fallando silenciosamente en el proceso asíncrono.
 
-## Problema Actual
-Cuando un usuario intenta iniciar sesión con un email que no está registrado en la plataforma:
-1. El sistema envía un código de verificación (OTP) de todas formas
-2. Si el usuario usa ese código, se crea una cuenta nueva sin completar el flujo de registro adecuado
-3. Esto genera usuarios "huérfanos" sin rol ni datos completos
+## Puntos Críticos a Monitorear
 
-## Comportamiento Deseado
-1. Usuario introduce email en la pantalla de inicio de sesión
-2. **Antes de enviar el OTP**, verificar si el email existe en `profiles`
-3. Si **NO existe**: redirigir a `/register` (pantalla de selección de rol)
-4. Si **existe**: proceder normalmente con el envío del código OTP
+Hay varios lugares donde el proceso podría quedarse atascado:
 
-## Desafío Técnico
-Las políticas RLS de `profiles` no permiten consultar la tabla sin estar autenticado. Necesitamos una forma segura de verificar si un email existe.
-
-## Solución Propuesta
-
-### Opción Elegida: Función de Base de Datos `SECURITY DEFINER`
-
-Crear una función PostgreSQL que verifique si un email existe sin exponer datos sensibles.
-
----
+1. **Papa.parse** - Parsing del archivo CSV
+2. **processCSVData** - Función principal de procesamiento
+3. **fetchExistingProfilesInBatches** - Consulta a `profiles` en lotes
+4. **fetchExistingAuthorizedInBatches** - Consulta a `authorized_users` en lotes
+5. **Consulta de equipos existentes** - Query a `teams`
 
 ## Archivos a Modificar
 
 | Archivo | Cambio |
 |---------|--------|
-| `supabase/migrations/` | Nueva migración con función `check_email_exists` |
-| `src/pages/Index.tsx` | Llamar a la función antes de enviar OTP y redirigir si no existe |
+| `src/pages/admin/AdminImportUnified.tsx` | Añadir console.log en cada paso crítico |
 
----
+## Logs a Añadir
 
-## Cambios Técnicos
+### 1. En handleFileUpload (línea ~437)
+```typescript
+console.log('[CSV Import] Starting file parse:', selectedFile.name);
 
-### 1. Nueva Migración: Función `check_email_exists`
-
-```sql
-CREATE OR REPLACE FUNCTION public.check_email_exists(check_email text)
-RETURNS boolean
-LANGUAGE sql
-STABLE
-SECURITY DEFINER
-SET search_path TO 'public'
-AS $$
-  SELECT EXISTS (
-    SELECT 1 FROM profiles
-    WHERE lower(email) = lower(check_email)
-  )
-$$;
-
--- Permitir que usuarios anónimos llamen a esta función
-GRANT EXECUTE ON FUNCTION public.check_email_exists(text) TO anon;
-GRANT EXECUTE ON FUNCTION public.check_email_exists(text) TO authenticated;
+Papa.parse(selectedFile, {
+  // ...
+  complete: async (results) => {
+    console.log('[CSV Import] Papa.parse complete, rows:', results.data.length);
+    try {
+      // ...
+      console.log('[CSV Import] Headers found:', headers.length, headers.slice(0, 5));
+      console.log('[CSV Import] Starting processCSVData...');
+      await processCSVData(headers, data);
+      console.log('[CSV Import] processCSVData complete, moving to preview');
+      setStep("preview");
+    } catch (error) {
+      console.error('[CSV Import] Error in complete callback:', error);
+    } finally {
+      setIsParsing(false);
+    }
+  },
+  error: (error) => {
+    console.error('[CSV Import] Papa.parse error:', error);
+    // ...
+  },
+});
 ```
 
-Esta función:
-- Es `SECURITY DEFINER`: se ejecuta con los permisos del creador (admin), no del usuario
-- Solo devuelve `true` o `false`, sin exponer datos del usuario
-- Usa comparación case-insensitive para mayor robustez
-
-### 2. Modificar `Index.tsx` - handleSignUp
-
+### 2. En fetchExistingProfilesInBatches (línea ~206)
 ```typescript
-const handleSignUp = async (e: React.FormEvent) => {
-  e.preventDefault();
+const fetchExistingProfilesInBatches = async (emails: string[]) => {
+  console.log('[CSV Import] fetchExistingProfilesInBatches, total emails:', emails.length);
+  const BATCH_SIZE = 200;
+  const allEmails = new Set<string>();
   
-  if (!email) {
-    toast.error("Por favor, introduce tu email");
-    return;
-  }
-
-  setLoading(true);
-  
-  // Verificar si el email ya está registrado
-  const { data: emailExists, error: checkError } = await supabase
-    .rpc('check_email_exists', { check_email: email });
-  
-  if (checkError) {
-    console.error('Error checking email:', checkError);
-    // En caso de error, continuamos con el flujo normal
-  } else if (!emailExists) {
-    // Email no registrado: redirigir a registro
-    setLoading(false);
-    toast.info("Este email no está registrado. Por favor, crea una cuenta.");
-    navigate('/register', { state: { email } }); // Pasar el email para pre-rellenarlo
-    return;
+  for (let i = 0; i < emails.length; i += BATCH_SIZE) {
+    const batch = emails.slice(i, i + BATCH_SIZE);
+    console.log(`[CSV Import] Profiles batch ${i / BATCH_SIZE + 1}, size: ${batch.length}`);
+    
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("email, tg_email")
+      .or(orFilter);
+    
+    if (error) {
+      console.error('[CSV Import] Error fetching profiles batch:', error);
+    } else {
+      console.log(`[CSV Import] Profiles batch result: ${data?.length || 0} records`);
+    }
+    // ...
   }
   
-  // Email existe: continuar con OTP
-  const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-  const baseUrl = isLocalhost ? window.location.origin : 'https://technovationspain.lovable.app';
-  
-  const { error } = await supabase.auth.signInWithOtp({
-    email,
-    options: {
-      emailRedirectTo: `${baseUrl}/auth/callback`,
-    },
-  });
-  
-  // ... resto del código
+  console.log('[CSV Import] fetchExistingProfilesInBatches complete, found:', allEmails.size);
+  return allEmails;
 };
 ```
 
-### 3. (Opcional) Pre-rellenar email en RegisterSelect
-
-Si queremos una mejor UX, podemos pasar el email como state y pre-rellenarlo en los formularios de registro:
-
-```tsx
-// En RegisterSelect.tsx - recibir el email del state
-const location = useLocation();
-const prefilledEmail = location.state?.email;
-
-// Pasar a los formularios de registro
-<Link to={role.href} state={{ email: prefilledEmail }}>
+### 3. En fetchExistingAuthorizedInBatches (línea ~186)
+```typescript
+const fetchExistingAuthorizedInBatches = async (emails: string[]) => {
+  console.log('[CSV Import] fetchExistingAuthorizedInBatches, total emails:', emails.length);
+  // ... similar logging pattern
+};
 ```
 
----
-
-## Flujo Visual
-
-```text
-┌─────────────────────────────────────────────────────────────────┐
-│  📧 Iniciar sesión                                               │
-│  Email: [usuario@ejemplo.com]                                    │
-│  [Continuar con email]                                           │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-                    ┌─────────────────┐
-                    │ ¿Email existe   │
-                    │ en profiles?    │
-                    └─────────────────┘
-                     /              \
-                   Sí                No
-                   /                  \
-                  ▼                    ▼
-    ┌───────────────────┐    ┌───────────────────────────────┐
-    │ Enviar OTP        │    │ Toast: "Email no registrado"  │
-    │ → Verificar código│    │ Redirigir a /register         │
-    │ → Dashboard       │    │ (con email pre-rellenado)     │
-    └───────────────────┘    └───────────────────────────────┘
+### 4. En processCSVData (línea ~231)
+```typescript
+const processCSVData = useCallback(async (headers: string[], data: CSVRow[]) => {
+  console.log('[CSV Import] processCSVData started, rows:', data.length);
+  
+  const records = data.map((row, index) => ({...}));
+  console.log('[CSV Import] Records mapped:', records.length);
+  
+  // After summary calculation
+  console.log('[CSV Import] Summary calculated, byProfileType:', byProfileType);
+  
+  // After email counting
+  console.log('[CSV Import] Unique emails found:', uniqueEmails.length);
+  
+  // Before batch fetches
+  console.log('[CSV Import] Starting batch fetches...');
+  const existingProfileEmails = await fetchExistingProfilesInBatches(uniqueEmails);
+  console.log('[CSV Import] Existing profiles fetched:', existingProfileEmails.size);
+  
+  const existingAuthorized = await fetchExistingAuthorizedInBatches(uniqueEmails);
+  console.log('[CSV Import] Existing authorized fetched:', existingAuthorized.length);
+  
+  // Before teams query
+  console.log('[CSV Import] Checking existing teams, unique teams in CSV:', uniqueTeamsMap.size);
+  
+  // At the end
+  console.log('[CSV Import] processCSVData complete', {
+    records: records.length,
+    conflicts: detectedConflicts.length,
+    teamsToCreate: newTeamsToCreate.length,
+  });
+  
+  return detectedConflicts;
+}, []);
 ```
-
----
-
-## Consideraciones de Seguridad
-
-1. **No se exponen datos sensibles**: La función solo devuelve `true`/`false`
-2. **Prevención de enumeración**: Un atacante podría detectar qué emails están registrados, pero esto es aceptable para este caso de uso (muchas plataformas lo hacen)
-3. **Rate limiting**: Supabase tiene rate limiting por defecto que mitiga ataques de fuerza bruta
-
----
 
 ## Resultado Esperado
 
-1. Si el usuario introduce un email **registrado**: flujo normal de OTP
-2. Si el usuario introduce un email **no registrado**: 
-   - Mensaje informativo: "Este email no está registrado. Por favor, crea una cuenta."
-   - Redirección automática a `/register`
-   - Email pre-rellenado para mejor UX
+Con estos logs podremos ver en la consola del navegador:
+1. Qué paso se está ejecutando
+2. Dónde se queda atascado (el último log antes del bloqueo)
+3. Si hay errores silenciosos en las consultas a Supabase
 
+El usuario podrá compartir los logs de consola para identificar el problema exacto.
