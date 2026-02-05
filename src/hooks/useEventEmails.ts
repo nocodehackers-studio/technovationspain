@@ -36,24 +36,27 @@ export interface EventEmailSend {
 // Default templates
 export const DEFAULT_TEMPLATES: Record<EmailTemplateType, { subject: string; body_content: string }> = {
   confirmation: {
-    subject: "¡Tu inscripción a {evento} está confirmada!",
-    body_content: `Hola {nombre},
+    subject: "Inscripción confirmada: {nombre_completo} - {evento}",
+    body_content: `Hola,
 
-¡Tu inscripción al evento "{evento}" ha sido confirmada!
+Hemos registrado correctamente a la participante cuyo nombre figura en el asunto de este mensaje en el evento "{evento}" que tendrá lugar en {ubicacion} el próximo {fecha} de {hora}.
 
-📅 Fecha: {fecha}
-🕐 Horario: {hora}
-📍 Lugar: {ubicacion}
-   {direccion}, {ciudad}
+Para poder participar en el evento, necesitamos que respondas a este mensaje adjuntando el consentimiento de cesión de imágenes firmado correspondiente a la chica que has inscrito. Si has inscrito a otros menores de edad como acompañantes, también deberás enviar otro consentimiento de cesión de imágenes firmado para él o ella.
+
+Te adjuntamos un formulario en pdf cuyos campos puedes rellenar con los datos del titular y los del padre, madre o tutor, así como un campo para la firma. Si pudieras utilizar Adobe Acrobat Reader para la firma nos facilitarías a los voluntarios de PowertoCode la labor de validar los documentos recibidos.
+
+Adjuntamos también un pdf con las instrucciones paso a paso para instalar Adobe Acrobat Reader y utilizarlo para rellenar y firmar el formulario (puedes usar otra plataforma para firmar, sobre todo si tienes certificado digital para la firma).
+
+Te agradecemos si nos puedes hacer llegar el/los documento(s) firmado(s) a lo largo de esta semana para darnos tiempo a procesarlo, ya que los que no lo hayan enviado antes de la celebración del evento tendrán que hacerlo in-situ antes de entrar, lo que impactará en el trabajo necesario para comenzar el evento.
 
 Tu número de registro es: {numero_registro}
+Puedes acceder a tu entrada en cualquier momento desde: {enlace_entrada}
 
-A continuación encontrarás tu entrada con el código QR que deberás presentar en la entrada del evento.
+Si tienes dificultades para seguir estas instrucciones, no dudes en contactarnos.
 
-También puedes acceder a tu entrada en cualquier momento desde: {enlace_entrada}
+Muchísimas gracias desde Power to Code por colaborar a que Technovation Girls 2026 sea un éxito.
 
-¡Te esperamos!
-
+Saludos cordiales,
 Equipo de Technovation Girls España`,
   },
   reminder: {
