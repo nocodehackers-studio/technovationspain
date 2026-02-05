@@ -210,32 +210,54 @@ export default function AdminImportUnified() {
     return allResults;
   };
 
-  // Helper function to fetch existing profiles in batches
+  // Helper function to fetch existing profiles in batches (optimized with IN operator)
   const fetchExistingProfilesInBatches = async (emails: string[]) => {
     console.log('[CSV Import] fetchExistingProfilesInBatches started, total emails:', emails.length);
-    const BATCH_SIZE = 200; // Smaller batch for OR queries
+    const BATCH_SIZE = 500; // Larger batch since IN is more efficient
     const allEmails = new Set<string>();
     
-    for (let i = 0; i < emails.length; i += BATCH_SIZE) {
-      const batch = emails.slice(i, i + BATCH_SIZE);
+    // Normalize emails for comparison
+    const normalizedEmails = emails.map(e => e.toLowerCase());
+    
+    for (let i = 0; i < normalizedEmails.length; i += BATCH_SIZE) {
+      const batch = normalizedEmails.slice(i, i + BATCH_SIZE);
       const batchNum = Math.floor(i / BATCH_SIZE) + 1;
       console.log(`[CSV Import] Profiles batch ${batchNum}, size: ${batch.length}`);
       
-      const orFilter = batch.map(e => `email.ilike.${e},tg_email.ilike.${e}`).join(",");
-      
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("email, tg_email")
-        .or(orFilter);
-      
-      if (error) {
-        console.error('[CSV Import] Error fetching profiles batch:', error);
-      } else {
-        console.log(`[CSV Import] Profiles batch ${batchNum} result: ${data?.length || 0} records`);
-        data.forEach(p => {
-          if (p.email) allEmails.add(p.email.toLowerCase());
-          if (p.tg_email) allEmails.add(p.tg_email.toLowerCase());
-        });
+      try {
+        // Query by email (using IN operator which is more efficient)
+        const { data: emailData, error: emailError } = await supabase
+          .from("profiles")
+          .select("email, tg_email")
+          .in("email", batch);
+        
+        if (emailError) {
+          console.error('[CSV Import] Error fetching profiles by email:', emailError);
+        } else {
+          console.log(`[CSV Import] Profiles batch ${batchNum} (email) result: ${emailData?.length || 0} records`);
+          emailData?.forEach(p => {
+            if (p.email) allEmails.add(p.email.toLowerCase());
+            if (p.tg_email) allEmails.add(p.tg_email.toLowerCase());
+          });
+        }
+        
+        // Also query by tg_email
+        const { data: tgData, error: tgError } = await supabase
+          .from("profiles")
+          .select("email, tg_email")
+          .in("tg_email", batch);
+        
+        if (tgError) {
+          console.error('[CSV Import] Error fetching profiles by tg_email:', tgError);
+        } else {
+          console.log(`[CSV Import] Profiles batch ${batchNum} (tg_email) result: ${tgData?.length || 0} records`);
+          tgData?.forEach(p => {
+            if (p.email) allEmails.add(p.email.toLowerCase());
+            if (p.tg_email) allEmails.add(p.tg_email.toLowerCase());
+          });
+        }
+      } catch (err) {
+        console.error('[CSV Import] Exception in profiles batch:', err);
       }
     }
     
