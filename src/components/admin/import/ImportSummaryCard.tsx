@@ -1,7 +1,19 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Users, GraduationCap, Scale, Crown, AlertTriangle, CheckCircle2, Package, UserPlus } from "lucide-react";
+import { Users, GraduationCap, Scale, Crown, AlertTriangle, CheckCircle2, Package, UserPlus, RefreshCw, Calendar, MapPin, Phone, School, UserCog } from "lucide-react";
 import { ProfileType } from "./ProfileTypeBadge";
+
+interface DetectedChanges {
+  ageUpdated: number;
+  teamChanged: number;
+  divisionChanged: number;
+  phoneUpdated: number;
+  nameUpdated: number;
+  schoolUpdated: number;
+  cityStateUpdated: number;
+  parentInfoUpdated: number;
+  total: number;
+}
 
 interface ImportSummaryData {
   byProfileType: Record<ProfileType, number>;
@@ -16,6 +28,7 @@ interface ImportSummaryData {
   usersNew?: number;
   usersInWhitelist?: number;
   usersAlreadyActive?: number;
+  detectedChanges?: DetectedChanges;
 }
 
 interface ImportSummaryCardProps {
@@ -42,6 +55,8 @@ export function ImportSummaryCard({ data }: ImportSummaryCardProps) {
     Junior: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
     Senior: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400",
   };
+
+  const hasChanges = data.detectedChanges && data.detectedChanges.total > 0;
 
   return (
     <Card>
@@ -124,6 +139,87 @@ export function ImportSummaryCard({ data }: ImportSummaryCardProps) {
           </div>
         )}
 
+        {/* Detected Changes - NEW SECTION */}
+        {hasChanges && data.detectedChanges && (
+          <div className="p-4 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20">
+            <div className="flex items-center gap-2 mb-3">
+              <RefreshCw className="h-5 w-5 text-amber-600" />
+              <h4 className="font-medium text-amber-700 dark:text-amber-400">
+                Cambios Detectados
+              </h4>
+              <Badge variant="secondary" className="ml-auto">
+                {data.detectedChanges.total} usuarios con cambios
+              </Badge>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+              {data.detectedChanges.ageUpdated > 0 && (
+                <div className="flex items-center gap-2 p-2 rounded bg-background/50">
+                  <Calendar className="h-4 w-4 text-muted-foreground" />
+                  <span>
+                    <strong>{data.detectedChanges.ageUpdated}</strong> edades
+                  </span>
+                </div>
+              )}
+              {data.detectedChanges.teamChanged > 0 && (
+                <div className="flex items-center gap-2 p-2 rounded bg-background/50">
+                  <Users className="h-4 w-4 text-muted-foreground" />
+                  <span>
+                    <strong>{data.detectedChanges.teamChanged}</strong> equipos
+                  </span>
+                </div>
+              )}
+              {data.detectedChanges.divisionChanged > 0 && (
+                <div className="flex items-center gap-2 p-2 rounded bg-background/50">
+                  <GraduationCap className="h-4 w-4 text-muted-foreground" />
+                  <span>
+                    <strong>{data.detectedChanges.divisionChanged}</strong> divisiones
+                  </span>
+                </div>
+              )}
+              {data.detectedChanges.phoneUpdated > 0 && (
+                <div className="flex items-center gap-2 p-2 rounded bg-background/50">
+                  <Phone className="h-4 w-4 text-muted-foreground" />
+                  <span>
+                    <strong>{data.detectedChanges.phoneUpdated}</strong> teléfonos
+                  </span>
+                </div>
+              )}
+              {data.detectedChanges.nameUpdated > 0 && (
+                <div className="flex items-center gap-2 p-2 rounded bg-background/50">
+                  <UserCog className="h-4 w-4 text-muted-foreground" />
+                  <span>
+                    <strong>{data.detectedChanges.nameUpdated}</strong> nombres
+                  </span>
+                </div>
+              )}
+              {data.detectedChanges.schoolUpdated > 0 && (
+                <div className="flex items-center gap-2 p-2 rounded bg-background/50">
+                  <School className="h-4 w-4 text-muted-foreground" />
+                  <span>
+                    <strong>{data.detectedChanges.schoolUpdated}</strong> escuelas
+                  </span>
+                </div>
+              )}
+              {data.detectedChanges.cityStateUpdated > 0 && (
+                <div className="flex items-center gap-2 p-2 rounded bg-background/50">
+                  <MapPin className="h-4 w-4 text-muted-foreground" />
+                  <span>
+                    <strong>{data.detectedChanges.cityStateUpdated}</strong> ubicaciones
+                  </span>
+                </div>
+              )}
+              {data.detectedChanges.parentInfoUpdated > 0 && (
+                <div className="flex items-center gap-2 p-2 rounded bg-background/50">
+                  <Users className="h-4 w-4 text-muted-foreground" />
+                  <span>
+                    <strong>{data.detectedChanges.parentInfoUpdated}</strong> tutores
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Teams Summary */}
         {data.teamsInCSV != null && data.teamsInCSV > 0 && (
           <div className="p-4 rounded-lg border bg-card">
@@ -158,7 +254,7 @@ export function ImportSummaryCard({ data }: ImportSummaryCardProps) {
             )}
             <span className="text-sm">
               {data.conflictsCount > 0
-                ? `${data.conflictsCount} conflictos detectados`
+                ? `${data.conflictsCount} registros requieren revisión`
                 : "Sin conflictos"}
             </span>
           </div>
