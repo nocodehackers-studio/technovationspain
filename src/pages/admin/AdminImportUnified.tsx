@@ -184,31 +184,43 @@ export default function AdminImportUnified() {
 
   // Helper function to fetch existing authorized users in batches
   const fetchExistingAuthorizedInBatches = async (emails: string[]) => {
+    console.log('[CSV Import] fetchExistingAuthorizedInBatches started, total emails:', emails.length);
     const BATCH_SIZE = 500;
     const allResults: { id: string; email: string; matched_profile_id: string | null; first_name: string | null; last_name: string | null }[] = [];
     
     for (let i = 0; i < emails.length; i += BATCH_SIZE) {
       const batch = emails.slice(i, i + BATCH_SIZE);
+      const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+      console.log(`[CSV Import] Authorized batch ${batchNum}, size: ${batch.length}`);
+      
       const { data, error } = await supabase
         .from("authorized_users")
         .select("id, email, matched_profile_id, first_name, last_name")
         .in("email", batch);
       
-      if (data && !error) {
+      if (error) {
+        console.error('[CSV Import] Error fetching authorized batch:', error);
+      } else {
+        console.log(`[CSV Import] Authorized batch ${batchNum} result: ${data?.length || 0} records`);
         allResults.push(...data);
       }
     }
     
+    console.log('[CSV Import] fetchExistingAuthorizedInBatches complete, found:', allResults.length);
     return allResults;
   };
 
   // Helper function to fetch existing profiles in batches
   const fetchExistingProfilesInBatches = async (emails: string[]) => {
+    console.log('[CSV Import] fetchExistingProfilesInBatches started, total emails:', emails.length);
     const BATCH_SIZE = 200; // Smaller batch for OR queries
     const allEmails = new Set<string>();
     
     for (let i = 0; i < emails.length; i += BATCH_SIZE) {
       const batch = emails.slice(i, i + BATCH_SIZE);
+      const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+      console.log(`[CSV Import] Profiles batch ${batchNum}, size: ${batch.length}`);
+      
       const orFilter = batch.map(e => `email.ilike.${e},tg_email.ilike.${e}`).join(",");
       
       const { data, error } = await supabase
@@ -216,7 +228,10 @@ export default function AdminImportUnified() {
         .select("email, tg_email")
         .or(orFilter);
       
-      if (data && !error) {
+      if (error) {
+        console.error('[CSV Import] Error fetching profiles batch:', error);
+      } else {
+        console.log(`[CSV Import] Profiles batch ${batchNum} result: ${data?.length || 0} records`);
         data.forEach(p => {
           if (p.email) allEmails.add(p.email.toLowerCase());
           if (p.tg_email) allEmails.add(p.tg_email.toLowerCase());
@@ -224,15 +239,19 @@ export default function AdminImportUnified() {
       }
     }
     
+    console.log('[CSV Import] fetchExistingProfilesInBatches complete, found:', allEmails.size);
     return allEmails;
   };
 
   // Process CSV data and detect conflicts
   const processCSVData = useCallback(async (headers: string[], data: CSVRow[]) => {
+    console.log('[CSV Import] processCSVData started, rows:', data.length);
+    
     const records: ParsedRecord[] = data.map((row, index) => ({
       ...mapCSVRowToDbFields(row, headers),
       _csvRowIndex: index,
     }));
+    console.log('[CSV Import] Records mapped:', records.length);
 
     // Calculate summary
     const byProfileType: Record<ProfileType, number> = { student: 0, mentor: 0, judge: 0, chapter_ambassador: 0 };
@@ -248,6 +267,7 @@ export default function AdminImportUnified() {
         byDivision[record.team_division] = (byDivision[record.team_division] || 0) + 1;
       }
     }
+    console.log('[CSV Import] Summary calculated, byProfileType:', byProfileType);
 
     // Detect conflicts
     const emailCounts: Record<string, number[]> = {};
@@ -263,6 +283,7 @@ export default function AdminImportUnified() {
 
     // Get all unique emails from CSV (normalized to lowercase)
     const uniqueEmails = [...new Set(records.map(r => r.email?.toLowerCase()).filter(Boolean))] as string[];
+    console.log('[CSV Import] Unique emails found:', uniqueEmails.length);
     
     // Check against existing data in parallel batches
     const detectedConflicts: ConflictRecord[] = [];
@@ -292,10 +313,14 @@ export default function AdminImportUnified() {
     }
 
     // Check existing profiles and authorized users in batches
+    console.log('[CSV Import] Starting batch fetches...');
     if (uniqueEmails.length > 0) {
       // Fetch in batches to avoid query limits
       const existingProfileEmails = await fetchExistingProfilesInBatches(uniqueEmails);
+      console.log('[CSV Import] Existing profiles fetched:', existingProfileEmails.size);
+      
       const existingAuthorized = await fetchExistingAuthorizedInBatches(uniqueEmails);
+      console.log('[CSV Import] Existing authorized fetched:', existingAuthorized.length);
 
       const authorizedMap = new Map(
         existingAuthorized.map(a => [a.email.toLowerCase(), a])
@@ -367,13 +392,21 @@ export default function AdminImportUnified() {
         }
       }
     }
+    console.log('[CSV Import] Unique teams in CSV:', uniqueTeamsMap.size);
 
     // Check which teams already exist
     let newTeamsToCreate: {name: string; division: string}[] = [];
     if (uniqueTeamsMap.size > 0) {
-      const { data: existingTeams } = await supabase
+      console.log('[CSV Import] Checking existing teams...');
+      const { data: existingTeams, error: teamsError } = await supabase
         .from("teams")
         .select("name");
+      
+      if (teamsError) {
+        console.error('[CSV Import] Error fetching existing teams:', teamsError);
+      } else {
+        console.log('[CSV Import] Existing teams found:', existingTeams?.length || 0);
+      }
       
       const existingSet = new Set(
         existingTeams?.map(t => t.name.toLowerCase()) || []
@@ -408,6 +441,12 @@ export default function AdminImportUnified() {
       usersAlreadyActive: alreadyActiveCount,
     });
 
+    console.log('[CSV Import] processCSVData complete', {
+      records: records.length,
+      conflicts: detectedConflicts.length,
+      teamsToCreate: newTeamsToCreate.length,
+    });
+    
     return detectedConflicts;
   }, []);
 
@@ -434,19 +473,25 @@ export default function AdminImportUnified() {
       inputRef.current.value = '';
     }
 
+    console.log('[CSV Import] Starting file parse:', selectedFile.name);
+    
     Papa.parse(selectedFile, {
       header: true,
       skipEmptyLines: true,
       complete: async (results) => {
+        console.log('[CSV Import] Papa.parse complete, rows:', results.data.length);
         try {
           const headers = results.meta.fields || [];
           const data = results.data as CSVRow[];
+          
+          console.log('[CSV Import] Headers found:', headers.length, headers.slice(0, 5));
           
           // Validate required columns
           const hasEmail = headers.some(h => normalizeHeader(h).includes("email"));
           const hasProfileType = headers.some(h => normalizeHeader(h).includes("profile type"));
           
           if (!hasEmail) {
+            console.log('[CSV Import] Validation failed: no email column');
             setValidationErrors(["No se encontró una columna de Email."]);
             setStep("validation-error");
             setIsParsing(false);
@@ -454,6 +499,7 @@ export default function AdminImportUnified() {
           }
 
           if (!hasProfileType) {
+            console.log('[CSV Import] Validation failed: no profile type column');
             setValidationErrors(["No se encontró la columna 'Profile type'. Este CSV no parece ser de Technovation Global."]);
             setStep("validation-error");
             setIsParsing(false);
@@ -461,6 +507,7 @@ export default function AdminImportUnified() {
           }
 
           if (data.length > 5000) {
+            console.log('[CSV Import] Validation failed: too many rows', data.length);
             setValidationErrors([`El archivo tiene ${data.length.toLocaleString()} filas. El máximo permitido es 5,000.`]);
             setStep("validation-error");
             setIsParsing(false);
@@ -471,13 +518,19 @@ export default function AdminImportUnified() {
           setCsvData(data);
           
           // Process and detect conflicts
+          console.log('[CSV Import] Starting processCSVData...');
           await processCSVData(headers, data);
+          console.log('[CSV Import] processCSVData finished, moving to preview');
           setStep("preview");
+        } catch (error) {
+          console.error('[CSV Import] Error in complete callback:', error);
+          toast.error('Error procesando el archivo CSV');
         } finally {
           setIsParsing(false);
         }
       },
       error: (error) => {
+        console.error('[CSV Import] Papa.parse error:', error);
         toast.error(`Error al leer el archivo: ${error.message}`);
         setIsParsing(false);
       },
