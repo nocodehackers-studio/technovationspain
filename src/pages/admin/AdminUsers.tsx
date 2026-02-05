@@ -258,12 +258,8 @@ export default function AdminUsers() {
     },
   });
 
-  // Check if user can be deleted
-  const canDeleteUser = useCallback((user: UserWithRoles): boolean => {
-    // Verified users cannot be deleted
-    if (user.verification_status === "verified") return false;
-    // Users in whitelist cannot be deleted
-    if (user.is_in_whitelist) return false;
+  // Check if user can be deleted - admins can delete any user
+  const canDeleteUser = useCallback((_user: UserWithRoles): boolean => {
     return true;
   }, []);
 
