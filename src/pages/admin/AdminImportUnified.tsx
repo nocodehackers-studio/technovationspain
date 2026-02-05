@@ -167,6 +167,19 @@ export default function AdminImportUnified() {
   const [teamsToCreate, setTeamsToCreate] = useState<{name: string; division: string}[]>([]);
 
   // Summary stats
+  // Interface for detected changes
+  interface DetectedChanges {
+    ageUpdated: number;
+    teamChanged: number;
+    divisionChanged: number;
+    phoneUpdated: number;
+    nameUpdated: number;
+    schoolUpdated: number;
+    cityStateUpdated: number;
+    parentInfoUpdated: number;
+    total: number;
+  }
+
   const [summaryData, setSummaryData] = useState({
     byProfileType: { student: 0, mentor: 0, judge: 0, chapter_ambassador: 0 } as Record<ProfileType, number>,
     byDivision: {} as Record<string, number>,
@@ -180,13 +193,44 @@ export default function AdminImportUnified() {
     usersNew: 0,
     usersInWhitelist: 0,
     usersAlreadyActive: 0,
+    detectedChanges: {
+      ageUpdated: 0,
+      teamChanged: 0,
+      divisionChanged: 0,
+      phoneUpdated: 0,
+      nameUpdated: 0,
+      schoolUpdated: 0,
+      cityStateUpdated: 0,
+      parentInfoUpdated: 0,
+      total: 0,
+    } as DetectedChanges,
   });
 
+  // Type for authorized user with all comparable fields
+  interface AuthorizedUserRecord {
+    id: string;
+    email: string;
+    matched_profile_id: string | null;
+    first_name: string | null;
+    last_name: string | null;
+    age: number | null;
+    team_name: string | null;
+    team_division: string | null;
+    phone: string | null;
+    school_name: string | null;
+    company_name: string | null;
+    city: string | null;
+    state: string | null;
+    tg_id: string | null;
+    parent_name: string | null;
+    parent_email: string | null;
+  }
+
   // Helper function to fetch existing authorized users in batches
-  const fetchExistingAuthorizedInBatches = async (emails: string[]) => {
+  const fetchExistingAuthorizedInBatches = async (emails: string[]): Promise<AuthorizedUserRecord[]> => {
     console.log('[CSV Import] fetchExistingAuthorizedInBatches started, total emails:', emails.length);
     const BATCH_SIZE = 500;
-    const allResults: { id: string; email: string; matched_profile_id: string | null; first_name: string | null; last_name: string | null }[] = [];
+    const allResults: AuthorizedUserRecord[] = [];
     
     for (let i = 0; i < emails.length; i += BATCH_SIZE) {
       const batch = emails.slice(i, i + BATCH_SIZE);
@@ -195,14 +239,14 @@ export default function AdminImportUnified() {
       
       const { data, error } = await supabase
         .from("authorized_users")
-        .select("id, email, matched_profile_id, first_name, last_name")
+        .select("id, email, matched_profile_id, first_name, last_name, age, team_name, team_division, phone, school_name, company_name, city, state, tg_id, parent_name, parent_email")
         .in("email", batch);
       
       if (error) {
         console.error('[CSV Import] Error fetching authorized batch:', error);
       } else {
         console.log(`[CSV Import] Authorized batch ${batchNum} result: ${data?.length || 0} records`);
-        allResults.push(...data);
+        allResults.push(...(data as AuthorizedUserRecord[]));
       }
     }
     
@@ -336,6 +380,20 @@ export default function AdminImportUnified() {
 
     // Check existing profiles and authorized users in batches
     console.log('[CSV Import] Starting batch fetches...');
+    
+    // Track detected changes for whitelist records
+    const changesCount: DetectedChanges = {
+      ageUpdated: 0,
+      teamChanged: 0,
+      divisionChanged: 0,
+      phoneUpdated: 0,
+      nameUpdated: 0,
+      schoolUpdated: 0,
+      cityStateUpdated: 0,
+      parentInfoUpdated: 0,
+      total: 0,
+    };
+    
     if (uniqueEmails.length > 0) {
       // Fetch in batches to avoid query limits
       const existingProfileEmails = await fetchExistingProfilesInBatches(uniqueEmails);
@@ -347,6 +405,13 @@ export default function AdminImportUnified() {
       const authorizedMap = new Map(
         existingAuthorized.map(a => [a.email.toLowerCase(), a])
       );
+
+      // Helper function to compare values (treats null/undefined/"" as equivalent)
+      const hasChanged = (newVal: any, existingVal: any): boolean => {
+        const normNew = newVal == null || newVal === "" ? null : String(newVal).trim();
+        const normExisting = existingVal == null || existingVal === "" ? null : String(existingVal).trim();
+        return normNew !== normExisting && normNew !== null;
+      };
 
       // Process each record for conflicts
       for (const record of records) {
@@ -380,6 +445,50 @@ export default function AdminImportUnified() {
         // Check if already in whitelist
         const existingAuth = authorizedMap.get(emailLower);
         if (existingAuth && !existingAuth.matched_profile_id) {
+          // Detect specific changes
+          const recordChanges: string[] = [];
+          
+          // Check each field for changes
+          if (hasChanged(record.age, existingAuth.age)) {
+            changesCount.ageUpdated++;
+            recordChanges.push("age");
+          }
+          if (hasChanged(record.team_name, existingAuth.team_name)) {
+            changesCount.teamChanged++;
+            recordChanges.push("team");
+          }
+          if (hasChanged(record.team_division, existingAuth.team_division)) {
+            changesCount.divisionChanged++;
+            recordChanges.push("division");
+          }
+          if (hasChanged(record.phone, existingAuth.phone)) {
+            changesCount.phoneUpdated++;
+            recordChanges.push("phone");
+          }
+          if (hasChanged(record.first_name, existingAuth.first_name) || 
+              hasChanged(record.last_name, existingAuth.last_name)) {
+            changesCount.nameUpdated++;
+            recordChanges.push("name");
+          }
+          if (hasChanged(record.school_name, existingAuth.school_name)) {
+            changesCount.schoolUpdated++;
+            recordChanges.push("school");
+          }
+          if (hasChanged(record.city, existingAuth.city) || 
+              hasChanged(record.state, existingAuth.state)) {
+            changesCount.cityStateUpdated++;
+            recordChanges.push("location");
+          }
+          if (hasChanged(record.parent_name, existingAuth.parent_name) ||
+              hasChanged(record.parent_email, existingAuth.parent_email)) {
+            changesCount.parentInfoUpdated++;
+            recordChanges.push("parent");
+          }
+
+          if (recordChanges.length > 0) {
+            changesCount.total++;
+          }
+
           detectedConflicts.push({
             id: `whitelist-${record._csvRowIndex}`,
             conflictType: "already_in_whitelist",
@@ -395,11 +504,13 @@ export default function AdminImportUnified() {
             },
             csvRowIndex: record._csvRowIndex,
             selected: false,
-            action: "update", // Default to update for whitelist conflicts
+            action: recordChanges.length > 0 ? "update" : "skip", // Default to update only if there are changes
           });
         }
       }
     }
+    
+    console.log('[CSV Import] Detected changes:', changesCount);
 
     // Detect unique teams from CSV
     const uniqueTeamsMap = new Map<string, { name: string; division: string }>();
@@ -461,6 +572,7 @@ export default function AdminImportUnified() {
       usersNew: records.length - alreadyActiveCount - alreadyInWhitelistCount - duplicatesCount,
       usersInWhitelist: alreadyInWhitelistCount,
       usersAlreadyActive: alreadyActiveCount,
+      detectedChanges: changesCount,
     });
 
     console.log('[CSV Import] processCSVData complete', {
