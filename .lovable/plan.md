@@ -1,77 +1,95 @@
 
-# Plan: Añadir Logs de Debugging para el Procesamiento CSV
 
-## Problema
-El sistema se queda en "Procesando archivo CSV..." y nunca avanza al paso de preview. Esto indica que algo está fallando silenciosamente en el proceso asíncrono.
+# Plan: Optimizar Consultas de Profiles para Importación CSV
 
-## Puntos Críticos a Monitorear
+## Problema Detectado
 
-Hay varios lugares donde el proceso podría quedarse atascado:
+La consulta a `profiles` está fallando silenciosamente porque:
 
-1. **Papa.parse** - Parsing del archivo CSV
-2. **processCSVData** - Función principal de procesamiento
-3. **fetchExistingProfilesInBatches** - Consulta a `profiles` en lotes
-4. **fetchExistingAuthorizedInBatches** - Consulta a `authorized_users` en lotes
-5. **Consulta de equipos existentes** - Query a `teams`
+1. **Filtro OR demasiado largo**: Con 200 emails por batch, se generan 400 condiciones OR (2 por email: `email.ilike` y `tg_email.ilike`)
+2. **PostgREST tiene límites**: Las URLs muy largas o queries muy complejas pueden fallar
+3. **Caracteres especiales**: Los emails contienen `@` y `.` que necesitan escaparse para `ilike`
+
+## Solución Propuesta
+
+Cambiar la estrategia de consulta:
+- En lugar de usar filtros OR masivos, usar el operador `in` que es más eficiente
+- Reducir el tamaño del batch
+- Separar las consultas de `email` y `tg_email`
+
+---
 
 ## Archivos a Modificar
 
 | Archivo | Cambio |
 |---------|--------|
-| `src/pages/admin/AdminImportUnified.tsx` | Añadir console.log en cada paso crítico |
+| `src/pages/admin/AdminImportUnified.tsx` | Optimizar `fetchExistingProfilesInBatches` |
 
-## Logs a Añadir
+---
 
-### 1. En handleFileUpload (línea ~437)
+## Cambios Técnicos
+
+### Reemplazar la función `fetchExistingProfilesInBatches`
+
+**Antes (problemático):**
 ```typescript
-console.log('[CSV Import] Starting file parse:', selectedFile.name);
-
-Papa.parse(selectedFile, {
-  // ...
-  complete: async (results) => {
-    console.log('[CSV Import] Papa.parse complete, rows:', results.data.length);
-    try {
-      // ...
-      console.log('[CSV Import] Headers found:', headers.length, headers.slice(0, 5));
-      console.log('[CSV Import] Starting processCSVData...');
-      await processCSVData(headers, data);
-      console.log('[CSV Import] processCSVData complete, moving to preview');
-      setStep("preview");
-    } catch (error) {
-      console.error('[CSV Import] Error in complete callback:', error);
-    } finally {
-      setIsParsing(false);
-    }
-  },
-  error: (error) => {
-    console.error('[CSV Import] Papa.parse error:', error);
-    // ...
-  },
-});
+const orFilter = batch.map(e => `email.ilike.${e},tg_email.ilike.${e}`).join(",");
+const { data, error } = await supabase
+  .from("profiles")
+  .select("email, tg_email")
+  .or(orFilter);
 ```
 
-### 2. En fetchExistingProfilesInBatches (línea ~206)
+**Después (optimizado):**
 ```typescript
 const fetchExistingProfilesInBatches = async (emails: string[]) => {
-  console.log('[CSV Import] fetchExistingProfilesInBatches, total emails:', emails.length);
-  const BATCH_SIZE = 200;
+  console.log('[CSV Import] fetchExistingProfilesInBatches started, total emails:', emails.length);
+  const BATCH_SIZE = 500; // Larger batch since IN is more efficient
   const allEmails = new Set<string>();
   
-  for (let i = 0; i < emails.length; i += BATCH_SIZE) {
-    const batch = emails.slice(i, i + BATCH_SIZE);
-    console.log(`[CSV Import] Profiles batch ${i / BATCH_SIZE + 1}, size: ${batch.length}`);
+  // Normalize emails for comparison
+  const normalizedEmails = emails.map(e => e.toLowerCase());
+  
+  for (let i = 0; i < normalizedEmails.length; i += BATCH_SIZE) {
+    const batch = normalizedEmails.slice(i, i + BATCH_SIZE);
+    const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+    console.log(`[CSV Import] Profiles batch ${batchNum}, size: ${batch.length}`);
     
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("email, tg_email")
-      .or(orFilter);
-    
-    if (error) {
-      console.error('[CSV Import] Error fetching profiles batch:', error);
-    } else {
-      console.log(`[CSV Import] Profiles batch result: ${data?.length || 0} records`);
+    try {
+      // Query by email (using IN operator which is more efficient)
+      const { data: emailData, error: emailError } = await supabase
+        .from("profiles")
+        .select("email, tg_email")
+        .in("email", batch);
+      
+      if (emailError) {
+        console.error('[CSV Import] Error fetching profiles by email:', emailError);
+      } else {
+        console.log(`[CSV Import] Profiles batch ${batchNum} (email) result: ${emailData?.length || 0} records`);
+        emailData?.forEach(p => {
+          if (p.email) allEmails.add(p.email.toLowerCase());
+          if (p.tg_email) allEmails.add(p.tg_email.toLowerCase());
+        });
+      }
+      
+      // Also query by tg_email
+      const { data: tgData, error: tgError } = await supabase
+        .from("profiles")
+        .select("email, tg_email")
+        .in("tg_email", batch);
+      
+      if (tgError) {
+        console.error('[CSV Import] Error fetching profiles by tg_email:', tgError);
+      } else {
+        console.log(`[CSV Import] Profiles batch ${batchNum} (tg_email) result: ${tgData?.length || 0} records`);
+        tgData?.forEach(p => {
+          if (p.email) allEmails.add(p.email.toLowerCase());
+          if (p.tg_email) allEmails.add(p.tg_email.toLowerCase());
+        });
+      }
+    } catch (err) {
+      console.error('[CSV Import] Exception in profiles batch:', err);
     }
-    // ...
   }
   
   console.log('[CSV Import] fetchExistingProfilesInBatches complete, found:', allEmails.size);
@@ -79,55 +97,32 @@ const fetchExistingProfilesInBatches = async (emails: string[]) => {
 };
 ```
 
-### 3. En fetchExistingAuthorizedInBatches (línea ~186)
-```typescript
-const fetchExistingAuthorizedInBatches = async (emails: string[]) => {
-  console.log('[CSV Import] fetchExistingAuthorizedInBatches, total emails:', emails.length);
-  // ... similar logging pattern
-};
-```
+---
 
-### 4. En processCSVData (línea ~231)
-```typescript
-const processCSVData = useCallback(async (headers: string[], data: CSVRow[]) => {
-  console.log('[CSV Import] processCSVData started, rows:', data.length);
-  
-  const records = data.map((row, index) => ({...}));
-  console.log('[CSV Import] Records mapped:', records.length);
-  
-  // After summary calculation
-  console.log('[CSV Import] Summary calculated, byProfileType:', byProfileType);
-  
-  // After email counting
-  console.log('[CSV Import] Unique emails found:', uniqueEmails.length);
-  
-  // Before batch fetches
-  console.log('[CSV Import] Starting batch fetches...');
-  const existingProfileEmails = await fetchExistingProfilesInBatches(uniqueEmails);
-  console.log('[CSV Import] Existing profiles fetched:', existingProfileEmails.size);
-  
-  const existingAuthorized = await fetchExistingAuthorizedInBatches(uniqueEmails);
-  console.log('[CSV Import] Existing authorized fetched:', existingAuthorized.length);
-  
-  // Before teams query
-  console.log('[CSV Import] Checking existing teams, unique teams in CSV:', uniqueTeamsMap.size);
-  
-  // At the end
-  console.log('[CSV Import] processCSVData complete', {
-    records: records.length,
-    conflicts: detectedConflicts.length,
-    teamsToCreate: newTeamsToCreate.length,
-  });
-  
-  return detectedConflicts;
-}, []);
-```
+## Por qué funciona mejor
+
+| Aspecto | Antes | Después |
+|---------|-------|---------|
+| Operador | `or` con `ilike` | `in` (igualdad exacta) |
+| Condiciones por batch | 400 (2 × 200) | 2 queries separadas |
+| Tamaño URL | Muy largo | Moderado |
+| Eficiencia SQL | Baja (ILIKE es lento) | Alta (IN usa índices) |
+| Manejo de errores | Ninguno | Try-catch con logs |
+
+---
+
+## Nota sobre Case Sensitivity
+
+El operador `in` es case-sensitive en PostgreSQL. Por eso:
+1. Normalizamos los emails del CSV a minúsculas
+2. Esto funcionará si los emails en la BD ya están normalizados
+3. Si hay emails con mayúsculas en la BD, podríamos usar una función SQL adicional, pero en la mayoría de casos los emails se guardan en minúsculas
+
+---
 
 ## Resultado Esperado
 
-Con estos logs podremos ver en la consola del navegador:
-1. Qué paso se está ejecutando
-2. Dónde se queda atascado (el último log antes del bloqueo)
-3. Si hay errores silenciosos en las consultas a Supabase
+1. Las consultas se ejecutarán mucho más rápido
+2. No habrá timeouts ni errores silenciosos
+3. El proceso de importación avanzará al paso de preview correctamente
 
-El usuario podrá compartir los logs de consola para identificar el problema exacto.
