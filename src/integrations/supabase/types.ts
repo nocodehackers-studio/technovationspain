@@ -654,6 +654,56 @@ export type Database = {
           },
         ]
       }
+      event_ticket_consents: {
+        Row: {
+          created_at: string
+          event_registration_id: string
+          id: string
+          ip_address: string | null
+          minor_age: number | null
+          minor_name: string | null
+          signature: string
+          signed_at: string
+          signer_dni: string
+          signer_full_name: string
+          signer_relationship: string
+        }
+        Insert: {
+          created_at?: string
+          event_registration_id: string
+          id?: string
+          ip_address?: string | null
+          minor_age?: number | null
+          minor_name?: string | null
+          signature: string
+          signed_at?: string
+          signer_dni: string
+          signer_full_name: string
+          signer_relationship: string
+        }
+        Update: {
+          created_at?: string
+          event_registration_id?: string
+          id?: string
+          ip_address?: string | null
+          minor_age?: number | null
+          minor_name?: string | null
+          signature?: string
+          signed_at?: string
+          signer_dni?: string
+          signer_full_name?: string
+          signer_relationship?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_ticket_consents_event_registration_id_fkey"
+            columns: ["event_registration_id"]
+            isOneToOne: true
+            referencedRelation: "event_registrations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       event_ticket_types: {
         Row: {
           allowed_roles: string[] | null
