@@ -55,7 +55,7 @@ supabase/
 │              │                                                       │
 │              ├── team_members ──→ teams ──→ hubs                    │
 │              │                                                       │
-│              └── parental_consents (menores de edad)                │
+│              └── event_ticket_consents (consentimiento por entrada)  │
 └─────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -136,9 +136,9 @@ decrement_registration_count(event_id, ticket_type_id, companions_count)
 | `send-auth-email` | Emails de autenticación personalizados |
 | `send-event-email` | Comunicaciones masivas a registrados |
 | `send-registration-confirmation` | Confirmación con QR de entrada |
-| `send-event-consent` | Solicitud de consentimiento para eventos |
-| `send-platform-consent` | Consentimiento parental (menores) |
-| `validate-ticket` | Validación de QR en check-in |
+| `send-event-consent` | Envío de enlace de consentimiento a padres (menores) |
+| `submit-event-consent` | Recepción pública de consentimiento firmado |
+| `validate-ticket` | Validación de QR en check-in (incluye check de consentimiento) |
 
 ### Patrones de Código
 
@@ -187,6 +187,7 @@ Las claves de Supabase se gestionan automáticamente. Para Edge Functions, los s
 - `BREVO_API_KEY` - API de envío de emails
 - `BREVO_SENDER_EMAIL` / `BREVO_SENDER_NAME`
 - `BREVO_REPLY_TO_EMAIL`
+- `PUBLIC_SITE_URL` - URL pública del sitio para enlaces de consentimiento
 
 ## 🔐 Seguridad
 

@@ -6,7 +6,7 @@ declare const EdgeRuntime: {
 };
 
 const BREVO_API_KEY = Deno.env.get("BREVO_API_KEY") as string;
-const BREVO_SENDER_EMAIL = Deno.env.get("BREVO_SENDER_EMAIL") || "hola@pruebas.nocodehackers.es";
+const BREVO_SENDER_EMAIL = Deno.env.get("BREVO_SENDER_EMAIL") || "comunicacion@powertocode.org";
 const BREVO_SENDER_NAME = Deno.env.get("BREVO_SENDER_NAME") || "Technovation Spain";
 const BREVO_REPLY_TO_EMAIL = Deno.env.get("BREVO_REPLY_TO_EMAIL") || "soporte@powertocode.org";
 let hookSecret = Deno.env.get("SEND_EMAIL_HOOK_SECRET") as string;

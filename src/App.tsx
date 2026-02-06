@@ -54,6 +54,7 @@ import RegistrationConfirmationPage from "./pages/events/RegistrationConfirmatio
 import TicketDetailPage from "./pages/events/TicketDetailPage";
 import WorkshopPreferencesPage from "./pages/events/WorkshopPreferencesPage";
 import ValidatePage from "./pages/validate/ValidatePage";
+import ConsentPage from "./pages/consent/ConsentPage";
 
 const queryClient = new QueryClient();
 
@@ -228,6 +229,7 @@ const App = () => (
             } />
             <Route path="/validate" element={<ValidatePage />} />
             <Route path="/validate/:code" element={<ValidatePage />} />
+            <Route path="/consentimiento" element={<ConsentPage />} />
 
             {/* Main app */}
             <Route path="/" element={<Index />} />

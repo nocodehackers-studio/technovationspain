@@ -1,10 +1,10 @@
-import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 const BREVO_API_KEY = Deno.env.get("BREVO_API_KEY");
-const BREVO_SENDER_EMAIL = Deno.env.get("BREVO_SENDER_EMAIL") || "hola@pruebas.nocodehackers.es";
+const BREVO_SENDER_EMAIL = Deno.env.get("BREVO_SENDER_EMAIL") || "comunicacion@powertocode.org";
 const BREVO_SENDER_NAME = Deno.env.get("BREVO_SENDER_NAME") || "Technovation España";
 const BREVO_REPLY_TO_EMAIL = Deno.env.get("BREVO_REPLY_TO_EMAIL") || "soporte@powertocode.org";
+const PUBLIC_SITE_URL = Deno.env.get("PUBLIC_SITE_URL") || "https://technovation.es";
 
 // Escape HTML to prevent XSS in email templates
 function escapeHtml(text: string | null | undefined): string {
@@ -27,9 +27,7 @@ interface EventConsentRequest {
   registrationId: string;
 }
 
-// TODO: Add idempotency check - track event_consent_sent_at in event_registrations table
-// to prevent duplicate consent emails on retry/re-call scenarios
-const handler = async (req: Request): Promise<Response> => {
+Deno.serve(async (req) => {
   console.log("send-event-consent function called");
 
   // Handle CORS preflight requests
@@ -80,7 +78,7 @@ const handler = async (req: Request): Promise<Response> => {
     // Create Supabase client with service role for data access
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Fetch registration with user profile and event details
+    // Fetch registration with event details (select(*) includes consent_token)
     const { data: registration, error: regError } = await supabase
       .from("event_registrations")
       .select(`
@@ -125,51 +123,18 @@ const handler = async (req: Request): Promise<Response> => {
     const event = registration.event;
     console.log("Event found:", event.name);
 
-    // Determine recipient: if parent_email exists, use it; else use profile.email
-    // Always use profile.email (verified), NOT registration.email
-    let recipientEmail = profile.parent_email || profile.email;
+    // Determine recipient: parent_email for minors, profile.email as fallback
+    const recipientEmail = profile.parent_email || profile.email;
     const isParentRecipient = !!profile.parent_email;
-    let complianceWarning = false;
 
-    // Compliance check: if user has no parent_email but might be a minor (data inconsistency)
-    // We can't reliably check age here without date_of_birth, so we flag if parent_email is missing
-    // and let the caller know this might need manual review
     if (!profile.parent_email) {
-      // Log for audit - admin can check if this user should have had parent_email
       console.warn(`COMPLIANCE_WARNING: Sending event consent to user email (no parent_email on profile) for user ${registration.user_id}`);
-      complianceWarning = true;
     }
 
     console.log(`Sending event consent to: ${recipientEmail} (parent: ${isParentRecipient})`);
 
-    // Fetch PDF from Supabase Storage
-    const pdfPath = "consent-pdfs/event-consent.pdf";
-    const { data: pdfData, error: pdfError } = await supabase.storage
-      .from("Assets")
-      .download(pdfPath);
-
-    if (pdfError || !pdfData) {
-      console.error("Error fetching event consent PDF:", pdfError);
-      return new Response(
-        JSON.stringify({ error: "consent_pdf_unavailable", details: "Event consent PDF not found in storage" }),
-        { status: 500, headers: { "Content-Type": "application/json", ...corsHeaders } }
-      );
-    }
-
-    // Check PDF size (Brevo limit is 4MB)
-    const pdfBuffer = await pdfData.arrayBuffer();
-    if (pdfBuffer.byteLength > 4 * 1024 * 1024) {
-      console.error("Event consent PDF too large:", pdfBuffer.byteLength);
-      return new Response(
-        JSON.stringify({ error: "consent_pdf_too_large", details: "PDF exceeds 4MB limit" }),
-        { status: 500, headers: { "Content-Type": "application/json", ...corsHeaders } }
-      );
-    }
-
-    // Convert PDF to base64
-    const pdfBase64 = btoa(
-      new Uint8Array(pdfBuffer).reduce((data, byte) => data + String.fromCharCode(byte), "")
-    );
+    // Build consent URL using consent_token
+    const consentUrl = `${PUBLIC_SITE_URL}/consentimiento?token=${registration.consent_token}`;
 
     // Format event date
     const eventDate = new Date(event.date);
@@ -240,25 +205,25 @@ const handler = async (req: Request): Promise<Response> => {
               </div>
 
               <p style="margin: 0 0 16px 0;">
-                Para confirmar la asistencia, necesitamos tu consentimiento.
+                Para confirmar la asistencia, necesitamos tu consentimiento. Haz clic en el botón para firmar el consentimiento online.
               </p>
 
-              <div style="background-color: #f9fafb; border-radius: 8px; padding: 20px; margin: 24px 0;">
-                <p style="margin: 0 0 12px 0; font-weight: 600; color: #1f2937;">¿Qué necesitas hacer?</p>
-                <ol style="margin: 0; padding-left: 20px; color: #4b5563;">
-                  <li style="margin-bottom: 8px;">Descarga el documento de consentimiento adjunto (PDF)</li>
-                  <li style="margin-bottom: 8px;">Léelo detenidamente</li>
-                  <li style="margin-bottom: 8px;">Fírmalo</li>
-                  <li style="margin-bottom: 0;">Responde a este email adjuntando el documento firmado</li>
-                </ol>
+              <div style="text-align: center; margin: 24px 0;">
+                <a href="${consentUrl}"
+                   style="display: inline-block; padding: 16px 32px; background: linear-gradient(135deg, #7c3aed 0%, #a855f7 100%); color: white; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px;">
+                  Firmar consentimiento
+                </a>
               </div>
+              <p style="text-align: center; color: #6b7280; font-size: 14px;">
+                O copia este enlace: ${escapeHtml(consentUrl)}
+              </p>
 
               <!-- Important note -->
               <table width="100%" style="background-color: #fef3c7; border-radius: 8px; padding: 16px; margin: 24px 0;">
                 <tr>
                   <td>
                     <p style="color: #92400e; font-size: 14px; margin: 0; line-height: 1.5;">
-                      <strong>⚠️ Importante:</strong> Sin el consentimiento firmado, no podremos confirmar la participación en el evento.
+                      <strong>⚠️ Importante:</strong> Sin el consentimiento firmado, no se podrá acceder al evento.
                     </p>
                   </td>
                 </tr>
@@ -297,19 +262,13 @@ const handler = async (req: Request): Promise<Response> => {
 </html>
     `;
 
-    // Send email via Brevo
+    // Send email via Brevo (no PDF attachment)
     const emailPayload = {
       sender: { name: BREVO_SENDER_NAME, email: BREVO_SENDER_EMAIL },
       to: [{ email: recipientEmail }],
       subject: `Consentimiento para ${event.name} - Technovation Spain`,
       htmlContent: htmlContent,
       replyTo: { email: BREVO_REPLY_TO_EMAIL },
-      attachment: [
-        {
-          content: pdfBase64,
-          name: "consentimiento-evento.pdf",
-        },
-      ],
     };
 
     const emailResponse = await fetch("https://api.brevo.com/v3/smtp/email", {
@@ -325,7 +284,6 @@ const handler = async (req: Request): Promise<Response> => {
       const errorData = await emailResponse.json();
       console.error("Brevo API error:", errorData);
 
-      // Determine appropriate status code
       const status = emailResponse.status === 401 ? 401 : 500;
       return new Response(
         JSON.stringify({ error: "brevo_api_error", details: errorData }),
@@ -343,7 +301,6 @@ const handler = async (req: Request): Promise<Response> => {
         recipient: recipientEmail,
         isParentRecipient,
         eventName: event.name,
-        compliance_warning: complianceWarning,
       }),
       { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders } }
     );
@@ -355,6 +312,4 @@ const handler = async (req: Request): Promise<Response> => {
       { status: 500, headers: { "Content-Type": "application/json", ...corsHeaders } }
     );
   }
-};
-
-serve(handler);
+});

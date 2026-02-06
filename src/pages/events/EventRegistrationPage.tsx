@@ -6,6 +6,9 @@ import { z } from 'zod';
 import { ArrowLeft, ArrowRight, Check, Loader2, Ticket, AlertTriangle } from 'lucide-react';
 import { useEvent, useEventRegistration, useExistingRegistration } from '@/hooks/useEventRegistration';
 import { useAuth } from '@/hooks/useAuth';
+import { isMinor } from '@/lib/age-utils';
+import { validateSpanishDNI } from '@/lib/validation-utils';
+import { ConsentModal } from '@/components/events/ConsentModal';
 import { getDashboardPath } from '@/lib/dashboard-routes';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Button } from '@/components/ui/button';
@@ -34,17 +37,6 @@ import {
 } from '@/components/ui/collapsible';
 import { CompanionFields, CompanionData } from '@/components/events/CompanionFields';
 
-// Spanish DNI/NIE validation
-const validateSpanishDNI = (value: string): boolean => {
-  if (!value) return true; // Optional field
-  const cleanValue = value.toUpperCase().replace(/\s|-/g, '');
-  // DNI: 8 digits + letter
-  const dniRegex = /^[0-9]{8}[A-Z]$/;
-  // NIE: X/Y/Z + 7 digits + letter
-  const nieRegex = /^[XYZ][0-9]{7}[A-Z]$/;
-  return dniRegex.test(cleanValue) || nieRegex.test(cleanValue);
-};
-
 // Spanish phone validation (9 digits, starting with 6, 7, or 9)
 const validateSpanishPhone = (value: string): boolean => {
   if (!value) return true; // Optional field
@@ -62,7 +54,7 @@ const createRegistrationSchema = (requiredFields: string[]) => z.object({
   email: z.string().email('Introduce un email válido'),
   dni: requiredFields.includes('dni')
     ? z.string().min(1, 'El DNI es obligatorio').refine(
-        validateSpanishDNI,
+        (val: string) => validateSpanishDNI(val, false),
         'Formato inválido. Usa 8 números + letra (DNI) o X/Y/Z + 7 números + letra (NIE)'
       )
     : z.string().optional().refine(
@@ -95,7 +87,7 @@ const createStep2Schema = (requiredFields: string[]) => z.object({
   email: z.string().email('Introduce un email válido'),
   dni: requiredFields.includes('dni')
     ? z.string().min(1, 'El DNI es obligatorio').refine(
-        validateSpanishDNI,
+        (val: string) => validateSpanishDNI(val, false),
         'Formato inválido. Usa 8 números + letra (DNI) o X/Y/Z + 7 números + letra (NIE)'
       )
     : z.string().optional().refine(
@@ -131,6 +123,10 @@ export default function EventRegistrationPage() {
   const dashboardPath = getDashboardPath(role);
   const [step, setStep] = useState(1);
   const [companions, setCompanions] = useState<CompanionData[]>([]);
+  const [consentModalOpen, setConsentModalOpen] = useState(false);
+  const [consentData, setConsentData] = useState<{ signerFullName: string; signerDni: string } | null>(null);
+
+  const userIsMinor = isMinor(profile?.date_of_birth);
   
   const { data: event, isLoading } = useEvent(eventId || '');
   const { register, isRegistering, error } = useEventRegistration(eventId || '');
@@ -369,13 +365,31 @@ const selectedTicketId = form.watch('ticket_type_id');
         image_consent: values.image_consent,
         data_consent: values.data_consent,
         companions: companions.length > 0 ? companions : undefined,
+        // Consent data for adults
+        signer_full_name: consentData?.signerFullName,
+        signer_dni: consentData?.signerDni,
+        date_of_birth: profile?.date_of_birth,
       });
-      
-      toast.success('¡Inscripción completada!');
+
+      if ((registration as any).consent_failed) {
+        toast.warning('Inscripción completada, pero el consentimiento no se pudo guardar. Usa el enlace del email para firmarlo.', { duration: 8000 });
+      } else {
+        toast.success('¡Inscripción completada!');
+      }
       navigate(`/events/${eventId}/confirmation/${registration.id}`);
     } catch (err: any) {
       toast.error(err.message || 'Error al procesar la inscripción');
+    } finally {
+      setConsentData(null);
+      setConsentModalOpen(false);
     }
+  };
+
+  const handleConsentConfirm = (data: { signerFullName: string; signerDni: string }) => {
+    setConsentData(data);
+    setConsentModalOpen(false);
+    // Programmatically submit the form after consent is confirmed
+    setTimeout(() => form.handleSubmit(onSubmit)(), 0);
   };
   
   // Step labels based on whether companions are allowed
@@ -757,25 +771,28 @@ const selectedTicketId = form.watch('ticket_type_id');
                     <CardTitle>Consentimientos</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    <FormField
-                      control={form.control}
-                      name="image_consent"
-                      render={({ field }) => (
-                        <FormItem className="flex flex-row items-start space-x-3 space-y-0">
-                          <FormControl>
-                            <Checkbox
-                              checked={field.value}
-                              onCheckedChange={field.onChange}
-                            />
-                          </FormControl>
-                          <div className="space-y-1 leading-none">
-                            <FormLabel className="font-normal text-sm">
-                              Autorizo la captación de imágenes durante el evento {companions.length > 0 ? '(para mí y mis acompañantes)' : ''}
-                            </FormLabel>
-                          </div>
-                        </FormItem>
-                      )}
-                    />
+                    {/* Image consent checkbox — hidden for adults (covered by consent modal) */}
+                    {userIsMinor && (
+                      <FormField
+                        control={form.control}
+                        name="image_consent"
+                        render={({ field }) => (
+                          <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                            <FormControl>
+                              <Checkbox
+                                checked={field.value}
+                                onCheckedChange={field.onChange}
+                              />
+                            </FormControl>
+                            <div className="space-y-1 leading-none">
+                              <FormLabel className="font-normal text-sm">
+                                Autorizo la captación de imágenes durante el evento {companions.length > 0 ? '(para mí y mis acompañantes)' : ''}
+                              </FormLabel>
+                            </div>
+                          </FormItem>
+                        )}
+                      />
+                    )}
                     
                     <FormField
                       control={form.control}
@@ -838,8 +855,28 @@ const selectedTicketId = form.watch('ticket_type_id');
                   Siguiente
                   <ArrowRight className="h-4 w-4 ml-2" />
                 </Button>
-              ) : (
+              ) : userIsMinor ? (
                 <Button type="submit" disabled={isRegistering}>
+                  {isRegistering ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Procesando...
+                    </>
+                  ) : (
+                    'Confirmar inscripción'
+                  )}
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  disabled={isRegistering}
+                  onClick={() => {
+                    // Validate data_consent before opening modal
+                    form.trigger('data_consent').then((valid) => {
+                      if (valid) setConsentModalOpen(true);
+                    });
+                  }}
+                >
                   {isRegistering ? (
                     <>
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -853,6 +890,25 @@ const selectedTicketId = form.watch('ticket_type_id');
             </div>
           </form>
         </Form>
+
+        {/* Consent modal for adults */}
+        {event && (
+          <ConsentModal
+            open={consentModalOpen}
+            onConfirm={handleConsentConfirm}
+            onCancel={() => setConsentModalOpen(false)}
+            participantName={`${form.getValues('first_name')} ${form.getValues('last_name')}`}
+            participantDni={form.getValues('dni')}
+            eventName={event.name}
+            eventDate={new Date(event.date).toLocaleDateString('es-ES', {
+              weekday: 'long',
+              year: 'numeric',
+              month: 'long',
+              day: 'numeric',
+            })}
+            isSubmitting={isRegistering}
+          />
+        )}
       </div>
     </div>
   );

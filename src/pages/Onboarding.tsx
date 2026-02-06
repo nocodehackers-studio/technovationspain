@@ -12,6 +12,8 @@ import { useToast } from '@/hooks/use-toast';
 import { Sparkles, User, Calendar, Mail, ArrowRight, ArrowLeft, GraduationCap, Users, Scale, Building2, Heart } from 'lucide-react';
 import { z } from 'zod';
 import { AppRole } from '@/types/database';
+import { calculateAge, isMinor } from '@/lib/age-utils';
+import { validateSpanishDNI } from '@/lib/validation-utils';
 
 type AllowedRole = 'participant' | 'mentor' | 'judge' | 'volunteer';
 
@@ -62,17 +64,6 @@ const roleConfig: Record<AllowedRole, {
   },
 };
 
-// Spanish DNI/NIE validation
-const validateSpanishDNI = (value: string): boolean => {
-  if (!value) return false; // Required field
-  const cleanValue = value.toUpperCase().replace(/\s|-/g, '');
-  // DNI: 8 digits + letter
-  const dniRegex = /^[0-9]{8}[A-Z]$/;
-  // NIE: X/Y/Z + 7 digits + letter
-  const nieRegex = /^[XYZ][0-9]{7}[A-Z]$/;
-  return dniRegex.test(cleanValue) || nieRegex.test(cleanValue);
-};
-
 const createOnboardingSchema = (role: AllowedRole) => z.object({
   first_name: z.string().min(1, 'El nombre es obligatorio').max(100),
   last_name: z.string().min(1, 'Los apellidos son obligatorios').max(100),
@@ -82,10 +73,10 @@ const createOnboardingSchema = (role: AllowedRole) => z.object({
     'Formato inválido. Usa 8 números + letra (DNI) o X/Y/Z + 7 números + letra (NIE)'
   ),
   role: z.enum(['participant', 'mentor', 'judge', 'volunteer']),
+  parent_email: z.string().email('Email del tutor inválido').optional().or(z.literal('')),
   tg_email: z.string().email('Email inválido').optional().or(z.literal('')),
   phone: z.string().max(20).optional(),
   postal_code: z.string().max(10).optional(),
-  
 });
 
 type OnboardingData = {
@@ -94,11 +85,11 @@ type OnboardingData = {
   date_of_birth: string;
   dni: string;
   role: AllowedRole;
+  parent_email: string;
   tg_email: string;
   hub_id: string;
   phone: string;
   postal_code: string;
-  
 };
 
 export default function Onboarding() {
@@ -123,11 +114,11 @@ export default function Onboarding() {
     date_of_birth: '',
     dni: '',
     role: initialRole,
+    parent_email: '',
     tg_email: user?.email || '',
     hub_id: '',
     phone: '',
     postal_code: '',
-    
   });
 
   // Fetch available hubs
@@ -156,17 +147,6 @@ export default function Onboarding() {
   const updateField = (field: keyof OnboardingData, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
     setErrors(prev => ({ ...prev, [field]: '' }));
-  };
-
-  const calculateAge = (birthDate: string): number => {
-    const birth = new Date(birthDate);
-    const today = new Date();
-    let age = today.getFullYear() - birth.getFullYear();
-    const monthDiff = today.getMonth() - birth.getMonth();
-    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
-      age--;
-    }
-    return age;
   };
 
   const validateStep1 = () => {
@@ -202,10 +182,18 @@ export default function Onboarding() {
     // Validate DNI/NIE
     if (!formData.dni.trim()) {
       newErrors.dni = 'El DNI/NIE es obligatorio';
-    } else if (!validateSpanishDNI(formData.dni)) {
+    } else if (!validateSpanishDNI(formData.dni, true)) {
       newErrors.dni = 'Formato inválido. Usa 8 números + letra (DNI) o X/Y/Z + 7 números + letra (NIE)';
     }
 
+    // Validate parent_email for minors (only participants can be minors, other roles require 18+)
+    if (formData.role === 'participant' && isMinor(formData.date_of_birth)) {
+      if (!formData.parent_email?.trim()) {
+        newErrors.parent_email = 'El email del padre/madre/tutor es obligatorio para menores de 14 años';
+      } else if (formData.parent_email.trim().toLowerCase() === user?.email?.toLowerCase()) {
+        newErrors.parent_email = 'El email del tutor debe ser diferente al tuyo';
+      }
+    }
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -292,8 +280,8 @@ export default function Onboarding() {
         hub_id: formData.hub_id || null,
         phone: formData.phone?.trim() || null,
         postal_code: formData.postal_code?.trim() || null,
+        parent_email: isMinor(formData.date_of_birth) && formData.parent_email?.trim() ? formData.parent_email.trim() : null,
         onboarding_completed: true,
-        
       };
 
       // Volunteers are auto-verified
@@ -471,6 +459,11 @@ export default function Onboarding() {
                     {errors.date_of_birth && (
                       <p className="text-sm text-destructive">{errors.date_of_birth}</p>
                     )}
+                    {formData.role === 'participant' && formData.date_of_birth && isMinor(formData.date_of_birth) && (
+                      <p className="text-sm text-warning">
+                        Al ser menor de 14 años, necesitarás el consentimiento de tu padre/madre/tutor.
+                      </p>
+                    )}
                   </div>
 
                   <div className="space-y-2">
@@ -491,6 +484,29 @@ export default function Onboarding() {
                     )}
                   </div>
 
+                  {/* Parent email for minors — only participants can be minors (other roles require 18+) */}
+                  {formData.role === 'participant' && formData.date_of_birth && isMinor(formData.date_of_birth) && (
+                    <div className="space-y-2">
+                      <Label htmlFor="parent_email">Email del padre/madre/tutor *</Label>
+                      <div className="relative">
+                        <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          id="parent_email"
+                          type="email"
+                          placeholder="email@ejemplo.com"
+                          value={formData.parent_email}
+                          onChange={(e) => updateField('parent_email', e.target.value)}
+                          className="pl-10"
+                        />
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Se enviará una solicitud de consentimiento a este email para cada evento.
+                      </p>
+                      {errors.parent_email && (
+                        <p className="text-sm text-destructive">{errors.parent_email}</p>
+                      )}
+                    </div>
+                  )}
 
                   {/* Role display - shows selected role from registration */}
                   <div className="rounded-lg bg-muted p-4">

@@ -7,7 +7,7 @@ const corsHeaders = {
 
 interface ValidationResponse {
   valid: boolean;
-  error?: 'not_found' | 'already_checked_in' | 'wrong_date' | 'cancelled';
+  error?: 'not_found' | 'already_checked_in' | 'wrong_date' | 'cancelled' | 'waitlisted' | 'consent_not_given';
   registration?: {
     id: string;
     display_name: string;
@@ -244,6 +244,30 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Check waitlisted status — waitlisted tickets should not be checked in
+    if (reg.registration_status === "waitlisted") {
+      const ticketTypeData = reg.ticket_type;
+      const ticketType = Array.isArray(ticketTypeData) ? ticketTypeData[0] : ticketTypeData;
+      const eventData = reg.event;
+      const event = Array.isArray(eventData) ? eventData[0] : eventData;
+      console.log("Waitlisted registration attempted check-in:", reg.id);
+      return new Response(JSON.stringify({
+        valid: false,
+        error: "waitlisted",
+        registration: {
+          id: reg.id,
+          display_name: [reg.first_name, reg.last_name].filter(Boolean).join(" ") || "Asistente",
+          ticket_type: ticketType?.name || "General",
+          event_name: event?.name || "Evento",
+          team_name: reg.team_name || undefined,
+          is_companion: false,
+        }
+      }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
+
     if (reg.checked_in_at || reg.registration_status === "checked_in") {
       return new Response(JSON.stringify({ valid: false, error: "already_checked_in" }), {
         status: 200,
@@ -263,7 +287,37 @@ Deno.serve(async (req) => {
       });
     }
 
-    // 8. Perform check-in
+    // 8. Check consent status before allowing check-in (skip for companions)
+    if (!isCompanion) {
+      const { data: consent } = await supabaseAdmin
+        .from("event_ticket_consents")
+        .select("id")
+        .eq("event_registration_id", reg.id)
+        .maybeSingle();
+
+      if (!consent) {
+        const ticketTypeData = reg.ticket_type;
+        const ticketType = Array.isArray(ticketTypeData) ? ticketTypeData[0] : ticketTypeData;
+        console.log("Consent not given for registration:", reg.id);
+        return new Response(JSON.stringify({
+          valid: false,
+          error: "consent_not_given",
+          registration: {
+            id: reg.id,
+            display_name: [reg.first_name, reg.last_name].filter(Boolean).join(" ") || "Asistente",
+            ticket_type: ticketType?.name || "General",
+            event_name: event?.name || "Evento",
+            team_name: reg.team_name || undefined,
+            is_companion: false,
+          }
+        }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      }
+    }
+
+    // 9. Perform check-in
     const { error: updateError } = await supabaseAdmin
       .from("event_registrations")
       .update({

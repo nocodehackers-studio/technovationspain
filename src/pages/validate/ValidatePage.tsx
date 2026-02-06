@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Html5Qrcode } from 'html5-qrcode';
-import { Check, X, Camera, AlertTriangle, CalendarX, UserX, SwitchCamera, Flashlight } from 'lucide-react';
+import { Check, X, Camera, AlertTriangle, CalendarX, UserX, SwitchCamera, Flashlight, ShieldAlert, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { LoadingPage } from '@/components/ui/loading-spinner';
 import { useAuth } from '@/hooks/useAuth';
@@ -212,6 +212,20 @@ const ERROR_CONFIG: Record<ValidationError, { icon: typeof X; title: string; des
     description: 'Esta inscripción ha sido cancelada.',
     bgClass: 'bg-red-50',
     textClass: 'text-red-700'
+  },
+  waitlisted: {
+    icon: Clock,
+    title: 'En lista de espera',
+    description: 'Esta entrada está en lista de espera y no puede acceder al evento.',
+    bgClass: 'bg-yellow-50',
+    textClass: 'text-yellow-700'
+  },
+  consent_not_given: {
+    icon: ShieldAlert,
+    title: 'Consentimiento pendiente',
+    description: 'Esta entrada requiere consentimiento firmado antes de poder acceder al evento.',
+    bgClass: 'bg-orange-50',
+    textClass: 'text-orange-700'
   }
 };
 
@@ -293,6 +307,7 @@ function ResultMode({ code }: { code: string }) {
   const validationError = data?.error || 'not_found';
   const config = ERROR_CONFIG[validationError];
   const ErrorIcon = config.icon;
+  const errorRegistration = data?.registration;
 
   return (
     <div className={`min-h-screen ${config.bgClass} flex flex-col items-center justify-center px-4`} role="alert" aria-live="assertive">
@@ -301,6 +316,19 @@ function ResultMode({ code }: { code: string }) {
         <span className="sr-only">Error: </span>
         {config.title}
       </h1>
+
+      {/* Show participant info for consent_not_given and waitlisted */}
+      {errorRegistration && (validationError === 'consent_not_given' || validationError === 'waitlisted') && (
+        <div className="w-full max-w-sm mb-4 text-center">
+          <p className={`text-lg font-medium ${config.textClass}`}>
+            {errorRegistration.display_name}
+          </p>
+          <p className={`text-sm ${config.textClass.replace('-700', '-600')}`}>
+            {errorRegistration.ticket_type} — {errorRegistration.event_name}
+          </p>
+        </div>
+      )}
+
       <p className={`${config.textClass.replace('-700', '-600')} mb-8 text-center max-w-sm`}>
         {config.description}
       </p>

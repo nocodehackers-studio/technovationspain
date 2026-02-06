@@ -11,13 +11,10 @@ export type EventType = 'intermediate' | 'regional_final' | 'workshop';
 
 export type RegistrationStatus = 'confirmed' | 'cancelled' | 'checked_in' | 'waitlisted';
 
-export type ConsentType = 'participation' | 'image_rights' | 'data_processing';
-
-export type ConsentStatus = 'pending' | 'accepted' | 'revoked';
-
 export interface Profile {
   id: string;
   email: string;
+  parent_email?: string | null;
   tg_email?: string | null;
   tg_id?: string | null;
   verification_status: VerificationStatus;
@@ -191,16 +188,16 @@ export interface WorkshopRegistration {
   created_at: string;
 }
 
-export interface ParentalConsent {
+export interface EventTicketConsent {
   id: string;
-  user_id: string;
-  parent_email: string;
-  parent_name: string;
-  consent_type?: ConsentType | null;
-  status: ConsentStatus;
-  consent_token?: string | null;
-  consent_date?: string | null;
-  revocation_date?: string | null;
+  event_registration_id: string;
+  signer_full_name: string;
+  signer_dni: string;
+  signer_relationship: string;
+  minor_name?: string | null;
+  minor_age?: number | null;
+  signed_at: string;
+  ip_address?: string | null;
   created_at: string;
 }
 

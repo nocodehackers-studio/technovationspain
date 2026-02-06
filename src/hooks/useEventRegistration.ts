@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { generateQRCode, generateRegistrationNumber } from '@/lib/qr-generator';
 import { Tables } from '@/integrations/supabase/types';
+import { isMinor as checkIsMinor } from '@/lib/age-utils';
 
 type Event = Tables<'events'>;
 type TicketType = Tables<'event_ticket_types'>;
@@ -34,6 +35,9 @@ interface RegistrationFormData {
   image_consent: boolean;
   data_consent: boolean;
   companions?: CompanionData[];
+  signer_full_name?: string;        // Set by ConsentModal for adults
+  signer_dni?: string;              // Set by ConsentModal for adults
+  date_of_birth?: string | null;    // Always passed from profile.date_of_birth
 }
 
 export function useEvent(eventId: string) {
@@ -102,6 +106,8 @@ export function useEventRegistration(eventId: string) {
   
   const registerMutation = useMutation({
     mutationFn: async (formData: RegistrationFormData) => {
+      const isMinorUser = checkIsMinor(formData.date_of_birth);
+
       // 0. Check if user is already registered (excluding cancelled)
       const { data: { user } } = await supabase.auth.getUser();
       
@@ -118,7 +124,20 @@ export function useEventRegistration(eventId: string) {
           throw new Error('Ya estás inscrito en este evento. Puedes ver tu entrada en "Mis entradas".');
         }
       }
-      
+
+      // Check parent_email for minors
+      if (isMinorUser && user) {
+        const { data: profileData } = await supabase
+          .from('profiles')
+          .select('parent_email')
+          .eq('id', user.id)
+          .single();
+
+        if (!profileData?.parent_email) {
+          throw new Error('Para inscribir a un menor es necesario tener el email del padre/madre/tutor en tu perfil. Ve a tu perfil y añádelo.');
+        }
+      }
+
       // 1. Check capacity (including companions)
       const companionsCount = formData.companions?.length || 0;
       const totalSpotsNeeded = 1 + companionsCount; // Main person + companions
@@ -199,7 +218,10 @@ export function useEventRegistration(eventId: string) {
         });
       }
       
-      // 6. Send confirmation email (QR ticket) only for confirmed registrations
+      // 6. Consent tracking (scoped outside blocks so it's always accessible)
+      let consentFailed = false;
+
+      // 7. Send confirmation email (QR ticket) only for confirmed registrations
       if (!isWaitlist) {
         try {
           await supabase.functions.invoke('send-registration-confirmation', {
@@ -210,30 +232,45 @@ export function useEventRegistration(eventId: string) {
           // Don't throw - registration was successful, email is secondary
         }
 
-        // 7. Send event consent email only for confirmed registrations
-        try {
-          const consentResult = await supabase.functions.invoke('send-event-consent', {
-            body: { registrationId: registration.id },
-          });
-
-          // Check for compliance warning and log prominently
-          if (consentResult.data?.compliance_warning) {
-            console.warn('COMPLIANCE: Event consent sent to minor user email (missing parent_email)', {
-              registrationId: registration.id,
-              userId: user?.id
+        // 8. Consent handling (conditional on age)
+        if (!isMinorUser && formData.signer_full_name) {
+          // Adult path: insert consent record directly (authenticated client)
+          try {
+            const { error: consentError } = await supabase.from('event_ticket_consents').insert({
+              event_registration_id: registration.id,
+              signer_full_name: formData.signer_full_name,
+              signer_dni: formData.signer_dni || '',
+              signer_relationship: 'self',
+              signature: formData.signer_full_name, // typed name IS the digital signature for adults
+              minor_name: null,
+              minor_age: null,
             });
+            if (consentError) throw consentError;
+          } catch (consentErr) {
+            console.error('CONSENT_INSERT_FAILED: Adult consent failed after registration', {
+              registrationId: registration.id,
+              error: consentErr,
+            });
+            consentFailed = true;
+            // Don't throw — registration succeeded. Fallback via consent_token.
           }
-        } catch (consentError) {
-          // Log failure prominently for manual follow-up
-          console.error('CONSENT_EMAIL_FAILED: Manual intervention required', {
-            registrationId: registration.id,
-            error: consentError
-          });
-          // Don't throw - registration was successful, but admin should resend consent
+        } else if (isMinorUser) {
+          // Minor path: send consent email to parent_email
+          try {
+            await supabase.functions.invoke('send-event-consent', {
+              body: { registrationId: registration.id },
+            });
+          } catch (consentError) {
+            console.error('CONSENT_EMAIL_FAILED: Manual intervention required', {
+              registrationId: registration.id,
+              error: consentError,
+            });
+            // Don't throw - registration was successful, but admin should resend consent
+          }
         }
       }
 
-      return registration;
+      return { ...registration, consent_failed: consentFailed };
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['event', eventId] });

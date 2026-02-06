@@ -12,8 +12,8 @@ verify_jwt = false
 [functions.send-event-email]
 verify_jwt = true
 
-[functions.send-platform-consent]
+[functions.send-event-consent]
 verify_jwt = false
 
-[functions.send-event-consent]
+[functions.submit-event-consent]
 verify_jwt = false

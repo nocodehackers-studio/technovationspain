@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 
 // Types
-export type ValidationError = 'not_found' | 'already_checked_in' | 'wrong_date' | 'cancelled';
+export type ValidationError = 'not_found' | 'already_checked_in' | 'wrong_date' | 'cancelled' | 'waitlisted' | 'consent_not_given';
 
 export interface ValidationRegistration {
   id: string;
