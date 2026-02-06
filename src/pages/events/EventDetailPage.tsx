@@ -11,6 +11,9 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Separator } from '@/components/ui/separator';
 
+// Helper function to format time without seconds
+const formatTime = (time: string | null | undefined) => time?.slice(0, 5) || '';
+
 export default function EventDetailPage() {
   const { eventId } = useParams<{ eventId: string }>();
   const navigate = useNavigate();
@@ -88,9 +91,9 @@ export default function EventDetailPage() {
             {/* Title */}
             <div>
               <h1 className="text-3xl md:text-4xl font-bold mb-4">{event.name}</h1>
-              {event.description && (
-                <p className="text-lg text-muted-foreground">{event.description}</p>
-              )}
+            {event.description && (
+              <p className="text-lg text-muted-foreground whitespace-pre-line">{event.description}</p>
+            )}
             </div>
             
             {/* Date & Location */}
@@ -109,7 +112,7 @@ export default function EventDetailPage() {
                   {event.start_time && event.end_time && (
                     <p className="text-muted-foreground flex items-center gap-1 mt-1">
                       <Clock className="h-4 w-4" />
-                      {event.start_time} - {event.end_time}
+                      {formatTime(event.start_time)} - {formatTime(event.end_time)}
                     </p>
                   )}
                 </CardContent>
@@ -156,7 +159,7 @@ export default function EventDetailPage() {
                         style={{ backgroundColor: item.color || '#f3f4f6' }}
                       >
                         <div className="text-sm font-medium text-muted-foreground whitespace-nowrap">
-                          {item.start_time} - {item.end_time}
+                          {formatTime(item.start_time)} - {formatTime(item.end_time)}
                         </div>
                         <div>
                           <p className="font-medium">{item.title}</p>

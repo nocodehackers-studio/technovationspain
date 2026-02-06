@@ -4,6 +4,8 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { ArrowLeft, ArrowRight, Check, Loader2, Ticket, AlertTriangle } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
 import { useEvent, useEventRegistration, useExistingRegistration } from '@/hooks/useEventRegistration';
 import { useAuth } from '@/hooks/useAuth';
 import { isMinor } from '@/lib/age-utils';
@@ -76,7 +78,7 @@ const createRegistrationSchema = (requiredFields: string[]) => z.object({
   tg_email: requiredFields.includes('tg_email')
     ? z.string().email('Introduce un email válido')
     : z.string().email('Introduce un email válido').optional().or(z.literal('')),
-  image_consent: z.boolean().default(false),
+  image_consent: z.boolean().refine(val => val === true, 'Debes autorizar la captación de imágenes'),
   data_consent: z.boolean().refine(val => val === true, 'Debes aceptar la política de privacidad'),
 });
 
@@ -132,6 +134,22 @@ export default function EventRegistrationPage() {
   const { register, isRegistering, error } = useEventRegistration(eventId || '');
   const { data: existingRegistration, isLoading: isCheckingRegistration } = useExistingRegistration(eventId || '');
   
+  // Query to get user's team if they are a participant
+  const { data: userTeam } = useQuery({
+    queryKey: ['user-team', profile?.id],
+    queryFn: async () => {
+      if (!profile?.id) return null;
+      const { data } = await supabase
+        .from('team_members')
+        .select('team:teams(name, tg_team_id)')
+        .eq('user_id', profile.id)
+        .eq('member_type', 'participant')
+        .maybeSingle();
+      return data?.team as { name: string; tg_team_id: string | null } | null;
+    },
+    enabled: !!profile?.id,
+  });
+  
   const form = useForm<RegistrationFormValues>({
     resolver: zodResolver(registrationSchema),
     defaultValues: {
@@ -139,7 +157,7 @@ export default function EventRegistrationPage() {
       first_name: profile?.first_name || '',
       last_name: profile?.last_name || '',
       email: profile?.email || '',
-      dni: (profile as any)?.dni || '',
+      dni: profile?.dni || '',
       phone: profile?.phone || '',
       team_name: '',
       tg_email: profile?.tg_email || '',
@@ -148,7 +166,7 @@ export default function EventRegistrationPage() {
     },
   });
   
-  // Update form values when profile loads - use DNI from profile directly
+  // Update form values when profile or team loads
   useEffect(() => {
     if (profile) {
       form.setValue('first_name', profile.first_name || '');
@@ -157,12 +175,17 @@ export default function EventRegistrationPage() {
       form.setValue('phone', profile.phone || '');
       form.setValue('tg_email', profile.tg_email || '');
       
-      // Pre-fill DNI from profile (now stored in profiles table)
-      if ((profile as any)?.dni) {
-        form.setValue('dni', (profile as any).dni);
+      // Pre-fill DNI from profile
+      if (profile.dni) {
+        form.setValue('dni', profile.dni);
       }
     }
-  }, [profile, form]);
+    
+    // Pre-fill team name if user has one assigned
+    if (userTeam?.name) {
+      form.setValue('team_name', userTeam.name);
+    }
+  }, [profile, userTeam, form]);
   
 const selectedTicketId = form.watch('ticket_type_id');
   const selectedTicket = event?.ticket_types?.find(t => t.id === selectedTicketId);
@@ -652,9 +675,14 @@ const selectedTicketId = form.watch('ticket_type_id');
                               <FormControl>
                                 <Input 
                                   placeholder="Nombre registrado en technovationchallenge.org" 
-                                  {...field} 
+                                  {...field}
+                                  disabled={!!userTeam?.name}
+                                  className={userTeam?.name ? "bg-muted" : ""}
                                 />
                               </FormControl>
+                              {userTeam?.name && (
+                                <FormDescription>Equipo asignado automáticamente</FormDescription>
+                              )}
                               <FormMessage />
                             </FormItem>
                           )}
@@ -771,13 +799,13 @@ const selectedTicketId = form.watch('ticket_type_id');
                     <CardTitle>Consentimientos</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    {/* Image consent checkbox — hidden for adults (covered by consent modal) */}
-                    {userIsMinor && (
-                      <FormField
-                        control={form.control}
-                        name="image_consent"
-                        render={({ field }) => (
-                          <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                    {/* Image consent checkbox — MANDATORY for all users */}
+                    <FormField
+                      control={form.control}
+                      name="image_consent"
+                      render={({ field, fieldState }) => (
+                        <FormItem className="space-y-2">
+                          <div className="flex flex-row items-start space-x-3">
                             <FormControl>
                               <Checkbox
                                 checked={field.value}
@@ -786,13 +814,16 @@ const selectedTicketId = form.watch('ticket_type_id');
                             </FormControl>
                             <div className="space-y-1 leading-none">
                               <FormLabel className="font-normal text-sm">
-                                Autorizo la captación de imágenes durante el evento {companions.length > 0 ? '(para mí y mis acompañantes)' : ''}
+                                Autorizo la captación de imágenes durante el evento {companions.length > 0 ? '(para mí y mis acompañantes)' : ''} *
                               </FormLabel>
                             </div>
-                          </FormItem>
-                        )}
-                      />
-                    )}
+                          </div>
+                          {fieldState.error && (
+                            <p className="text-sm font-medium text-destructive">{fieldState.error.message}</p>
+                          )}
+                        </FormItem>
+                      )}
+                    />
                     
                     <FormField
                       control={form.control}
