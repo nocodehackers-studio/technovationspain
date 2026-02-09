@@ -1,1 +1,19 @@
 project_id = "orvkqnbshkxzyhqpjsdw"
+
+[functions.validate-ticket]
+verify_jwt = false
+
+[functions.send-registration-confirmation]
+verify_jwt = false
+
+[functions.send-auth-email]
+verify_jwt = false
+
+[functions.send-event-email]
+verify_jwt = true
+
+[functions.send-event-consent]
+verify_jwt = false
+
+[functions.submit-event-consent]
+verify_jwt = false
