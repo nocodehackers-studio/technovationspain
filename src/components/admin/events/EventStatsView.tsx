@@ -27,12 +27,14 @@ interface RegistrationWithCompanions {
   checked_in_at: string | null;
   created_at: string | null;
   registration_number: string | null;
+  team_name: string | null;
   ticket_type: {
     id: string;
     name: string;
     allowed_roles: string[] | null;
   } | null;
   companions_count: number;
+  companions_details: { first_name: string | null; last_name: string | null; relationship: string | null }[];
 }
 
 export function EventStatsView({ eventId }: EventStatsViewProps) {
@@ -61,7 +63,7 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
         .from("event_registrations")
         .select(`
           id, first_name, last_name, email, phone, registration_status,
-          checked_in_at, created_at, registration_number,
+          checked_in_at, created_at, registration_number, team_name,
           ticket_type:event_ticket_types(id, name, allowed_roles)
         `)
         .eq("event_id", eventId)
@@ -77,23 +79,27 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
 
       const { data: companions } = await supabase
         .from("companions")
-        .select("event_registration_id")
+        .select("event_registration_id, first_name, last_name, relationship")
         .in("event_registration_id", regIds);
 
-      const companionCounts =
-        companions?.reduce(
-          (acc, c) => {
-            if (c.event_registration_id) {
-              acc[c.event_registration_id] = (acc[c.event_registration_id] || 0) + 1;
-            }
-            return acc;
-          },
-          {} as Record<string, number>
-        ) || {};
+      const companionCounts: Record<string, number> = {};
+      const companionDetails: Record<string, { first_name: string | null; last_name: string | null; relationship: string | null }[]> = {};
+      companions?.forEach((c) => {
+        if (c.event_registration_id) {
+          companionCounts[c.event_registration_id] = (companionCounts[c.event_registration_id] || 0) + 1;
+          if (!companionDetails[c.event_registration_id]) companionDetails[c.event_registration_id] = [];
+          companionDetails[c.event_registration_id].push({
+            first_name: c.first_name,
+            last_name: c.last_name,
+            relationship: c.relationship,
+          });
+        }
+      });
 
       return regs?.map((r) => ({
         ...r,
         companions_count: companionCounts[r.id] || 0,
+        companions_details: companionDetails[r.id] || [],
       })) as RegistrationWithCompanions[];
     },
   });
@@ -177,6 +183,13 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
         },
       },
       {
+        accessorKey: "team_name",
+        header: "Equipo",
+        cell: ({ row }) => (
+          <span className="text-sm">{row.original.team_name || "-"}</span>
+        ),
+      },
+      {
         accessorKey: "ticket_type.name",
         header: "Tipo Entrada",
         cell: ({ row }) => (
@@ -255,27 +268,47 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
   const handleExport = () => {
     if (!registrations || registrations.length === 0) return;
 
-    const csvData = registrations.map((r) => ({
-      Nombre: `${r.first_name || ""} ${r.last_name || ""}`.trim(),
-      Email: r.email || "",
-      Teléfono: r.phone || "",
-      "Tipo Entrada": r.ticket_type?.name || "",
-      Acompañantes: r.companions_count,
-      Estado: r.registration_status || "",
-      "Check-in": r.checked_in_at
-        ? format(new Date(r.checked_in_at), "dd/MM/yyyy HH:mm")
-        : "No",
-      "Fecha registro": r.created_at
-        ? format(new Date(r.created_at), "dd/MM/yyyy HH:mm")
-        : "",
-    }));
+    const csvRows: Record<string, string | number>[] = [];
 
-    const headers = Object.keys(csvData[0]);
+    registrations.forEach((r) => {
+      csvRows.push({
+        Nombre: `${r.first_name || ""} ${r.last_name || ""}`.trim(),
+        Email: r.email || "",
+        Teléfono: r.phone || "",
+        Equipo: r.team_name || "",
+        "Tipo Entrada": r.ticket_type?.name || "",
+        Acompañantes: r.companions_count,
+        Estado: r.registration_status || "",
+        "Check-in": r.checked_in_at
+          ? format(new Date(r.checked_in_at), "dd/MM/yyyy HH:mm")
+          : "No",
+        "Fecha registro": r.created_at
+          ? format(new Date(r.created_at), "dd/MM/yyyy HH:mm")
+          : "",
+      });
+
+      // Add companion rows
+      r.companions_details.forEach((comp) => {
+        csvRows.push({
+          Nombre: `  ↳ ${comp.first_name || ""} ${comp.last_name || ""}`.trim(),
+          Email: "",
+          Teléfono: "",
+          Equipo: r.team_name || "",
+          "Tipo Entrada": `Acompañante (${comp.relationship || ""})`,
+          Acompañantes: "",
+          Estado: "",
+          "Check-in": "",
+          "Fecha registro": "",
+        });
+      });
+    });
+
+    const headers = Object.keys(csvRows[0]);
     const csvContent =
       "\uFEFF" +
       headers.join(";") +
       "\n" +
-      csvData.map((row) => headers.map((h) => `"${row[h as keyof typeof row]}"`).join(";")).join("\n");
+      csvRows.map((row) => headers.map((h) => `"${row[h] ?? ""}"`).join(";")).join("\n");
 
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");

@@ -18,7 +18,7 @@ import {
   ChartTooltipContent,
 } from "@/components/ui/chart";
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, CartesianGrid } from "recharts";
-import { Download, Users, Calendar, GraduationCap, FileText } from "lucide-react";
+import { Download, Users, Calendar, FileText } from "lucide-react";
 import { toast } from "sonner";
 
 export default function AdminReports() {
@@ -36,15 +36,21 @@ export default function AdminReports() {
     },
   });
 
-  // Fetch user stats
+  // Fetch user stats - with higher limit to avoid missing recent registrations
   const { data: userStats } = useQuery({
     queryKey: ["admin-reports-users"],
     queryFn: async () => {
-      const { data: profiles } = await supabase.from("profiles").select("created_at, verification_status");
-      const { data: roles } = await supabase.from("user_roles").select("role");
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("created_at, verification_status")
+        .limit(10000);
+      const { data: roles } = await supabase
+        .from("user_roles")
+        .select("role")
+        .limit(10000);
 
       // Role distribution
-      const roleDistribution = {
+      const roleDistribution: Record<string, number> = {
         participant: 0,
         mentor: 0,
         judge: 0,
@@ -53,20 +59,20 @@ export default function AdminReports() {
       };
       roles?.forEach((r) => {
         if (r.role in roleDistribution) {
-          roleDistribution[r.role as keyof typeof roleDistribution]++;
+          roleDistribution[r.role]++;
         }
       });
 
       // Verification distribution
-      const verificationDistribution = {
+      const verificationDistribution: Record<string, number> = {
         verified: 0,
         pending: 0,
         manual_review: 0,
         rejected: 0,
       };
       profiles?.forEach((p) => {
-        if (p.verification_status in verificationDistribution) {
-          verificationDistribution[p.verification_status as keyof typeof verificationDistribution]++;
+        if (p.verification_status && p.verification_status in verificationDistribution) {
+          verificationDistribution[p.verification_status]++;
         }
       });
 
@@ -105,29 +111,49 @@ export default function AdminReports() {
     },
   });
 
-  // Fetch event stats
+  // Fetch event stats - using ticket types for role breakdown
   const { data: eventStats } = useQuery({
     queryKey: ["admin-reports-events", selectedEventId],
     enabled: !!selectedEventId,
     queryFn: async () => {
       const { data: registrations } = await supabase
         .from("event_registrations")
-        .select("*, profiles(first_name, last_name), user_roles(role)")
-        .eq("event_id", selectedEventId);
+        .select(`
+          id, registration_status, checked_in_at, is_companion,
+          ticket_type:event_ticket_types(id, name, allowed_roles)
+        `)
+        .eq("event_id", selectedEventId)
+        .neq("registration_status", "cancelled");
 
-      const { data: companions } = await supabase
-        .from("companions")
-        .select("*, event_registrations!inner(event_id)")
-        .eq("event_registrations.event_id", selectedEventId);
+      const mainRegs = registrations?.filter((r) => !r.is_companion) || [];
+      const companionRegs = registrations?.filter((r) => r.is_companion) || [];
 
-      // Role breakdown
-      const roleBreakdown = { participants: 0, mentors: 0, companions: companions?.length || 0 };
-      
+      // Also count from companions table
+      const regIds = mainRegs.map((r) => r.id);
+      let companionsCount = companionRegs.length;
+      if (regIds.length > 0) {
+        const { count } = await supabase
+          .from("companions")
+          .select("id", { count: "exact", head: true })
+          .in("event_registration_id", regIds);
+        companionsCount = Math.max(companionsCount, count || 0);
+      }
+
+      // Role breakdown from ticket types
+      const participants = mainRegs.filter((r) =>
+        r.ticket_type?.allowed_roles?.includes("participant")
+      ).length;
+      const mentors = mainRegs.filter((r) =>
+        r.ticket_type?.allowed_roles?.includes("mentor") ||
+        r.ticket_type?.allowed_roles?.includes("judge")
+      ).length;
+
       return {
-        totalRegistrations: registrations?.length || 0,
-        checkedIn: registrations?.filter((r) => r.checked_in_at).length || 0,
-        roleBreakdown,
-        companions: companions?.length || 0,
+        totalRegistrations: mainRegs.length,
+        checkedIn: mainRegs.filter((r) => r.checked_in_at).length,
+        roleBreakdown: { participants, mentors, companions: companionsCount },
+        companions: companionsCount,
+        totalAttendees: mainRegs.length + companionsCount,
       };
     },
   });
@@ -183,25 +209,117 @@ export default function AdminReports() {
     a.download = `${filename}_${new Date().toISOString().split("T")[0]}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-
-    toast.success(`${filename} exportado correctamente`);
   };
 
   const exportTable = async (tableName: string, displayName: string) => {
-    toast.loading(`Exportando ${displayName}...`, { id: "export" });
+    const toastId = toast.loading(`Exportación en curso...`);
 
     const { data, error } = await supabase
-      .from(tableName as "profiles" | "user_roles" | "authorized_students" | "teams" | "team_members" | "events" | "event_registrations" | "companions" | "hubs" | "audit_logs")
-      .select("*");
-
-    toast.dismiss("export");
+      .from(tableName as "profiles" | "user_roles" | "authorized_users" | "teams" | "events" | "event_registrations" | "companions" | "hubs" | "audit_logs")
+      .select("*")
+      .limit(10000);
 
     if (error) {
+      toast.dismiss(toastId);
       toast.error(`Error al exportar: ${error.message}`);
       return;
     }
 
     exportToCSV(data || [], displayName);
+    toast.dismiss(toastId);
+    toast.success(`${displayName} exportado correctamente`);
+  };
+
+  const exportTeamMembers = async () => {
+    const toastId = toast.loading("Exportación en curso...");
+
+    const { data, error } = await supabase
+      .from("team_members")
+      .select(`
+        member_type, joined_at,
+        team:teams(name, category),
+        profile:profiles(first_name, last_name, email, phone)
+      `)
+      .limit(10000);
+
+    if (error) {
+      toast.dismiss(toastId);
+      toast.error(`Error al exportar: ${error.message}`);
+      return;
+    }
+
+    const flatData = data?.map((tm) => ({
+      Equipo: tm.team?.name || "",
+      Categoría: tm.team?.category || "",
+      Tipo: tm.member_type || "",
+      Nombre: tm.profile?.first_name || "",
+      Apellido: tm.profile?.last_name || "",
+      Email: tm.profile?.email || "",
+      Teléfono: tm.profile?.phone || "",
+      "Fecha ingreso": tm.joined_at || "",
+    })) || [];
+
+    exportToCSV(flatData, "miembros_equipo");
+    toast.dismiss(toastId);
+    toast.success("Miembros de equipo exportado correctamente");
+  };
+
+  const exportTeamsWithDetails = async () => {
+    const toastId = toast.loading("Exportación en curso...");
+
+    const { data: teams, error: teamsError } = await supabase
+      .from("teams")
+      .select(`
+        id, name, category, tg_team_id, notes,
+        hub:hubs(name)
+      `)
+      .limit(10000);
+
+    if (teamsError) {
+      toast.dismiss(toastId);
+      toast.error(`Error al exportar: ${teamsError.message}`);
+      return;
+    }
+
+    const teamIds = teams?.map((t) => t.id) || [];
+    const { data: members } = await supabase
+      .from("team_members")
+      .select(`
+        team_id, member_type,
+        profile:profiles(first_name, last_name, email)
+      `)
+      .in("team_id", teamIds)
+      .limit(10000);
+
+    const membersByTeam: Record<string, typeof members> = {};
+    members?.forEach((m) => {
+      if (m.team_id) {
+        if (!membersByTeam[m.team_id]) membersByTeam[m.team_id] = [];
+        membersByTeam[m.team_id]!.push(m);
+      }
+    });
+
+    const flatData = teams?.map((t) => {
+      const teamMembers = membersByTeam[t.id] || [];
+      const students = teamMembers.filter((m) => m.member_type === "participant");
+      const mentors = teamMembers.filter((m) => m.member_type === "mentor");
+
+      return {
+        Equipo: t.name,
+        Hub: t.hub?.name || "",
+        Categoría: t.category || "",
+        "TG Team ID": t.tg_team_id || "",
+        "Nº Estudiantes": students.length,
+        "Nº Mentores": mentors.length,
+        Estudiantes: students.map((s) => `${s.profile?.first_name || ""} ${s.profile?.last_name || ""} (${s.profile?.email || ""})`).join("; "),
+        Mentores: mentors.map((m) => `${m.profile?.first_name || ""} ${m.profile?.last_name || ""} (${m.profile?.email || ""})`).join("; "),
+        Notas: t.notes || "",
+      };
+    }) || [];
+
+    exportToCSV(flatData, "equipos_detalle");
+    toast.dismiss(toastId);
+    toast.success("Equipos exportado correctamente");
   };
 
   const exportEventRegistrations = async () => {
@@ -210,7 +328,7 @@ export default function AdminReports() {
       return;
     }
 
-    toast.loading("Exportando registros del evento...", { id: "export" });
+    const toastId = toast.loading("Exportación en curso...");
 
     const { data, error } = await supabase
       .from("event_registrations")
@@ -230,11 +348,11 @@ export default function AdminReports() {
         created_at,
         ticket_type:event_ticket_types(name)
       `)
-      .eq("event_id", selectedEventId);
-
-    toast.dismiss("export");
+      .eq("event_id", selectedEventId)
+      .limit(10000);
 
     if (error) {
+      toast.dismiss(toastId);
       toast.error(`Error al exportar: ${error.message}`);
       return;
     }
@@ -246,6 +364,8 @@ export default function AdminReports() {
 
     const eventName = events?.find((e) => e.id === selectedEventId)?.name || "evento";
     exportToCSV(flatData || [], `registros_${eventName.replace(/\s+/g, "_")}`);
+    toast.dismiss(toastId);
+    toast.success("Registros exportados correctamente");
   };
 
   const COLORS = ["hsl(270, 80%, 55%)", "hsl(200, 90%, 50%)", "hsl(175, 80%, 45%)", "hsl(150, 80%, 42%)", "hsl(35, 95%, 55%)"];
@@ -395,7 +515,7 @@ export default function AdminReports() {
               </Select>
 
               {selectedEventId && (
-                <Button variant="outline" size="sm" onClick={() => toast.info("Exportación en desarrollo")}>
+                <Button variant="outline" size="sm" onClick={exportEventRegistrations}>
                   <Download className="h-4 w-4 sm:mr-2" />
                   <span className="hidden sm:inline">Exportar Lista</span>
                 </Button>
@@ -403,17 +523,29 @@ export default function AdminReports() {
             </div>
 
             {selectedEventId && eventStats ? (
-              <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
+              <div className="grid gap-4 grid-cols-2 md:grid-cols-5">
                 <Card>
                   <CardContent className="pt-4 sm:pt-6">
-                    <div className="text-xl sm:text-2xl font-bold">{eventStats.totalRegistrations}</div>
-                    <p className="text-xs sm:text-sm text-muted-foreground">Total Registrados</p>
+                    <div className="text-xl sm:text-2xl font-bold">{eventStats.totalAttendees}</div>
+                    <p className="text-xs sm:text-sm text-muted-foreground">Total Asistentes</p>
                   </CardContent>
                 </Card>
                 <Card>
                   <CardContent className="pt-4 sm:pt-6">
-                    <div className="text-xl sm:text-2xl font-bold">{eventStats.checkedIn}</div>
-                    <p className="text-xs sm:text-sm text-muted-foreground">Check-in</p>
+                    <div className="text-xl sm:text-2xl font-bold">{eventStats.roleBreakdown.participants}</div>
+                    <p className="text-xs sm:text-sm text-muted-foreground">Participantes</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-4 sm:pt-6">
+                    <div className="text-xl sm:text-2xl font-bold">{eventStats.roleBreakdown.mentors}</div>
+                    <p className="text-xs sm:text-sm text-muted-foreground">Mentores/Jueces</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-4 sm:pt-6">
+                    <div className="text-xl sm:text-2xl font-bold">{eventStats.companions}</div>
+                    <p className="text-xs sm:text-sm text-muted-foreground">Acompañantes</p>
                   </CardContent>
                 </Card>
                 <Card>
@@ -423,13 +555,7 @@ export default function AdminReports() {
                         ? Math.round((eventStats.checkedIn / eventStats.totalRegistrations) * 100)
                         : 0}%
                     </div>
-                    <p className="text-xs sm:text-sm text-muted-foreground">Asistencia</p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="pt-4 sm:pt-6">
-                    <div className="text-xl sm:text-2xl font-bold">{eventStats.companions}</div>
-                    <p className="text-xs sm:text-sm text-muted-foreground">Acompañantes</p>
+                    <p className="text-xs sm:text-sm text-muted-foreground">Check-in</p>
                   </CardContent>
                 </Card>
               </div>
@@ -508,10 +634,10 @@ export default function AdminReports() {
                     </Button>
                     <Button
                       variant="outline"
-                      onClick={() => exportTable("authorized_students", "estudiantes_autorizados")}
+                      onClick={() => exportTable("authorized_users", "usuarios_autorizados")}
                     >
                       <Download className="mr-2 h-4 w-4" />
-                      Estudiantes Autorizados
+                      Usuarios Autorizados
                     </Button>
                   </div>
                 </div>
@@ -522,14 +648,14 @@ export default function AdminReports() {
                   <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                     <Button
                       variant="outline"
-                      onClick={() => exportTable("teams", "equipos")}
+                      onClick={exportTeamsWithDetails}
                     >
                       <Download className="mr-2 h-4 w-4" />
-                      Equipos (teams)
+                      Equipos (con detalle)
                     </Button>
                     <Button
                       variant="outline"
-                      onClick={() => exportTable("team_members", "miembros_equipo")}
+                      onClick={exportTeamMembers}
                     >
                       <Download className="mr-2 h-4 w-4" />
                       Miembros de Equipo
@@ -554,13 +680,6 @@ export default function AdminReports() {
                     >
                       <Download className="mr-2 h-4 w-4" />
                       Todos los Registros
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => exportTable("companions", "acompanantes")}
-                    >
-                      <Download className="mr-2 h-4 w-4" />
-                      Acompañantes
                     </Button>
                   </div>
                 </div>
