@@ -298,7 +298,7 @@ export default function TicketDetailPage() {
                         {companion.checked_in_at ? (
                           <Badge className="bg-success text-success-foreground">Check-in realizado</Badge>
                         ) : (
-                          <Badge variant="outline">Pendiente</Badge>
+                          <Badge variant="default">Confirmada</Badge>
                         )}
                       </div>
                       

@@ -1,11 +1,14 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { MetricCard } from "@/components/admin/MetricCard";
 import { DataTable } from "@/components/admin/DataTable";
 import { RegistrationStatusBadge } from "@/components/events/RegistrationStatusBadge";
 import { Badge } from "@/components/ui/badge";
-import { Users, UserPlus, GraduationCap, Ticket, UsersRound } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/admin/ConfirmDialog";
+import { useAdminCancelRegistration } from "@/hooks/useAdminCancelRegistration";
+import { Users, UserPlus, GraduationCap, Ticket, UsersRound, XCircle } from "lucide-react";
 import { ColumnDef } from "@tanstack/react-table";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -33,6 +36,8 @@ interface RegistrationWithCompanions {
 }
 
 export function EventStatsView({ eventId }: EventStatsViewProps) {
+  const [registrationToCancel, setRegistrationToCancel] = useState<RegistrationWithCompanions | null>(null);
+  const cancelMutation = useAdminCancelRegistration();
   // Fetch event data
   const { data: event } = useQuery({
     queryKey: ["event-stats", eventId],
@@ -228,6 +233,20 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
           );
         },
       },
+      {
+        id: "actions",
+        header: "",
+        cell: ({ row }) => (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setRegistrationToCancel(row.original)}
+            title="Cancelar inscripción"
+          >
+            <XCircle className="h-4 w-4 text-destructive" />
+          </Button>
+        ),
+      },
     ],
     []
   );
@@ -337,6 +356,32 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
           onExport={handleExport}
         />
       </div>
+
+      {/* Confirmation Dialog */}
+      <ConfirmDialog
+        open={!!registrationToCancel}
+        onOpenChange={(open) => !open && setRegistrationToCancel(null)}
+        title="¿Cancelar esta inscripción?"
+        description={
+          registrationToCancel
+            ? `Se cancelará la inscripción de ${registrationToCancel.first_name || ""} ${registrationToCancel.last_name || ""}${registrationToCancel.companions_count > 0 ? ` y sus ${registrationToCancel.companions_count} acompañante(s)` : ""}. Esta acción liberará las plazas correspondientes.`
+            : ""
+        }
+        confirmText="Cancelar inscripción"
+        variant="danger"
+        loading={cancelMutation.isPending}
+        onConfirm={async () => {
+          if (!registrationToCancel) return;
+          await cancelMutation.mutateAsync({
+            registrationId: registrationToCancel.id,
+            eventId: eventId,
+            ticketTypeId: registrationToCancel.ticket_type?.id || "",
+            companionsCount: registrationToCancel.companions_count,
+            registrationStatus: registrationToCancel.registration_status || "confirmed",
+          });
+          setRegistrationToCancel(null);
+        }}
+      />
     </div>
   );
 }
