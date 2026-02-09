@@ -432,7 +432,7 @@ const selectedTicketId = form.watch('ticket_type_id');
       father: 'Padre',
       guardian: 'Tutor/a legal',
       grandparent: 'Abuelo/a',
-      sibling: 'Hermano/a mayor',
+      sibling: 'Hermano/a',
       other: 'Otro familiar',
     };
     return labels[value] || value;
