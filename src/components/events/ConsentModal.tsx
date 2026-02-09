@@ -18,6 +18,7 @@ interface ConsentModalProps {
   onCancel: () => void;
   participantName: string;
   participantDni?: string;
+  participantAge?: number;
   eventName: string;
   eventDate: string;
   isSubmitting?: boolean;
@@ -29,6 +30,7 @@ export function ConsentModal({
   onCancel,
   participantName,
   participantDni,
+  participantAge,
   eventName,
   eventDate,
   isSubmitting = false,
@@ -78,7 +80,11 @@ export function ConsentModal({
 
             {/* Participant name */}
             <p>
-              <strong>Nombre y apellidos del Titular:</strong> {participantName}
+              <strong>Nombre y apellidos del Titular:</strong>{' '}
+              <span className="text-primary font-semibold">{participantName}</span>
+              {participantAge !== undefined && (
+                <> de <span className="text-primary font-semibold">{participantAge}</span> años</>
+              )}
             </p>
 
             {/* Introductory paragraph */}
@@ -87,7 +93,7 @@ export function ConsentModal({
             </p>
 
             <p className="text-muted-foreground leading-relaxed">
-              De acuerdo con la actual legislación, el Titular, con el consentimiento de su padre, madre o tutor legal, queda informado y acepta expresamente el tratamiento de los datos con la finalidad descrita a continuación:
+              De acuerdo con la actual legislación, el Titular queda informado y, si es mayor de 14 años, otorga su consentimiento expreso para el tratamiento de sus datos personales con la finalidad descrita a continuación. Si el Titular es menor de 14 años, dicho consentimiento expreso es otorgado por su padre, madre o tutor legal.
             </p>
 
             {/* Table 1: Data Protection Information */}
@@ -167,7 +173,7 @@ export function ConsentModal({
                     Responsable
                   </th>
                   <td className="p-3">
-                    Universidad Carlos III de Madrid (UC3M) con domicilios en Calle Madrid, 126, 28903 Getafe, Madrid
+                    Asociación Power to Code con NIF G-88095351 (en adelante "Power to Code") y domicilio en Plaza de Segovia 5, 28600, Navalcarnero, Madrid
                   </td>
                 </tr>
                 <tr className="border-b border-border">
@@ -175,7 +181,7 @@ export function ConsentModal({
                     Soportes
                   </th>
                   <td className="p-3">
-                    Fotografías, vídeos, vídeos con voz, material gráfico, etc., o parte de las mismas en las que interviene o ha intervenido el Titular en el marco de los proyectos de Power to Code y la UC3M
+                    Fotografías, vídeos, vídeos con voz, material gráfico, etc., o parte de las mismas en las que interviene o ha intervenido el Titular en el marco de los proyectos de Power to Code
                   </td>
                 </tr>
                 <tr className="border-b border-border">
@@ -183,7 +189,7 @@ export function ConsentModal({
                     Ámbito de Utilización
                   </th>
                   <td className="p-3">
-                    No se circunscribe a un ámbito temporal o territorial determinados, por lo que UC3M y Power to Code podrá utilizar estas Imágenes, o parte de las mismas, en todos los países del mundo sin limitación geográfica de ninguna clase y con la máxima extensión temporal permitida en la legislación vigente.
+                    No se circunscribe a un ámbito temporal o territorial determinados, por lo que Power to Code podrá utilizar estas Imágenes, o parte de las mismas, en todos los países del mundo sin limitación geográfica de ninguna clase y con la máxima extensión temporal permitida en la legislación vigente.
                   </td>
                 </tr>
                 <tr className="border-b border-border">
@@ -191,7 +197,7 @@ export function ConsentModal({
                     Cesiones
                   </th>
                   <td className="p-3">
-                    Exclusivamente con carácter social y nunca comercial, UC3M y Power to Code podrá ceder a terceros, tales como entidades colaboradores o patrocinadores, las imágenes, o parte de las mismas, en las que el Titular aparece como modelo, entrevistado, narrador o participante principal o secundario en el ámbito (sea cual fuere el medio de comunicación interno o externo) y finalidades de los proyectos de Power to Code.
+                    Exclusivamente con carácter social y nunca comercial, Power to Code podrá ceder a terceros, tales como entidades colaboradoras o patrocinadores, las imágenes, o parte de las mismas, en las que el Titular aparece como modelo, entrevistado, narrador o participante principal o secundario en el ámbito (sea cual fuere el medio de comunicación interno o externo) y finalidades de los proyectos de Power to Code.
                     <br /><br />
                     El objeto de la cesión será la promoción de las actividades de Power to Code, en medios de comunicación internos o externos a la misma, para que puedan ser difundidas en todos los medios de comunicación conocidos en la actualidad incluidos los online (Youtube, Linkedin, Instagram, Tik Tok Facebook, etc), streaming y los que pudieran desarrollarse en el futuro. Todo ello con la única salvedad y limitación de aquellas utilizaciones o aplicaciones que pudieran atentar al derecho al honor, a la moral y/o al orden público, en los términos previstos en la legislación vigente en cada país.
                   </td>
@@ -209,10 +215,10 @@ export function ConsentModal({
 
             {/* Final paragraphs */}
             <p className="text-muted-foreground leading-relaxed mt-4">
-              El padre/madre o tutor legal del Titular cuyo nombre y apellidos figuran a continuación, será el único responsable de la veracidad y exactitud de los datos facilitados a Power to Code.
+              El padre/madre o tutor legal del Titular, o el Titular, cuyo nombre y apellidos figuran a continuación, será el único responsable de la veracidad y exactitud de los datos facilitados a Power to Code.
             </p>
             <p className="text-muted-foreground leading-relaxed">
-              El padre, madre o tutor legal del Titular declara que ha leído, entiende y autoriza expresamente el tratamiento de sus datos de carácter personal al apretar sobre el botón "ACEPTAR" que figura a continuación.
+              El padre, madre o tutor legal del Titular, o el Titular, declara que ha leído, entiende y autoriza expresamente el tratamiento de sus datos de carácter personal al sacar una entrada para el evento <strong>{eventName}</strong> que se celebrará el <strong>{eventDate}</strong> y que cancela su entrada en caso de no autorizar el mencionado tratamiento de sus datos de carácter personal.
             </p>
           </div>
 
@@ -220,7 +226,7 @@ export function ConsentModal({
 
           {/* DNI field */}
           <div className="space-y-2">
-            <Label htmlFor="consent-dni">DNI/NIE del Padre/Madre o Tutor legal *</Label>
+            <Label htmlFor="consent-dni">DNI/NIE del Padre/Madre o Tutor legal (o del Titular para mayores de 14 años) *</Label>
             <Input
               id="consent-dni"
               placeholder="12345678A"
@@ -234,7 +240,7 @@ export function ConsentModal({
 
           {/* Signature */}
           <div className="space-y-2">
-            <Label htmlFor="consent-signature">Nombre y apellidos del Padre/Madre o Tutor legal *</Label>
+            <Label htmlFor="consent-signature">Nombre y apellidos del Padre/Madre o Tutor legal (o del Titular para mayores de 14 años) *</Label>
             <Input
               id="consent-signature"
               placeholder="Nombre Apellido1 Apellido2"
