@@ -12,7 +12,8 @@ import {
   CheckCircle2, 
   Clock, 
   LogOut,
-  Building2
+  Building2,
+  MessageCircle
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
@@ -513,6 +514,15 @@ export default function ParticipantDashboard() {
           </div>
         </div>
       </main>
+
+      {/* Fixed Support Button */}
+      <a
+        href="mailto:soporte@powertocode.org"
+        className="fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg hover:bg-primary/90 transition-colors"
+        title="Soporte"
+      >
+        <MessageCircle className="h-6 w-6" />
+      </a>
     </div>
   );
 }
