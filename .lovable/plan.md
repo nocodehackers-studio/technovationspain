@@ -1,144 +1,65 @@
 
-# Plan: Evitar Reset del Proceso de Registro al Cambiar de Ventana
 
-## Resumen del Problema
+# Fix: Reports and Event Stats Data Export
 
-Cuando el usuario cambia de ventana durante el proceso de registro de entrada:
-1. Supabase Auth dispara `onAuthStateChange` al volver (para refrescar/verificar token)
-2. El `AuthProvider` pone `isLoading = true` mientras recarga el perfil
-3. El `ProtectedRoute` muestra "Verificando sesión..." y desmonta el componente
-4. Al remontar, todo el estado local del formulario se pierde (step, companions, etc.)
+## Issues Found
 
----
+### 1. Reports > Users tab: not updating properly
+The user stats query fetches `profiles` with `select("created_at, verification_status")` but Supabase has a default limit of 1000 rows. If there are more than 1000 profiles, recent registrations won't appear. The fix is to paginate or use a count query.
 
-## Solución Propuesta
+### 2. Reports > Events tab: only showing companions
+The event stats query (lines 109-132) tries to join `profiles` and `user_roles` via `event_registrations`, but those foreign keys don't exist. The `roleBreakdown` object is initialized but never populated -- `participants` and `mentors` stay at 0. Only `companions` gets a value. Additionally, the "Exportar Lista" button just shows a placeholder `toast.info("Exportacion en desarrollo")`.
 
-### Opción A: No recargar perfil en TOKEN_REFRESHED (Recomendada)
+### 3. Reports > Export tab: team members export is raw IDs
+The `exportTable("team_members", ...)` does a raw `select("*")`, which only exports `user_id` and `team_id` UUIDs -- not useful. The teams export also lacks student/mentor counts and their names.
 
-Modificar `useAuth.tsx` para que solo recargue el perfil en eventos específicos que realmente lo requieran, no en cada cambio de estado:
+### 4. Reports > Export tab: toast says "exportado correctamente" instead of "Exportacion en curso"
+The `exportTable` function uses `toast.loading()` then immediately dismisses it after the query completes and shows a success toast. The user wants to see "Exportacion en curso" as the loading message.
 
-```typescript
-supabase.auth.onAuthStateChange((event, session) => {
-  setSession(session);
-  setUser(session?.user ?? null);
-  
-  // Solo recargar perfil en eventos que realmente lo necesiten
-  if (event === 'SIGNED_IN' || event === 'USER_UPDATED') {
-    if (session?.user) {
-      setTimeout(() => fetchProfile(session.user.id), 0);
-    }
-  } else if (event === 'SIGNED_OUT') {
-    setProfile(null);
-    setRole(null);
-  }
-  // Ignorar TOKEN_REFRESHED y INITIAL_SESSION - el perfil ya está cargado
-});
-```
-
-**Ventajas:**
-- Solución mínima y directa
-- No afecta otras partes de la aplicación
-- El token se sigue refrescando, solo no recargamos el perfil innecesariamente
-
-### Opción B: Separar estado de carga inicial de recarga
-
-Añadir un flag `initialLoadComplete` para distinguir entre:
-- Carga inicial (mostrar spinner)
-- Recarga de perfil (mantener UI, actualizar datos en background)
-
-```typescript
-const [initialLoadComplete, setInitialLoadComplete] = useState(false);
-
-// isLoading solo es true durante la carga INICIAL
-const isLoading = !initialLoadComplete;
-```
+### 5. Event Stats CSV export: missing team_name and companion details
+The `handleExport` in `EventStatsView.tsx` doesn't include `team_name`. The registration query doesn't fetch it either. Companion names/details are also not included in the export.
 
 ---
 
-## Cambios Técnicos (Opción A)
+## Plan
 
-### Archivo: `src/hooks/useAuth.tsx`
+### A. Fix Reports > Users tab (data limit)
+- Add `.limit(10000)` or use multiple paginated fetches to ensure all profiles are returned.
 
-**Modificar el listener de auth (líneas 74-96):**
+### B. Fix Reports > Events tab stats
+- Rewrite the event stats query to use `event_ticket_types` (like the working `EventStatsView` does) instead of non-existent joins.
+- Calculate participants vs mentors/judges from `ticket_type.allowed_roles`.
+- Wire the "Exportar Lista" button to actually download the event registrations CSV (reuse `exportEventRegistrations`).
 
-```typescript
-useEffect(() => {
-  const { data: { subscription } } = supabase.auth.onAuthStateChange(
-    (event, session) => {
-      console.log('Auth event:', event); // Debug útil
-      
-      setSession(session);
-      setUser(session?.user ?? null);
+### C. Fix Export tab: team members and teams exports
+- **Team Members**: Replace raw `select("*")` with a custom query that joins profiles (name, email) and teams (team name), exporting human-readable data.
+- **Teams**: Add a custom export that includes team name, hub, category, student count, mentor count, and lists student/mentor names and emails.
+- Remove the "Acompanantes" standalone export button (user says it's not useful).
+- Replace "Estudiantes Autorizados" with "Usuarios Autorizados" (table was migrated to `authorized_users`).
 
-      // Solo recargar perfil cuando realmente cambia el usuario
-      if (event === 'SIGNED_IN') {
-        // Usuario acaba de iniciar sesión
-        setTimeout(() => fetchProfile(session!.user.id), 0);
-      } else if (event === 'USER_UPDATED') {
-        // Datos del usuario cambiaron (ej: email, metadata)
-        setTimeout(() => fetchProfile(session!.user.id), 0);
-      } else if (event === 'SIGNED_OUT') {
-        setProfile(null);
-        setRole(null);
-      }
-      // TOKEN_REFRESHED e INITIAL_SESSION no necesitan recargar el perfil
-    }
-  );
+### D. Fix toast message
+- Change `toast.loading` message from "Exportando..." to "Exportacion en curso..." and keep it visible until download completes.
 
-  // Carga inicial
-  supabase.auth.getSession().then(({ data: { session } }) => {
-    setSession(session);
-    setUser(session?.user ?? null);
-    
-    if (session?.user) {
-      fetchProfile(session.user.id).finally(() => {
-        setIsAuthLoading(false);
-      });
-    } else {
-      setIsAuthLoading(false);
-    }
-  });
-
-  return () => subscription.unsubscribe();
-}, []);
-```
+### E. Fix Event Stats export (EventStatsView.tsx)
+- Add `team_name` to the registration query and CSV export.
+- Fetch companion details (first_name, last_name, relationship) for each registration and include them as additional rows or columns in the CSV.
 
 ---
 
-## Eventos de Supabase Auth
+## Technical Details
 
-| Evento | Cuándo ocurre | Recargar perfil? |
-|--------|---------------|------------------|
-| `INITIAL_SESSION` | Al cargar la app (primer check) | No (ya lo hacemos con getSession) |
-| `SIGNED_IN` | Login exitoso | Sí |
-| `SIGNED_OUT` | Logout | Limpiar datos |
-| `TOKEN_REFRESHED` | Token JWT expiró y se renovó | No |
-| `USER_UPDATED` | Usuario cambió email/metadata | Sí |
-| `PASSWORD_RECOVERY` | Click en link de reset password | No |
+### Files to modify:
+1. **`src/pages/admin/AdminReports.tsx`**
+   - Users query: add `.limit(10000)` to profiles fetch
+   - Events tab: rewrite `eventStats` query to use ticket types for role breakdown; wire export button
+   - Export tab: replace `exportTable("team_members")` with custom `exportTeamMembers()` that joins profiles+teams
+   - Export tab: replace `exportTable("teams")` with custom `exportTeamsWithMembers()` that includes counts and member names
+   - Export tab: remove "Acompanantes" button, fix "authorized_students" to "authorized_users"
+   - Change toast messages to "Exportacion en curso"
 
----
+2. **`src/components/admin/events/EventStatsView.tsx`**
+   - Add `team_name` to the registration select query (line 62)
+   - Add `team_name` column to the table
+   - Add `team_name` to the CSV export `handleExport`
+   - Fetch companion details and append them to the CSV (as sub-rows under each registration, with columns: Nombre acompanante, Apellido, Parentesco)
 
-## Archivos a Modificar
-
-| Archivo | Cambio |
-|---------|--------|
-| `src/hooks/useAuth.tsx` | Filtrar eventos de auth para solo recargar perfil cuando es necesario |
-
----
-
-## Comportamiento Esperado Después del Cambio
-
-1. Usuario está en paso 3 del registro
-2. Cambia de ventana/pestaña
-3. Vuelve a la app
-4. Supabase dispara `TOKEN_REFRESHED` (si el token se renovó)
-5. **El AuthProvider NO recarga el perfil** → `isLoading` sigue siendo `false`
-6. **El formulario mantiene su estado** → usuario sigue en paso 3 con sus datos
-
----
-
-## Notas Adicionales
-
-- Esta solución también mejora el rendimiento general de la app (menos peticiones innecesarias)
-- El perfil solo se recarga cuando realmente hay un cambio de usuario
-- Si el usuario necesita datos actualizados del perfil, puede usar `refreshProfile()` manualmente
