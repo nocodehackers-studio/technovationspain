@@ -7,9 +7,13 @@ declare const EdgeRuntime: {
 
 const BREVO_API_KEY = Deno.env.get("BREVO_API_KEY") as string;
 const BREVO_SENDER_EMAIL = Deno.env.get("BREVO_SENDER_EMAIL") || "comunicacion@powertocode.org";
-const BREVO_SENDER_NAME = Deno.env.get("BREVO_SENDER_NAME") || "Technovation Spain";
+const BREVO_SENDER_NAME = Deno.env.get("BREVO_SENDER_NAME") || "Technovation Girls Madrid";
 const BREVO_REPLY_TO_EMAIL = Deno.env.get("BREVO_REPLY_TO_EMAIL") || "soporte@powertocode.org";
 let hookSecret = Deno.env.get("SEND_EMAIL_HOOK_SECRET") as string;
+
+// Logo URLs from Supabase Storage
+const LOGO_TECHNOVATION = "https://orvkqnbshkxzyhqpjsdw.supabase.co/storage/v1/object/public/Assets/LOGO_Technovation_Girls_Transparente.png";
+const LOGO_POWER_TO_CODE = "https://orvkqnbshkxzyhqpjsdw.supabase.co/storage/v1/object/public/Assets/Logo%20transparente%20PowerToCode.png";
 
 // Supabase provides: "v1,whsec_<base64>". standardwebhooks expects ONLY the base64 part.
 if (hookSecret?.startsWith("v1,whsec_")) {
@@ -24,6 +28,147 @@ const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
+
+// Get email content based on action type
+function getEmailContent(emailActionType: string): {
+  subject: string;
+  headingText: string;
+  introText: string;
+  buttonText: string;
+} {
+  switch (emailActionType) {
+    case "signup":
+      return {
+        subject: "Verifica tu cuenta - Technovation Girls Madrid",
+        headingText: "¡Bienvenido/a a Technovation Girls Madrid!",
+        introText: "Estás a un paso de unirte a nuestra comunidad.",
+        buttonText: "Verificar mi cuenta",
+      };
+    case "invite":
+      return {
+        subject: "Te han invitado - Plataforma Power To Code",
+        headingText: "¡Has recibido una invitación!",
+        introText: "Un administrador te ha invitado a unirte a la plataforma de Technovation Girls Madrid.",
+        buttonText: "Aceptar invitación",
+      };
+    case "magiclink":
+      return {
+        subject: "Inicia sesión - Plataforma Power To Code",
+        headingText: "¡Hola de nuevo!",
+        introText: "Haz clic en el botón para acceder a tu cuenta.",
+        buttonText: "Iniciar sesión",
+      };
+    case "recovery":
+      return {
+        subject: "Recupera tu cuenta - Technovation Girls Madrid",
+        headingText: "Recuperación de cuenta",
+        introText: "Has solicitado restablecer tu acceso a la plataforma.",
+        buttonText: "Recuperar cuenta",
+      };
+    default:
+      return {
+        subject: "Verifica tu cuenta - Technovation Girls Madrid",
+        headingText: "¡Bienvenido/a a Technovation Girls Madrid!",
+        introText: "Estás a un paso de unirte a nuestra comunidad.",
+        buttonText: "Verificar mi cuenta",
+      };
+  }
+}
+
+// Generate email HTML template
+function generateEmailHtml(
+  magicLinkUrl: string,
+  token: string,
+  content: { subject: string; headingText: string; introText: string; buttonText: string }
+): string {
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${content.subject}</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f4f4f5; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">
+  <table role="presentation" style="width: 100%; border-collapse: collapse;">
+    <tr>
+      <td align="center" style="padding: 40px 20px;">
+        <table role="presentation" style="width: 100%; max-width: 600px; border-collapse: collapse;">
+          <!-- Header with Logos -->
+          <tr>
+            <td style="background: linear-gradient(135deg, #00A5CF 0%, #25A18E 100%); padding: 30px; border-radius: 16px 16px 0 0; text-align: center;">
+              <table role="presentation" style="width: 100%; border-collapse: collapse;">
+                <tr>
+                  <td align="center">
+                    <img src="${LOGO_TECHNOVATION}" alt="Technovation Girls" style="height: 50px; margin-right: 20px; display: inline-block; vertical-align: middle;">
+                    <img src="${LOGO_POWER_TO_CODE}" alt="Power To Code" style="height: 45px; display: inline-block; vertical-align: middle;">
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          
+          <!-- Body -->
+          <tr>
+            <td style="background-color: #ffffff; padding: 40px; border-radius: 0 0 16px 16px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+              <h2 style="margin: 0 0 16px; color: #18181b; font-size: 24px; font-weight: 600;">
+                ${content.headingText}
+              </h2>
+              <p style="margin: 0 0 24px; color: #52525b; font-size: 16px; line-height: 1.6;">
+                ${content.introText}
+              </p>
+              
+              <!-- Button -->
+              <table role="presentation" style="width: 100%; border-collapse: collapse;">
+                <tr>
+                  <td align="center" style="padding: 16px 0 32px;">
+                    <a href="${magicLinkUrl}" 
+                       style="display: inline-block; background: linear-gradient(135deg, #00A5CF 0%, #25A18E 100%); color: #ffffff; text-decoration: none; padding: 16px 32px; border-radius: 12px; font-size: 16px; font-weight: 600; box-shadow: 0 4px 14px rgba(0, 165, 207, 0.4);">
+                      ${content.buttonText}
+                    </a>
+                  </td>
+                </tr>
+              </table>
+              
+              <!-- Divider -->
+              <hr style="border: none; border-top: 1px solid #e4e4e7; margin: 24px 0;">
+              
+              <!-- Code section -->
+              <p style="margin: 0 0 12px; color: #71717a; font-size: 14px;">
+                O copia y pega este código de verificación:
+              </p>
+              <div style="background-color: #f4f4f5; border-radius: 8px; padding: 16px; text-align: center; margin-bottom: 24px;">
+                <code style="font-size: 24px; font-weight: 600; color: #18181b; letter-spacing: 4px;">
+                  ${token}
+                </code>
+              </div>
+              
+              <!-- Warning -->
+              <p style="margin: 0; color: #a1a1aa; font-size: 13px; line-height: 1.5;">
+                Si no has solicitado este email, puedes ignorarlo de forma segura. Este enlace expirará en 24 horas.
+              </p>
+            </td>
+          </tr>
+          
+          <!-- Footer -->
+          <tr>
+            <td style="padding: 32px 20px; text-align: center;">
+              <p style="margin: 0 0 8px; color: #71717a; font-size: 14px;">
+                Technovation Girls Madrid. Girls for a change.
+              </p>
+              <p style="margin: 0; color: #a1a1aa; font-size: 12px;">
+                © ${new Date().getFullYear()} Power To Code. Todos los derechos reservados.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+  `;
+}
 
 // Background task to send email via Brevo - runs after response is sent
 async function sendEmailInBackground(
@@ -102,110 +247,15 @@ Deno.serve(async (req) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
     const magicLinkUrl = `${supabaseUrl}/auth/v1/verify?token=${token_hash}&type=${email_action_type}&redirect_to=${redirect_to}`;
 
-    // Determine email subject based on action type
-    let subject = "Verifica tu cuenta - Technovation Spain";
-    let headingText = "¡Bienvenido a Technovation Spain!";
-    let introText = "Estás a un paso de unirte a nuestra comunidad.";
-    let buttonText = "Verificar mi cuenta";
-
-    if (email_action_type === "magiclink") {
-      subject = "Inicia sesión - Technovation Spain";
-      headingText = "¡Hola de nuevo!";
-      introText = "Has solicitado iniciar sesión en tu cuenta.";
-      buttonText = "Iniciar sesión";
-    } else if (email_action_type === "recovery") {
-      subject = "Recupera tu cuenta - Technovation Spain";
-      headingText = "Recuperación de cuenta";
-      introText = "Has solicitado recuperar el acceso a tu cuenta.";
-      buttonText = "Recuperar cuenta";
-    }
-
-    const html = `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${subject}</title>
-</head>
-<body style="margin: 0; padding: 0; background-color: #f4f4f5; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">
-  <table role="presentation" style="width: 100%; border-collapse: collapse;">
-    <tr>
-      <td align="center" style="padding: 40px 20px;">
-        <table role="presentation" style="width: 100%; max-width: 600px; border-collapse: collapse;">
-          <!-- Header -->
-          <tr>
-            <td style="background: linear-gradient(135deg, #00A5CF 0%, #25A18E 100%); padding: 40px 40px 30px; border-radius: 16px 16px 0 0; text-align: center;">
-              <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 700; letter-spacing: -0.5px;">
-                🚀 Technovation Spain
-              </h1>
-            </td>
-          </tr>
-          
-          <!-- Body -->
-          <tr>
-            <td style="background-color: #ffffff; padding: 40px; border-radius: 0 0 16px 16px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
-              <h2 style="margin: 0 0 16px; color: #18181b; font-size: 24px; font-weight: 600;">
-                ${headingText}
-              </h2>
-              <p style="margin: 0 0 24px; color: #52525b; font-size: 16px; line-height: 1.6;">
-                ${introText}
-              </p>
-              
-              <!-- Button -->
-              <table role="presentation" style="width: 100%; border-collapse: collapse;">
-                <tr>
-                  <td align="center" style="padding: 16px 0 32px;">
-                    <a href="${magicLinkUrl}" 
-                       style="display: inline-block; background: linear-gradient(135deg, #00A5CF 0%, #25A18E 100%); color: #ffffff; text-decoration: none; padding: 16px 32px; border-radius: 12px; font-size: 16px; font-weight: 600; box-shadow: 0 4px 14px rgba(0, 165, 207, 0.4);">
-                      ${buttonText}
-                    </a>
-                  </td>
-                </tr>
-              </table>
-              
-              <!-- Divider -->
-              <hr style="border: none; border-top: 1px solid #e4e4e7; margin: 24px 0;">
-              
-              <!-- Code section -->
-              <p style="margin: 0 0 12px; color: #71717a; font-size: 14px;">
-                O copia y pega este código de verificación:
-              </p>
-              <div style="background-color: #f4f4f5; border-radius: 8px; padding: 16px; text-align: center; margin-bottom: 24px;">
-                <code style="font-size: 24px; font-weight: 600; color: #18181b; letter-spacing: 4px;">
-                  ${token}
-                </code>
-              </div>
-              
-              <!-- Warning -->
-              <p style="margin: 0; color: #a1a1aa; font-size: 13px; line-height: 1.5;">
-                Si no has solicitado este email, puedes ignorarlo de forma segura. Este enlace expirará en 24 horas.
-              </p>
-            </td>
-          </tr>
-          
-          <!-- Footer -->
-          <tr>
-            <td style="padding: 32px 20px; text-align: center;">
-              <p style="margin: 0 0 8px; color: #71717a; font-size: 14px;">
-                Technovation Spain - Inspiring Girls to Change the World
-              </p>
-              <p style="margin: 0; color: #a1a1aa; font-size: 12px;">
-                © ${new Date().getFullYear()} Technovation Spain. Todos los derechos reservados.
-              </p>
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>
-    `;
+    // Get email content based on action type
+    const content = getEmailContent(email_action_type);
+    
+    // Generate HTML with the appropriate content
+    const html = generateEmailHtml(magicLinkUrl, token, content);
 
     // Send email in background using EdgeRuntime.waitUntil
     // This allows us to respond immediately while email sends async
-    EdgeRuntime.waitUntil(sendEmailInBackground(user.email, subject, html));
+    EdgeRuntime.waitUntil(sendEmailInBackground(user.email, content.subject, html));
 
     console.log(`Email queued for ${user.email}, responding immediately`);
 
