@@ -30,13 +30,15 @@ const DEFAULT_CONFIRMATION_BODY = `Hola {nombre},
 
 Tu número de registro es: {numero_registro}
 
+Consulta toda la información del evento aquí: {enlace_evento}
+
 A continuación encontrarás tu entrada con el código QR que deberás presentar en la entrada del evento.
 
 También puedes acceder a tu entrada en cualquier momento desde: {enlace_entrada}
 
 ¡Te esperamos!
 
-Equipo de Technovation Girls España`;
+Equipo de Technovation Girls Madrid`;
 
 // Replace template variables
 function replaceVariables(
@@ -189,6 +191,16 @@ const handler = async (req: Request): Promise<Response> => {
     const ticketUrl = `https://technovationspain.lovable.app/tickets/${registration.id}`;
     const validateUrl = `https://technovationspain.lovable.app/validate/${registration.qr_code}`;
 
+    // Format time without seconds
+    const formatTime = (timeStr: string | null): string => {
+      if (!timeStr) return "";
+      // Remove seconds if present (HH:MM:SS -> HH:MM)
+      return timeStr.split(":").slice(0, 2).join(":");
+    };
+
+    // Build event page URL
+    const eventPageUrl = `https://app.powertocode.org/events/${event.id}`;
+
     // Prepare template variables
     const templateVars: Record<string, string> = {
       "{nombre}": registration.first_name || "",
@@ -196,13 +208,14 @@ const handler = async (req: Request): Promise<Response> => {
       "{nombre_completo}": `${registration.first_name || ""} ${registration.last_name || ""}`.trim(),
       "{evento}": event.name || "",
       "{fecha}": formattedDate,
-      "{hora}": `${event.start_time || ""} - ${event.end_time || ""}`,
+      "{hora}": `${formatTime(event.start_time)} - ${formatTime(event.end_time)}`,
       "{ubicacion}": event.location_name || "",
       "{direccion}": event.location_address || "",
       "{ciudad}": event.location_city || "",
       "{numero_registro}": registration.registration_number || "",
       "{tipo_entrada}": ticketType?.name || "General",
       "{enlace_entrada}": ticketUrl,
+      "{enlace_evento}": eventPageUrl,
     };
 
     const emailSubject = replaceVariables(subjectTemplate, templateVars);
@@ -347,7 +360,7 @@ const handler = async (req: Request): Promise<Response> => {
                       ¡Inscripción confirmada!
                     </h1>
                     <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0; font-size: 16px;">
-                      Technovation Girls España
+                      Technovation Girls Madrid
                     </p>
                   </td>
                 </tr>
