@@ -62,7 +62,7 @@ interface TeamWithStats extends Team {
   notes?: string | null;
 }
 
-type CompletionFilter = "all" | "complete" | "incomplete" | "empty";
+type CompletionFilter = "all" | "complete" | "incomplete" | "not_activated" | "empty";
 
 interface MentorOption {
   id: string;
@@ -163,7 +163,8 @@ export default function AdminTeams() {
   const filterByCompletionStatus = (team: TeamWithStats, status: CompletionFilter): boolean => {
     if (status === "all") return true;
     if (status === "complete") return team.registered_count === team.whitelist_count && team.whitelist_count > 0;
-    if (status === "incomplete") return team.registered_count < team.whitelist_count && team.whitelist_count > 0;
+    if (status === "incomplete") return team.registered_count > 0 && team.registered_count < team.whitelist_count;
+    if (status === "not_activated") return team.whitelist_count > 0 && team.registered_count === 0;
     if (status === "empty") return team.whitelist_count === 0;
     return true;
   };
@@ -579,14 +580,15 @@ export default function AdminTeams() {
 
               {/* Completion status filter */}
               <Select value={completionFilter} onValueChange={(v) => setCompletionFilter(v as CompletionFilter)}>
-                <SelectTrigger className="w-[140px]">
+                <SelectTrigger className="w-[160px]">
                   <SelectValue placeholder="Estado" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Todos</SelectItem>
-                  <SelectItem value="complete">Completos</SelectItem>
-                  <SelectItem value="incomplete">Incompletos</SelectItem>
-                  <SelectItem value="empty">Sin miembros</SelectItem>
+                  <SelectItem value="complete">✅ Completos</SelectItem>
+                  <SelectItem value="incomplete">🔄 En progreso</SelectItem>
+                  <SelectItem value="not_activated">⏳ Sin activar</SelectItem>
+                  <SelectItem value="empty">❌ Sin whitelist</SelectItem>
                 </SelectContent>
               </Select>
             </div>
