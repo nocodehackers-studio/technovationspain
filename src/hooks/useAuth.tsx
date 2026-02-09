@@ -75,23 +75,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Set up auth state listener FIRST
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
+        console.log('Auth event:', event);
+        
         setSession(session);
         setUser(session?.user ?? null);
 
-        // Defer Supabase calls with setTimeout to avoid deadlock
-        if (session?.user) {
-          setTimeout(() => {
-            fetchProfile(session.user.id);
-          }, 0);
-        } else {
+        // Only reload profile when user actually changes
+        if (event === 'SIGNED_IN') {
+          // User just logged in
+          setTimeout(() => fetchProfile(session!.user.id), 0);
+        } else if (event === 'USER_UPDATED') {
+          // User data changed (e.g., email, metadata)
+          setTimeout(() => fetchProfile(session!.user.id), 0);
+        } else if (event === 'SIGNED_OUT') {
           setProfile(null);
           setRole(null);
         }
-
-        if (event === 'SIGNED_OUT') {
-          setProfile(null);
-          setRole(null);
-        }
+        // TOKEN_REFRESHED and INITIAL_SESSION don't need to reload profile
       }
     );
 
