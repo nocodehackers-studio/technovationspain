@@ -1,106 +1,120 @@
 
-# Plan: Gestión de Entradas y Corrección de Estados de Acompañantes
+# Plan: Evitar Reset del Proceso de Registro al Cambiar de Ventana
 
-## Resumen de Problemas
+## Resumen del Problema
 
-1. **Acompañantes aparecen como "Pendiente"** - El UI muestra "Pendiente" basándose en `checked_in_at` en lugar de considerarlos como entradas válidas confirmadas
-2. **Admin no puede cancelar entradas** - La vista de estadísticas solo muestra datos, sin acciones
-3. **Acompañantes no se eliminan** - Al cancelar una entrada, los companions quedan huérfanos
+Cuando el usuario cambia de ventana durante el proceso de registro de entrada:
+1. Supabase Auth dispara `onAuthStateChange` al volver (para refrescar/verificar token)
+2. El `AuthProvider` pone `isLoading = true` mientras recarga el perfil
+3. El `ProtectedRoute` muestra "Verificando sesión..." y desmonta el componente
+4. Al remontar, todo el estado local del formulario se pierde (step, companions, etc.)
 
 ---
 
-## Cambios Propuestos
+## Solución Propuesta
 
-### 1. Corregir Badge de Acompañantes (`TicketDetailPage.tsx`)
+### Opción A: No recargar perfil en TOKEN_REFRESHED (Recomendada)
 
-Cambiar la lógica del badge en la sección de acompañantes:
-
-**Antes (líneas 298-302):**
-```tsx
-{companion.checked_in_at ? (
-  <Badge className="bg-success">Check-in realizado</Badge>
-) : (
-  <Badge variant="outline">Pendiente</Badge>  // ❌ Confuso
-)}
-```
-
-**Después:**
-```tsx
-{companion.checked_in_at ? (
-  <Badge className="bg-success">Check-in realizado</Badge>
-) : (
-  <Badge variant="default">Confirmada</Badge>  // ✅ Entrada válida
-)}
-```
-
-### 2. Añadir Columna de Acciones en `EventStatsView.tsx`
-
-**Añadir nueva columna con botón de cancelar:**
-- Mostrar botón de cancelar para cada registro
-- Al cancelar, mostrar diálogo de confirmación
-- Ejecutar lógica de cancelación con eliminación de acompañantes
-- Decrementar contadores correctamente
-
-**Nueva columna (después de "Fecha registro"):**
-```tsx
-{
-  id: "actions",
-  header: "",
-  cell: ({ row }) => (
-    <Button 
-      variant="ghost" 
-      size="icon"
-      onClick={() => handleCancelRegistration(row.original)}
-    >
-      <XCircle className="h-4 w-4 text-destructive" />
-    </Button>
-  ),
-}
-```
-
-### 3. Crear Lógica de Cancelación Admin con Eliminación de Acompañantes
-
-**Nueva mutación `useAdminCancelRegistration`:**
+Modificar `useAuth.tsx` para que solo recargue el perfil en eventos específicos que realmente lo requieran, no en cada cambio de estado:
 
 ```typescript
-async function cancelRegistration(registrationId: string) {
-  // 1. Obtener datos del registro y acompañantes
-  const { data: registration } = await supabase
-    .from("event_registrations")
-    .select("id, event_id, ticket_type_id, registration_status, companions:companions(id)")
-    .eq("id", registrationId)
-    .single();
-
-  // 2. Eliminar acompañantes de la tabla companions
-  await supabase
-    .from("companions")
-    .delete()
-    .eq("event_registration_id", registrationId);
-
-  // 3. Cambiar status a cancelled
-  await supabase
-    .from("event_registrations")
-    .update({ registration_status: "cancelled" })
-    .eq("id", registrationId);
-
-  // 4. Decrementar contadores (si no era waitlisted)
-  if (registration.registration_status !== "waitlisted") {
-    const companionsCount = registration.companions?.length || 0;
-    await supabase.rpc("decrement_registration_count", {
-      p_event_id: registration.event_id,
-      p_ticket_type_id: registration.ticket_type_id,
-      p_companions_count: companionsCount,
-    });
+supabase.auth.onAuthStateChange((event, session) => {
+  setSession(session);
+  setUser(session?.user ?? null);
+  
+  // Solo recargar perfil en eventos que realmente lo necesiten
+  if (event === 'SIGNED_IN' || event === 'USER_UPDATED') {
+    if (session?.user) {
+      setTimeout(() => fetchProfile(session.user.id), 0);
+    }
+  } else if (event === 'SIGNED_OUT') {
+    setProfile(null);
+    setRole(null);
   }
-}
+  // Ignorar TOKEN_REFRESHED y INITIAL_SESSION - el perfil ya está cargado
+});
 ```
 
-### 4. Añadir Diálogo de Confirmación
+**Ventajas:**
+- Solución mínima y directa
+- No afecta otras partes de la aplicación
+- El token se sigue refrescando, solo no recargamos el perfil innecesariamente
 
-**En `EventStatsView.tsx`:**
-- Importar `ConfirmDialog` existente
-- Estado para tracking de registro a cancelar
-- Mostrar diálogo con detalles del asistente
+### Opción B: Separar estado de carga inicial de recarga
+
+Añadir un flag `initialLoadComplete` para distinguir entre:
+- Carga inicial (mostrar spinner)
+- Recarga de perfil (mantener UI, actualizar datos en background)
+
+```typescript
+const [initialLoadComplete, setInitialLoadComplete] = useState(false);
+
+// isLoading solo es true durante la carga INICIAL
+const isLoading = !initialLoadComplete;
+```
+
+---
+
+## Cambios Técnicos (Opción A)
+
+### Archivo: `src/hooks/useAuth.tsx`
+
+**Modificar el listener de auth (líneas 74-96):**
+
+```typescript
+useEffect(() => {
+  const { data: { subscription } } = supabase.auth.onAuthStateChange(
+    (event, session) => {
+      console.log('Auth event:', event); // Debug útil
+      
+      setSession(session);
+      setUser(session?.user ?? null);
+
+      // Solo recargar perfil cuando realmente cambia el usuario
+      if (event === 'SIGNED_IN') {
+        // Usuario acaba de iniciar sesión
+        setTimeout(() => fetchProfile(session!.user.id), 0);
+      } else if (event === 'USER_UPDATED') {
+        // Datos del usuario cambiaron (ej: email, metadata)
+        setTimeout(() => fetchProfile(session!.user.id), 0);
+      } else if (event === 'SIGNED_OUT') {
+        setProfile(null);
+        setRole(null);
+      }
+      // TOKEN_REFRESHED e INITIAL_SESSION no necesitan recargar el perfil
+    }
+  );
+
+  // Carga inicial
+  supabase.auth.getSession().then(({ data: { session } }) => {
+    setSession(session);
+    setUser(session?.user ?? null);
+    
+    if (session?.user) {
+      fetchProfile(session.user.id).finally(() => {
+        setIsAuthLoading(false);
+      });
+    } else {
+      setIsAuthLoading(false);
+    }
+  });
+
+  return () => subscription.unsubscribe();
+}, []);
+```
+
+---
+
+## Eventos de Supabase Auth
+
+| Evento | Cuándo ocurre | Recargar perfil? |
+|--------|---------------|------------------|
+| `INITIAL_SESSION` | Al cargar la app (primer check) | No (ya lo hacemos con getSession) |
+| `SIGNED_IN` | Login exitoso | Sí |
+| `SIGNED_OUT` | Logout | Limpiar datos |
+| `TOKEN_REFRESHED` | Token JWT expiró y se renovó | No |
+| `USER_UPDATED` | Usuario cambió email/metadata | Sí |
+| `PASSWORD_RECOVERY` | Click en link de reset password | No |
 
 ---
 
@@ -108,28 +122,23 @@ async function cancelRegistration(registrationId: string) {
 
 | Archivo | Cambio |
 |---------|--------|
-| `src/pages/events/TicketDetailPage.tsx` | Cambiar badge de "Pendiente" a "Confirmada" para acompañantes |
-| `src/components/admin/events/EventStatsView.tsx` | Añadir columna de acciones, lógica de cancelación, diálogo de confirmación |
+| `src/hooks/useAuth.tsx` | Filtrar eventos de auth para solo recargar perfil cuando es necesario |
 
 ---
 
-## Detalles Técnicos
+## Comportamiento Esperado Después del Cambio
 
-### Flujo de Cancelación Admin
+1. Usuario está en paso 3 del registro
+2. Cambia de ventana/pestaña
+3. Vuelve a la app
+4. Supabase dispara `TOKEN_REFRESHED` (si el token se renovó)
+5. **El AuthProvider NO recarga el perfil** → `isLoading` sigue siendo `false`
+6. **El formulario mantiene su estado** → usuario sigue en paso 3 con sus datos
 
-```
-Admin clicka "Cancelar" → Diálogo confirmación → Confirma
-  ↓
-1. DELETE FROM companions WHERE event_registration_id = X
-  ↓
-2. UPDATE event_registrations SET registration_status = 'cancelled' WHERE id = X
-  ↓
-3. RPC decrement_registration_count(event_id, ticket_type_id, companions_count)
-  ↓
-4. Invalidar queries → Actualizar tabla y métricas
-```
+---
 
-### Seguridad
+## Notas Adicionales
 
-- La operación usa la RLS policy "Admins can delete registrations" existente
-- La tabla companions tiene policy "Users can manage companions of own registrations", pero los admins pueden usar service role si es necesario, o se puede añadir una policy de admin
+- Esta solución también mejora el rendimiento general de la app (menos peticiones innecesarias)
+- El perfil solo se recarga cuando realmente hay un cambio de usuario
+- Si el usuario necesita datos actualizados del perfil, puede usar `refreshProfile()` manualmente
