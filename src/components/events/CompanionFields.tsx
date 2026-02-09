@@ -40,7 +40,7 @@ const RELATIONSHIP_OPTIONS = [
   { value: 'father', label: 'Padre' },
   { value: 'guardian', label: 'Tutor/a legal' },
   { value: 'grandparent', label: 'Abuelo/a' },
-  { value: 'sibling', label: 'Hermano/a mayor' },
+  { value: 'sibling', label: 'Hermano/a' },
   { value: 'other', label: 'Otro familiar' },
 ];
 

@@ -494,9 +494,6 @@ export default function ParticipantDashboard() {
                               )}
                             </div>
                           </div>
-                          <Badge variant="outline" className="shrink-0">
-                            {event.event_type || 'Evento'}
-                          </Badge>
                         </div>
                       </Link>
                     ))}
