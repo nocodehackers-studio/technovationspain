@@ -1,168 +1,84 @@
 
-# Plan: Actualizar Modal de Consentimiento con Texto Legal Completo
+# Plan: Actualizar Template de Email de Autenticación
 
 ## Resumen
 
-Reemplazar el texto de consentimiento actual en el modal `ConsentModal.tsx` con el texto legal completo de RGPD proporcionado, formateado con dos tablas de información estructurada similar al diseño mostrado en la imagen de referencia.
+Modificar el edge function `send-auth-email` para:
+1. Añadir los logos de Technovation Girls y Power To Code
+2. Diferenciar entre login auto-iniciado vs invitación del admin
+3. Actualizar el pie de página con el texto correcto
+4. Cambiar los textos de "Technovation Spain" a "Technovation Girls Madrid" / "Power To Code"
 
 ---
 
-## Cambios Detallados
+## Cambios en `supabase/functions/send-auth-email/index.ts`
 
-### Archivo: `src/components/events/ConsentModal.tsx`
+### 1. Añadir constantes para los logos
 
-#### 1. Ampliar el ancho del modal
-
-El contenido legal es extenso, por lo que necesitamos un modal más ancho:
-
-```tsx
-// Cambiar de:
-<DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-
-// A:
-<DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+```typescript
+const LOGO_TECHNOVATION = "https://orvkqnbshkxzyhqpjsdw.supabase.co/storage/v1/object/public/Assets/LOGO_Technovation_Girls_Transparente.png";
+const LOGO_POWER_TO_CODE = "https://orvkqnbshkxzyhqpjsdw.supabase.co/storage/v1/object/public/Assets/Logo%20transparente%20PowerToCode.png";
 ```
 
-#### 2. Reemplazar el contenido del consentimiento
+### 2. Actualizar los textos según el tipo de email
 
-Sustituir el bloque actual (líneas 86-98) con el texto legal completo estructurado:
+| Tipo | Asunto | Encabezado | Texto Intro |
+|------|--------|------------|-------------|
+| `signup` | Verifica tu cuenta - Technovation Girls Madrid | ¡Bienvenido/a a Technovation Girls Madrid! | Estás a un paso de unirte a nuestra comunidad. |
+| `invite` | Te han invitado - Plataforma Power To Code | ¡Has recibido una invitación! | Un administrador te ha invitado a unirte a la plataforma de Technovation Girls Madrid. |
+| `magiclink` | Inicia sesión - Plataforma Power To Code | ¡Hola de nuevo! | Haz clic en el botón para acceder a tu cuenta. |
+| `recovery` | Recupera tu cuenta - Technovation Girls Madrid | Recuperación de cuenta | Has solicitado restablecer tu acceso a la plataforma. |
 
-**Estructura del nuevo contenido:**
+### 3. Actualizar el HTML del email
 
-```text
-┌─────────────────────────────────────────────────────────────────┐
-│ AVISO LEGAL PARA LA RECOGIDA DE DATOS DE CARÁCTER PERSONAL     │
-│ (título centrado en negrita)                                    │
-├─────────────────────────────────────────────────────────────────┤
-│ Nombre y apellidos del Titular: [participantName dinámico]     │
-├─────────────────────────────────────────────────────────────────┤
-│ Párrafo introductorio sobre Asociación Power to Code           │
-│ (NIF G-88095351, domicilio, etc.)                               │
-├─────────────────────────────────────────────────────────────────┤
-│ Párrafo: "De acuerdo con la actual legislación..."             │
-├─────────────────────────────────────────────────────────────────┤
-│           Información sobre protección de datos                 │
-│ ┌──────────────────────────┬───────────────────────────────────┐│
-│ │ Responsable del         │ Asociación Power to Code          ││
-│ │ tratamiento             │                                   ││
-│ ├──────────────────────────┼───────────────────────────────────┤│
-│ │ Finalidad del           │ Gestionar participación...        ││
-│ │ Tratamiento             │ cesión derechos imagen (*)        ││
-│ ├──────────────────────────┼───────────────────────────────────┤│
-│ │ Legitimación            │ Consentimiento del Titular        ││
-│ ├──────────────────────────┼───────────────────────────────────┤│
-│ │ Cesiones                │ No se realizan cesiones...        ││
-│ ├──────────────────────────┼───────────────────────────────────┤│
-│ │ Derechos                │ A retirar consentimiento...       ││
-│ ├──────────────────────────┼───────────────────────────────────┤│
-│ │ Transferencias          │ No se realizarán...               ││
-│ │ Internacionales         │                                   ││
-│ ├──────────────────────────┼───────────────────────────────────┤│
-│ │ Información adicional   │ [enlace a política privacidad]    ││
-│ └──────────────────────────┴───────────────────────────────────┘│
-├─────────────────────────────────────────────────────────────────┤
-│     (*) Información específica sobre tratamiento de imágenes    │
-│ ┌──────────────────────────┬───────────────────────────────────┐│
-│ │ Responsable             │ Universidad Carlos III...         ││
-│ ├──────────────────────────┼───────────────────────────────────┤│
-│ │ Soportes                │ Fotografías, vídeos...            ││
-│ ├──────────────────────────┼───────────────────────────────────┤│
-│ │ Ámbito de Utilización   │ No se circunscribe...             ││
-│ ├──────────────────────────┼───────────────────────────────────┤│
-│ │ Cesiones                │ Exclusivamente social...          ││
-│ ├──────────────────────────┼───────────────────────────────────┤│
-│ │ Términos de la cesión   │ El Titular acepta...              ││
-│ └──────────────────────────┴───────────────────────────────────┘│
-├─────────────────────────────────────────────────────────────────┤
-│ Párrafo final sobre responsabilidad del tutor                  │
-├─────────────────────────────────────────────────────────────────┤
-│ Nombre del Padre/Madre o Tutor: [campo signature dinámico]     │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-#### 3. Implementación con componentes Tailwind
-
-Se usará una estructura de tabla HTML con clases Tailwind para el formato visual:
-
-- **Título**: `<h3 className="text-center font-bold text-base mb-4">`
-- **Tablas de información**: Usando `<table>` con:
-  - Primera columna (`th`): fondo gris claro, texto en negrita, ancho fijo
-  - Segunda columna (`td`): texto normal
-  - Bordes sutiles entre filas
-- **Enlaces**: Color primario con hover underline
-- **Campos dinámicos**: `{participantName}` y `{signature}` mostrados en negrita
-
-#### 4. Actualizar las etiquetas de los campos
-
-- Cambiar "DNI/NIE *" por usar el valor dinámico en el texto legal
-- Actualizar el placeholder del campo de firma para reflejar "Padre/Madre o Tutor legal"
-
----
-
-## Código de las tablas (estructura aproximada)
-
-```tsx
-<div className="space-y-4 text-sm">
-  {/* Título principal */}
-  <h3 className="text-center font-bold uppercase">
-    Aviso Legal para la Recogida de Datos de Carácter Personal
-  </h3>
-  
-  {/* Nombre del titular */}
-  <p>
-    <strong>Nombre y apellidos del Titular:</strong> {participantName}
-  </p>
-  
-  {/* Párrafos introductorios */}
-  <p className="text-muted-foreground">
-    Asociación Power to Code con NIF G-88095351...
-  </p>
-  
-  {/* Tabla 1: Información sobre protección de datos */}
-  <h4 className="text-center font-semibold">
-    Información sobre protección de datos
-  </h4>
-  <table className="w-full border text-sm">
-    <tbody>
-      <tr className="border-b">
-        <th className="w-1/3 p-2 bg-muted text-left font-semibold align-top">
-          Responsable del tratamiento
-        </th>
-        <td className="p-2">Asociación Power to Code</td>
-      </tr>
-      {/* ... más filas ... */}
-    </tbody>
+**Header con logos:**
+```html
+<td style="background: linear-gradient(135deg, #00A5CF 0%, #25A18E 100%); padding: 30px; border-radius: 16px 16px 0 0; text-align: center;">
+  <table style="width: 100%;">
+    <tr>
+      <td align="center">
+        <img src="[LOGO_TECHNOVATION]" alt="Technovation Girls" style="height: 50px; margin-right: 20px;">
+        <img src="[LOGO_POWER_TO_CODE]" alt="Power To Code" style="height: 45px;">
+      </td>
+    </tr>
   </table>
-  
-  {/* Tabla 2: Información sobre imágenes */}
-  <h4 className="text-center font-semibold">
-    (*) Información específica sobre el tratamiento de imágenes
-  </h4>
-  <table className="w-full border text-sm">
-    {/* ... filas de la tabla ... */}
-  </table>
-  
-  {/* Párrafos finales */}
-  <p className="text-muted-foreground">
-    El padre/madre o tutor legal del Titular...
-  </p>
-</div>
+</td>
+```
+
+**Footer actualizado:**
+```html
+<tr>
+  <td style="padding: 32px 20px; text-align: center;">
+    <p style="margin: 0 0 8px; color: #71717a; font-size: 14px;">
+      Technovation Girls Madrid. Girls for a change.
+    </p>
+    <p style="margin: 0; color: #a1a1aa; font-size: 12px;">
+      © 2026 Power To Code. Todos los derechos reservados.
+    </p>
+  </td>
+</tr>
 ```
 
 ---
 
-## Archivos a modificar
+## Resumen de cambios de texto
+
+| Elemento | Antes | Después |
+|----------|-------|---------|
+| Sender Name | Technovation Spain | Technovation Girls Madrid |
+| Subject (invite) | *no existía* | Te han invitado - Plataforma Power To Code |
+| Heading (invite) | *no existía* | ¡Has recibido una invitación! |
+| Intro (invite) | *no existía* | Un administrador te ha invitado... |
+| Subject (magiclink) | Inicia sesión - Technovation Spain | Inicia sesión - Plataforma Power To Code |
+| Intro (magiclink) | Has solicitado iniciar sesión | Haz clic en el botón para acceder |
+| Footer línea 1 | Technovation Spain - Inspiring Girls to Change the World | Technovation Girls Madrid. Girls for a change. |
+| Footer línea 2 | © 2026 Technovation Spain. Todos los derechos reservados. | © 2026 Power To Code. Todos los derechos reservados. |
+| Header | Solo texto "🚀 Technovation Spain" | Dos logos (Technovation Girls + Power To Code) |
+
+---
+
+## Archivo a modificar
 
 | Archivo | Cambio |
 |---------|--------|
-| `src/components/events/ConsentModal.tsx` | Reemplazar texto de consentimiento con el formato legal completo |
-
----
-
-## Consideraciones
-
-- El modal será más largo, pero ya tiene scroll habilitado (`overflow-y-auto`)
-- Se aumenta el ancho a `max-w-3xl` para acomodar las tablas
-- Los campos dinámicos (`participantName`, `signature`) se muestran en los lugares apropiados del texto legal
-- El enlace a la política de privacidad abrirá en nueva pestaña
-- Se mantiene la funcionalidad existente de validación de DNI y firma
+| `supabase/functions/send-auth-email/index.ts` | Actualizar template HTML con logos, textos corregidos y caso `invite` |
