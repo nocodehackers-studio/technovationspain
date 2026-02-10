@@ -931,6 +931,7 @@ const selectedTicketId = form.watch('ticket_type_id');
               month: 'long',
               day: 'numeric',
             })}
+            eventLocation={[event.location_name, event.location_address, event.location_city].filter(Boolean).join(', ')}
             isSubmitting={isRegistering}
           />
         )}
