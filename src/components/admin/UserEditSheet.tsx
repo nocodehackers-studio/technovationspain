@@ -186,6 +186,13 @@ export function UserEditSheet({
     updateVerificationMutation.mutate({
       userId: user.id,
       status: "verified",
+    }, {
+      onSuccess: () => {
+        // Send welcome email (fire and forget)
+        supabase.functions.invoke("send-welcome-email", {
+          body: { email: user.email, firstName: user.first_name },
+        }).catch((err) => console.error("Welcome email error:", err));
+      },
     });
   }, [user, updateVerificationMutation]);
 
