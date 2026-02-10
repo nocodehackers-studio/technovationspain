@@ -39,6 +39,8 @@ type UserWithRoles = Profile & {
   team_name?: string | null;
   school_name?: string | null;
   hub_name?: string | null;
+  city?: string | null;
+  state?: string | null;
   is_in_whitelist?: boolean;
 };
 
@@ -99,7 +101,7 @@ export default function AdminUsers() {
       // Fetch authorized_users for school_name and whitelist check
       const { data: authorizedUsers, error: authUsersError } = await supabase
         .from("authorized_users")
-        .select("email, school_name, company_name");
+        .select("email, school_name, company_name, city, state");
 
       if (authUsersError) throw authUsersError;
 
@@ -127,6 +129,8 @@ export default function AdminUsers() {
           team_name: (teamMember?.team as { name: string } | null)?.name || null,
           school_name: authorizedUser?.school_name || authorizedUser?.company_name || null,
           hub_name: (profile.hub as { name: string } | null)?.name || null,
+          city: authorizedUser?.city || null,
+          state: authorizedUser?.state || null,
           is_in_whitelist: whitelistEmails.has(profile.email?.toLowerCase()),
         };
       });
@@ -268,7 +272,7 @@ export default function AdminUsers() {
     {
       id: "name",
       accessorFn: (row) => 
-        `${row.first_name || ""} ${row.last_name || ""} ${row.email || ""} ${row.tg_id || ""} ${row.phone || ""} ${row.team_name || ""} ${row.school_name || ""} ${row.hub_name || ""}`.toLowerCase(),
+        `${row.first_name || ""} ${row.last_name || ""} ${row.email || ""} ${row.tg_id || ""} ${row.phone || ""} ${row.team_name || ""} ${row.school_name || ""} ${row.hub_name || ""} ${row.city || ""} ${row.state || ""}`.toLowerCase(),
       header: "Nombre",
       enableHiding: true,
       cell: ({ row }) => (
@@ -338,6 +342,22 @@ export default function AdminUsers() {
       enableHiding: true,
       cell: ({ row }) => (
         <span className="text-sm">{row.original.hub_name || "—"}</span>
+      ),
+    },
+    {
+      accessorKey: "city",
+      header: "Ciudad",
+      enableHiding: true,
+      cell: ({ row }) => (
+        <span className="text-sm">{row.original.city || "—"}</span>
+      ),
+    },
+    {
+      accessorKey: "state",
+      header: "Comunidad",
+      enableHiding: true,
+      cell: ({ row }) => (
+        <span className="text-sm max-w-[120px] truncate block">{row.original.state || "—"}</span>
       ),
     },
     {
