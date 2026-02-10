@@ -1,44 +1,56 @@
 
-## Plan: Filtros combinados en la tabla de Usuarios
+
+## Plan: Mejorar la informacion de miembros en la tabla de Equipos
 
 ### Problema actual
-La tabla de usuarios admin solo tiene filtros por "Estado" y "Rol". Falta poder filtrar por **Hub (Chapter)**, **Equipo** y **Comunidad Autonoma**, y poder combinar varios filtros a la vez (ej: "Hub = Madrid + Sin asignar" y "2026").
+La columna "Miembros" solo muestra un ratio de registrados/whitelist sin desglosar cuantas son estudiantes y cuantas son mentoras. Tampoco se ven los nombres directamente. El concepto de "equipo completo" se basa solo en si todos los del whitelist se han registrado, lo cual no es suficiente.
 
 ### Solucion
 
-#### 1. Anadir filtros por Hub y Equipo a `AdminUsers.tsx`
+#### 1. Enriquecer la query principal con datos de miembros reales
 
-Agregar nuevas entradas en `filterableColumns` con las opciones dinamicas extraidas de los datos:
+Modificar la query de equipos para obtener por separado:
+- Numero de **estudiantes** registradas (member_type = 'participant' en team_members)
+- Numero de **mentores** registrados (member_type = 'mentor' en team_members)
+- Nombres de estudiantes y mentores desde la whitelist (authorized_users con profile_type)
 
-- **Hub (Chapter)**: Dropdown con todos los hubs disponibles + opcion "Sin Hub" para usuarios sin chapter asignado. Las opciones se generaran dinamicamente desde los datos cargados.
-- **Equipo**: Dropdown con todos los equipos disponibles + opcion "Sin equipo". Tambien dinamico.
-- **Comunidad Autonoma**: Dropdown con las comunidades autonomas disponibles en los datos.
+Se hara una segunda query a `team_members` con join a `profiles` para obtener nombres reales de los miembros ya vinculados.
 
-#### 2. Modificar `AirtableDataTable.tsx` para soportar multi-seleccion en filtros
+#### 2. Redisenar la columna "Miembros" en la tabla
 
-Actualmente cada filtro es un `Select` que solo permite un valor. Se cambiara a un sistema donde cada filtro permita seleccionar **multiples valores** simultaneamente:
+Reemplazar el ratio simple por una celda mas informativa que muestre:
+- Iconos/badges con el conteo: ej. "3 estudiantes, 1 mentor"  
+- Indicador visual de estado (completo/incompleto) basado en datos reales
+- Al hacer hover (tooltip), mostrar los nombres de las estudiantes y mentores
 
-- Reemplazar los `Select` simples por dropdowns con checkboxes (usando `DropdownMenu` + `DropdownMenuCheckboxItem` ya disponibles).
-- El estado `activeFilters` pasara de `Record<string, string>` a `Record<string, string[]>` para almacenar multiples valores por filtro.
-- Los tags activos mostraran cada valor seleccionado individualmente y se podran quitar uno a uno.
+#### 3. Enriquecer el dialogo de "Ver Miembros"
 
-#### 3. Anadir `filterFn` a las columnas relevantes
-
-Las columnas `hub_name`, `team_name`, `city` y `state` necesitaran funciones de filtro personalizadas que soporten arrays de valores y manejen el caso especial de "sin valor" (null/empty).
+Actualmente ya muestra los miembros vinculados. Se anadira una seccion adicional que muestre los **miembros pendientes** (del whitelist que aun no se han registrado), con su nombre, tipo y estado.
 
 ### Detalles tecnicos
 
-**Cambios en `AirtableDataTable.tsx`:**
-- Tipo `activeFilters`: `Record<string, string>` cambia a `Record<string, string[]>`
-- Nuevo componente interno de dropdown multi-select para cada filtro
-- `filterFn` personalizada que comprueba si el valor de la fila esta incluido en el array de valores seleccionados
-- Los tags de filtro activo muestran cada seleccion individual
+**Cambios en `TeamWithStats`:**
+```text
++ participant_count: number
++ mentor_count: number
++ members_detail: { name: string; type: 'student' | 'mentor'; registered: boolean }[]
+```
 
-**Cambios en `AdminUsers.tsx`:**
-- Generar `filterableColumns` dinamicamente con `useMemo` para extraer hubs, equipos y comunidades unicos de los datos
-- Anadir `filterFn` a las columnas `hub_name`, `team_name` y `state` que soporte multi-valor y el valor especial `__empty__` para "sin asignar"
-- Opciones especiales: "Sin Hub", "Sin equipo", "Sin comunidad" con valor `__empty__`
+**Cambios en la query principal (`AdminTeams.tsx`):**
+- Fetch adicional de `team_members` con join a `profiles` agrupado por team_id para obtener conteos y nombres de miembros registrados
+- Enriquecer `authorized_users` query para incluir `profile_type`, `first_name`, `last_name` por equipo
+- Combinar ambas fuentes: miembros registrados (de team_members) + pendientes (de authorized_users sin matched_profile_id)
+
+**Cambios en la columna "Miembros":**
+- Mostrar "X estudiantes, Y mentores" con iconos
+- Progress bar basada en miembros registrados vs total whitelist
+- Tooltip con lista de nombres
+
+**Cambios en el dialogo de miembros:**
+- Separar visualmente estudiantes de mentores con secciones
+- Anadir seccion "Pendientes de registro" con nombres del whitelist que no se han registrado aun
+- Mostrar badge de estado (registrado/pendiente) junto a cada nombre
 
 **Archivos afectados:**
-- `src/components/admin/AirtableDataTable.tsx` - Multi-select en filtros
-- `src/pages/admin/AdminUsers.tsx` - Nuevos filtros dinamicos + filterFn en columnas
+- `src/pages/admin/AdminTeams.tsx` - Query enriquecida, columna rediseñada, dialogo mejorado
+
