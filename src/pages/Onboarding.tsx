@@ -337,6 +337,12 @@ export default function Onboarding() {
 
       const wasVerified = updatedProfile?.verification_status === 'verified';
 
+      // Send welcome email if verified (fire and forget)
+      if (wasVerified) {
+        supabase.functions.invoke("send-welcome-email", {
+          body: { email: user.email, firstName: formData.first_name },
+        }).catch((err) => console.error("Welcome email error:", err));
+      }
 
       // Wait for profile refresh to complete before navigation
       await refreshProfile();
