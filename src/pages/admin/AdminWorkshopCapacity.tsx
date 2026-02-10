@@ -6,6 +6,7 @@ import { AdminLayout } from '@/components/admin/AdminLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ArrowLeft, BarChart3 } from 'lucide-react';
 
@@ -80,7 +81,7 @@ export default function AdminWorkshopCapacity() {
       });
 
       // Calculate occupancy per workshop/slot
-      const occupancy: Record<string, Record<string, { teams: string[]; participants: number }>> = {};
+      const occupancy: Record<string, Record<string, { teams: { name: string; participants: number }[]; participants: number }>> = {};
       
       assignmentData?.forEach(assignment => {
         if (!occupancy[assignment.workshop_id]) {
@@ -92,10 +93,10 @@ export default function AdminWorkshopCapacity() {
         
         const teamId = (assignment.team as any)?.id;
         const teamName = (assignment.team as any)?.name || 'Equipo';
+        const teamParticipants = teamCounts.get(teamId) || 1;
         
-        occupancy[assignment.workshop_id][assignment.time_slot_id].teams.push(teamName);
-        occupancy[assignment.workshop_id][assignment.time_slot_id].participants += 
-          teamCounts.get(teamId) || 1;
+        occupancy[assignment.workshop_id][assignment.time_slot_id].teams.push({ name: teamName, participants: teamParticipants });
+        occupancy[assignment.workshop_id][assignment.time_slot_id].participants += teamParticipants;
       });
 
       return occupancy;
@@ -195,17 +196,35 @@ export default function AdminWorkshopCapacity() {
                           
                           return (
                             <td key={slot.id} className="text-center p-3">
-                              <div 
-                                className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg border ${getOccupancyColor(current, max)}`}
-                              >
-                                <span>{getOccupancyIcon(current, max)}</span>
-                                <span className="font-mono font-medium">
-                                  {current}/{max}
-                                </span>
-                              </div>
-                              {slotData && slotData.teams.length > 0 && (
-                                <div className="text-xs text-muted-foreground mt-1">
-                                  {slotData.teams.length} equipos
+                              {slotData && slotData.teams.length > 0 ? (
+                                <Popover>
+                                  <PopoverTrigger asChild>
+                                    <button
+                                      className={`inline-flex flex-col items-center gap-1 px-3 py-2 rounded-lg border cursor-pointer transition-shadow hover:shadow-md ${getOccupancyColor(current, max)}`}
+                                    >
+                                      <div className="flex items-center gap-2">
+                                        <span>{getOccupancyIcon(current, max)}</span>
+                                        <span className="font-mono font-medium">{current}/{max}</span>
+                                      </div>
+                                      <span className="text-xs">{slotData.teams.length} equipos</span>
+                                    </button>
+                                  </PopoverTrigger>
+                                  <PopoverContent className="w-64 p-3">
+                                    <h4 className="font-medium text-sm mb-2">Equipos asignados</h4>
+                                    <ul className="space-y-1">
+                                      {slotData.teams.map((team, idx) => (
+                                        <li key={idx} className="flex justify-between text-sm">
+                                          <span className="truncate mr-2">{team.name}</span>
+                                          <span className="text-muted-foreground whitespace-nowrap">{team.participants} pers.</span>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </PopoverContent>
+                                </Popover>
+                              ) : (
+                                <div className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg border ${getOccupancyColor(current, max)}`}>
+                                  <span>{getOccupancyIcon(current, max)}</span>
+                                  <span className="font-mono font-medium">{current}/{max}</span>
                                 </div>
                               )}
                             </td>
