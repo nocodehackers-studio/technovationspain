@@ -75,7 +75,7 @@ export default function RegisterSelect() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div className={`grid gap-4 ${visibleRoles.length === 2 ? 'sm:grid-cols-2 max-w-lg mx-auto' : 'sm:grid-cols-3'}`}>
               {visibleRoles.map((role) => {
                 const Icon = role.icon;
                 return (
