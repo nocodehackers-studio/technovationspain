@@ -23,3 +23,6 @@ verify_jwt = false
 
 [functions.send-invite-reminder]
 verify_jwt = false
+
+[functions.send-cancellation-email]
+verify_jwt = false
