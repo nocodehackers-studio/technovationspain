@@ -1,6 +1,7 @@
 import { Link, useLocation } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { GraduationCap, Users, Scale, Sparkles } from 'lucide-react';
+import { usePlatformSetting } from '@/hooks/usePlatformSettings';
 
 const LOGO_TECHNOVATION = "https://orvkqnbshkxzyhqpjsdw.supabase.co/storage/v1/object/public/Assets/LOGO_Technovation_Girls_Transparente.png";
 const LOGO_POWER_TO_CODE = "https://orvkqnbshkxzyhqpjsdw.supabase.co/storage/v1/object/public/Assets/Logo%20transparente%20PowerToCode.png";
@@ -38,6 +39,9 @@ const roles = [
 export default function RegisterSelect() {
   const location = useLocation();
   const prefilledEmail = (location.state as { email?: string })?.email;
+  const { data: judgeRegEnabled } = usePlatformSetting('judge_registration_enabled');
+
+  const visibleRoles = roles.filter(r => r.id !== 'judge' || judgeRegEnabled);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-secondary via-background to-muted p-4">
@@ -72,7 +76,7 @@ export default function RegisterSelect() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-3">
-              {roles.map((role) => {
+              {visibleRoles.map((role) => {
                 const Icon = role.icon;
                 return (
                   <Link key={role.id} to={role.href} state={{ email: prefilledEmail }} className="block">
