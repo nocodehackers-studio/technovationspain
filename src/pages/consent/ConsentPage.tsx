@@ -1,9 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Check, Loader2, ShieldCheck } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
+import { ConsentLegalText } from '@/components/events/ConsentLegalText';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -56,8 +58,30 @@ export default function ConsentPage() {
   const [manualToken, setManualToken] = useState('');
   const [isSuccess, setIsSuccess] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [eventInfo, setEventInfo] = useState<{
+    participant_name: string;
+    event_name: string;
+    event_date: string;
+    event_location_name: string;
+    event_location_address: string;
+    event_location_city: string;
+  } | null>(null);
+  const [eventInfoLoading, setEventInfoLoading] = useState(false);
 
   const consentToken = tokenFromUrl || manualToken;
+
+  // Fetch event info when token is available
+  useEffect(() => {
+    if (!consentToken) return;
+    setEventInfoLoading(true);
+    supabase.functions.invoke('get-consent-info', {
+      body: { consent_token: consentToken },
+    }).then(({ data, error }) => {
+      if (!error && data && !data.error) {
+        setEventInfo(data);
+      }
+    }).finally(() => setEventInfoLoading(false));
+  }, [consentToken]);
 
   const { mutateAsync: submitConsent, isPending } = useSubmitPublicConsent();
 
@@ -283,26 +307,23 @@ export default function ConsentPage() {
                   <CardTitle className="text-base">Texto de consentimiento</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="p-4 bg-muted rounded-lg text-sm text-muted-foreground leading-relaxed">
-                    {relationship === 'self' ? (
-                      <p>
-                        Yo, <strong>{signerName || '[nombre]'}</strong>, con DNI <strong>{signerDni || '[DNI]'}</strong>,
-                        autorizo mi participación en el evento al que corresponde esta entrada, incluyendo la captación
-                        de imágenes (fotografía y vídeo) durante el transcurso del evento, que podrán ser utilizadas
-                        con fines promocionales y de difusión por parte de la organización. Los datos proporcionados
-                        serán tratados conforme al RGPD y la LOPDGDD.
-                      </p>
-                    ) : (
-                      <p>
-                        Yo, <strong>{signerName || '[nombre]'}</strong>, con DNI <strong>{signerDni || '[DNI]'}</strong>,
-                        en calidad de {getRelationshipLabel(relationship)}, autorizo la participación del/la menor
-                        en el evento al que corresponde esta entrada, incluyendo la captación de imágenes
-                        (fotografía y vídeo) durante el transcurso del evento, que podrán ser utilizadas con fines
-                        promocionales y de difusión por parte de la organización. Los datos proporcionados serán
-                        tratados conforme al RGPD y la LOPDGDD.
-                      </p>
-                    )}
-                  </div>
+                  {eventInfoLoading ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                    </div>
+                  ) : (
+                    <div className="p-4 bg-muted rounded-lg">
+                      <ConsentLegalText
+                        participantName={eventInfo?.participant_name || signerName || '[nombre]'}
+                        eventName={eventInfo?.event_name || '[evento]'}
+                        eventDate={eventInfo?.event_date ? new Date(eventInfo.event_date).toLocaleDateString('es-ES', {
+                          weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+                        }) : '[fecha]'}
+                        eventLocation={[eventInfo?.event_location_name, eventInfo?.event_location_address, eventInfo?.event_location_city].filter(Boolean).join(', ') || undefined}
+                        signerName={signerName || undefined}
+                      />
+                    </div>
+                  )}
 
                   <Separator />
 
