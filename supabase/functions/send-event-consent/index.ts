@@ -2,7 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 const BREVO_API_KEY = Deno.env.get("BREVO_API_KEY");
 const BREVO_SENDER_EMAIL = Deno.env.get("BREVO_SENDER_EMAIL") || "comunicacion@powertocode.org";
-const BREVO_SENDER_NAME = Deno.env.get("BREVO_SENDER_NAME") || "Technovation España";
+const BREVO_SENDER_NAME = Deno.env.get("BREVO_SENDER_NAME") || "Technovation Girls Madrid";
 const BREVO_REPLY_TO_EMAIL = Deno.env.get("BREVO_REPLY_TO_EMAIL") || "soporte@powertocode.org";
 const PUBLIC_SITE_URL = Deno.env.get("PUBLIC_SITE_URL") || "https://technovation.es";
 
@@ -174,7 +174,7 @@ Deno.serve(async (req) => {
                 Consentimiento para evento
               </h1>
               <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0; font-size: 16px;">
-                Technovation Girls España
+                Technovation Girls Madrid
               </p>
             </td>
           </tr>
@@ -247,7 +247,7 @@ Deno.serve(async (req) => {
               </p>
 
               <p style="margin: 16px 0 0 0; color: #6b7280;">
-                Equipo de Technovation Spain
+                Equipo de Technovation Girls Madrid
               </p>
             </td>
           </tr>
@@ -275,7 +275,7 @@ Deno.serve(async (req) => {
     const emailPayload = {
       sender: { name: BREVO_SENDER_NAME, email: BREVO_SENDER_EMAIL },
       to: [{ email: recipientEmail }],
-      subject: `Consentimiento para ${event.name} - Technovation Spain`,
+      subject: `Consentimiento para ${event.name} - Technovation Girls Madrid`,
       htmlContent: htmlContent,
       replyTo: { email: BREVO_REPLY_TO_EMAIL },
     };

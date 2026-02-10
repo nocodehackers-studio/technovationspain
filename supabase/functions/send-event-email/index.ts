@@ -3,7 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 const BREVO_API_KEY = Deno.env.get("BREVO_API_KEY");
 const BREVO_SENDER_EMAIL = Deno.env.get("BREVO_SENDER_EMAIL") || "comunicacion@powertocode.org";
-const BREVO_SENDER_NAME = Deno.env.get("BREVO_SENDER_NAME") || "Technovation España";
+const BREVO_SENDER_NAME = Deno.env.get("BREVO_SENDER_NAME") || "Technovation Girls Madrid";
 const BREVO_REPLY_TO_EMAIL = Deno.env.get("BREVO_REPLY_TO_EMAIL") || "soporte@powertocode.org";
 
 const ALLOWED_ORIGINS = [
@@ -46,7 +46,7 @@ No olvides llevar:
 
 ¡Nos vemos pronto!
 
-Equipo de Technovation Girls España`;
+Equipo de Technovation Girls Madrid`;
 
 // Replace template variables
 function replaceVariables(
@@ -305,7 +305,7 @@ const handler = async (req: Request): Promise<Response> => {
                           Recordatorio
                         </h1>
                         <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0; font-size: 16px;">
-                          Technovation Girls España
+                          Technovation Girls Madrid
                         </p>
                       </td>
                     </tr>
