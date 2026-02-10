@@ -1,56 +1,90 @@
 
 
-## Plan: Mejorar la informacion de miembros en la tabla de Equipos
+## Plan: Corregir y mejorar Reportes y Exportaciones
 
-### Problema actual
-La columna "Miembros" solo muestra un ratio de registrados/whitelist sin desglosar cuantas son estudiantes y cuantas son mentoras. Tampoco se ven los nombres directamente. El concepto de "equipo completo" se basa solo en si todos los del whitelist se han registrado, lo cual no es suficiente.
+Se han identificado varios problemas concretos que se van a resolver:
 
-### Solucion
+---
 
-#### 1. Enriquecer la query principal con datos de miembros reales
+### 1. Reportes > Usuarios: datos no actualizados
 
-Modificar la query de equipos para obtener por separado:
-- Numero de **estudiantes** registradas (member_type = 'participant' en team_members)
-- Numero de **mentores** registrados (member_type = 'mentor' en team_members)
-- Nombres de estudiantes y mentores desde la whitelist (authorized_users con profile_type)
+**Problema**: El calculo de "Registros Semanales" tiene un bug. Cada semana empieza desde "hoy menos N*7 dias", lo que significa que registros recientes (ej. de hace 2 dias) caen fuera de la ventana actual porque weekStart = hoy (no el inicio de la semana).
 
-Se hara una segunda query a `team_members` con join a `profiles` para obtener nombres reales de los miembros ya vinculados.
+**Solucion**: Recalcular las semanas empezando desde el lunes de la semana actual hacia atras, para que los registros recientes siempre aparezcan en la semana correcta.
 
-#### 2. Redisenar la columna "Miembros" en la tabla
+---
 
-Reemplazar el ratio simple por una celda mas informativa que muestre:
-- Iconos/badges con el conteo: ej. "3 estudiantes, 1 mentor"  
-- Indicador visual de estado (completo/incompleto) basado en datos reales
-- Al hacer hover (tooltip), mostrar los nombres de las estudiantes y mentores
+### 2. Reportes > Eventos: datos incorrectos, solo acompanantes
 
-#### 3. Enriquecer el dialogo de "Ver Miembros"
+**Problema**: La pestaña de Eventos en Reportes muestra estadisticas con tarjetas (Total Asistentes, Participantes, etc.) pero los datos pueden no coincidir con lo real porque las queries de estadisticas estan separadas de las del EventStatsView y pueden tener logica ligeramente diferente. Ademas, la exportacion de registros del evento (`exportEventRegistrations`) no incluye los acompanantes (de la tabla `companions`), ni filtra por `is_companion = false`.
 
-Actualmente ya muestra los miembros vinculados. Se anadira una seccion adicional que muestre los **miembros pendientes** (del whitelist que aun no se han registrado), con su nombre, tipo y estado.
+**Solucion**: 
+- Unificar la logica de estadisticas de eventos para que coincida con EventStatsView
+- En la exportacion de registros por evento, anadir filas de acompanantes debajo de cada titular (igual que hace EventStatsView en su CSV)
+- Filtrar `is_companion = false` en la query de exportacion
+
+---
+
+### 3. Exportar > Miembros de Equipo incompleto
+
+**Problema**: La exportacion de "Miembros de Equipo" solo exporta miembros registrados (de `team_members`). Falta cruzar con `authorized_users` para incluir miembros pendientes del whitelist que aun no se han registrado.
+
+**Solucion**: Enriquecer la exportacion para incluir tambien los miembros del whitelist no registrados, con una columna "Estado" (Registrado/Pendiente).
+
+---
+
+### 4. Exportar > Equipos: faltan datos de estudiantes y mentores del whitelist
+
+**Problema**: `exportTeamsWithDetails` solo incluye miembros de `team_members` (registrados). No cruza con `authorized_users` para mostrar los que estan en el whitelist pero no registrados.
+
+**Solucion**: Cruzar con `authorized_users` por `team_name` para incluir todos los miembros (registrados + pendientes), con columnas separadas para "Estudiantes registradas", "Estudiantes pendientes", "Mentores registrados", "Mentores pendientes".
+
+---
+
+### 5. Exportacion de stats del evento: falta team_name y acompanantes
+
+**Problema**: En la pagina de stats del evento (EventStatsView), la exportacion CSV ya incluye `team_name` y acompanantes. Este punto ya esta resuelto en el codigo actual.
+
+**Verificacion**: El CSV de EventStatsView ya incluye columna "Equipo" (team_name) y filas anidadas de acompanantes. No requiere cambios.
+
+---
+
+### 6. Exportacion cruzada completa plataforma + CSV importado
+
+**Problema**: No existe una exportacion que cruce datos de `profiles` con `authorized_users` para tener toda la info combinada (datos de la plataforma + datos originales del CSV de importacion como city, state, school_name, parent_name, etc.).
+
+**Solucion**: Anadir un nuevo boton de exportacion "Usuarios Completo (cruzado)" que haga join entre `profiles`, `user_roles`, y `authorized_users` para generar un CSV con todos los campos combinados.
+
+---
 
 ### Detalles tecnicos
 
-**Cambios en `TeamWithStats`:**
-```text
-+ participant_count: number
-+ mentor_count: number
-+ members_detail: { name: string; type: 'student' | 'mentor'; registered: boolean }[]
-```
+**Archivo: `src/pages/admin/AdminReports.tsx`**
 
-**Cambios en la query principal (`AdminTeams.tsx`):**
-- Fetch adicional de `team_members` con join a `profiles` agrupado por team_id para obtener conteos y nombres de miembros registrados
-- Enriquecer `authorized_users` query para incluir `profile_type`, `first_name`, `last_name` por equipo
-- Combinar ambas fuentes: miembros registrados (de team_members) + pendientes (de authorized_users sin matched_profile_id)
+1. **Bug semanas** (lineas 82-97): Cambiar el calculo para usar inicio de semana (lunes) como referencia en vez de "hoy menos N dias"
 
-**Cambios en la columna "Miembros":**
-- Mostrar "X estudiantes, Y mentores" con iconos
-- Progress bar basada en miembros registrados vs total whitelist
-- Tooltip con lista de nombres
+2. **Stats eventos** (lineas 115-158): Alinear con la logica de EventStatsView para que los numeros coincidan
 
-**Cambios en el dialogo de miembros:**
-- Separar visualmente estudiantes de mentores con secciones
-- Anadir seccion "Pendientes de registro" con nombres del whitelist que no se han registrado aun
-- Mostrar badge de estado (registrado/pendiente) junto a cada nombre
+3. **`exportEventRegistrations`** (lineas 325-369): 
+   - Anadir `.eq("is_companion", false)` al query
+   - Fetch companions de la tabla `companions` y anadir filas anidadas al CSV
+   - Incluir `team_name` (ya esta en el select)
 
-**Archivos afectados:**
-- `src/pages/admin/AdminTeams.tsx` - Query enriquecida, columna rediseñada, dialogo mejorado
+4. **`exportTeamMembers`** (lineas 233-265): 
+   - Fetch adicional de `authorized_users` con `team_name` y `profile_type`
+   - Cruzar con `team_members` para identificar registrados vs pendientes
+   - Anadir columna "Estado" (Registrado/Pendiente)
+
+5. **`exportTeamsWithDetails`** (lineas 267-323): 
+   - Fetch `authorized_users` agrupados por `team_name`
+   - Anadir columnas: "Estudiantes pendientes", "Mentores pendientes" con nombres
+   - Totales separados de registrados y pendientes
+
+6. **Nueva funcion `exportUsersCrossReferenced`**: 
+   - Join `profiles` con `authorized_users` por email (o `matched_profile_id`)
+   - Join con `user_roles` para incluir roles
+   - Join con `teams`/`team_members` para incluir nombre de equipo
+   - Columnas resultantes: Nombre, Apellido, Email, Rol, Estado verificacion, Hub, Equipo, Ciudad, Comunidad, Colegio, Empresa, Edad, Consentimiento parental, Consentimiento media, Fecha registro plataforma, Fecha importacion
+
+7. **Modal exportacion**: Verificar que se usa `toast.loading("Exportacion en curso...")` en todas las exportaciones (ya se usa en la mayoria, confirmar consistencia)
 
