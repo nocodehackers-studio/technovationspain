@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ColumnDef } from "@tanstack/react-table";
 import { supabase } from "@/integrations/supabase/client";
@@ -6,6 +7,10 @@ import { ProfileTypeBadge, ProfileType } from "@/components/admin/import/Profile
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Mail, Loader2 } from "lucide-react";
+import { toast } from "@/hooks/use-toast";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface UnregisteredUser {
   id: string;
@@ -20,7 +25,8 @@ interface UnregisteredUser {
 }
 
 export function UnregisteredUsersTable() {
-  // Fetch unregistered users from authorized_users
+  const [sendingIds, setSendingIds] = useState<Set<string>>(new Set());
+
   const { data: unregisteredUsers, isLoading } = useQuery({
     queryKey: ["admin-unregistered-users"],
     queryFn: async () => {
@@ -35,10 +41,29 @@ export function UnregisteredUsersTable() {
     },
   });
 
+  const handleSendReminder = async (user: UnregisteredUser) => {
+    setSendingIds((prev) => new Set(prev).add(user.id));
+    try {
+      const { error } = await supabase.functions.invoke("send-invite-reminder", {
+        body: { email: user.email, firstName: user.first_name, lastName: user.last_name },
+      });
+      if (error) throw error;
+      toast({ title: "Recordatorio enviado", description: `Email enviado a ${user.email}` });
+    } catch (err: any) {
+      toast({ title: "Error al enviar", description: err.message || "No se pudo enviar el recordatorio", variant: "destructive" });
+    } finally {
+      setSendingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(user.id);
+        return next;
+      });
+    }
+  };
+
   const columns: ColumnDef<UnregisteredUser>[] = [
     {
       id: "name",
-      accessorFn: (row) => 
+      accessorFn: (row) =>
         `${row.first_name || ""} ${row.last_name || ""} ${row.email || ""} ${row.team_name || ""} ${row.city || ""}`.toLowerCase(),
       header: "Nombre",
       cell: ({ row }) => (
@@ -102,6 +127,31 @@ export function UnregisteredUsersTable() {
           Sin registrar
         </Badge>
       ),
+    },
+    {
+      id: "actions",
+      header: "",
+      cell: ({ row }) => {
+        const isSending = sendingIds.has(row.original.id);
+        return (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                disabled={isSending}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleSendReminder(row.original);
+                }}
+              >
+                {isSending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Enviar recordatorio de registro</TooltipContent>
+          </Tooltip>
+        );
+      },
     },
   ];
 
