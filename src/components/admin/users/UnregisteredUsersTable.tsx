@@ -20,6 +20,7 @@ interface UnregisteredUser {
   profile_type: string;
   team_name: string | null;
   city: string | null;
+  company_name: string | null;
   imported_at: string;
   tg_id: string | null;
 }
@@ -32,7 +33,7 @@ export function UnregisteredUsersTable() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("authorized_users")
-        .select("id, email, first_name, last_name, profile_type, team_name, city, imported_at, tg_id")
+        .select("id, email, first_name, last_name, profile_type, team_name, city, company_name, imported_at, tg_id")
         .is("matched_profile_id", null)
         .order("imported_at", { ascending: false });
 
@@ -64,7 +65,7 @@ export function UnregisteredUsersTable() {
     {
       id: "name",
       accessorFn: (row) =>
-        `${row.first_name || ""} ${row.last_name || ""} ${row.email || ""} ${row.team_name || ""} ${row.city || ""}`.toLowerCase(),
+        `${row.first_name || ""} ${row.last_name || ""} ${row.email || ""} ${row.team_name || ""} ${row.city || ""} ${row.company_name || ""}`.toLowerCase(),
       header: "Nombre",
       cell: ({ row }) => (
         <div className="flex flex-col">
@@ -109,6 +110,21 @@ export function UnregisteredUsersTable() {
       },
       cell: ({ row }) => (
         <span className="text-sm">{row.original.team_name || "—"}</span>
+      ),
+    },
+    {
+      accessorKey: "company_name",
+      header: "Chapter",
+      filterFn: (row, id, value) => {
+        const v = row.getValue(id) as string | null;
+        if (Array.isArray(value)) {
+          if (value.includes("__empty__") && !v) return true;
+          return value.includes(v as string);
+        }
+        return v === value;
+      },
+      cell: ({ row }) => (
+        <span className="text-sm">{row.original.company_name || "—"}</span>
       ),
     },
     {
@@ -187,9 +203,13 @@ export function UnregisteredUsersTable() {
     const cityOpts: FilterableColumn["options"] = [
       { value: "__empty__", label: "Sin ciudad" },
     ];
+    const chapterOpts: FilterableColumn["options"] = [
+      { value: "__empty__", label: "Sin chapter" },
+    ];
 
     const teamSet = new Set<string>();
     const citySet = new Set<string>();
+    const chapterSet = new Set<string>();
 
     data.forEach((u) => {
       if (u.team_name && !teamSet.has(u.team_name)) {
@@ -199,6 +219,10 @@ export function UnregisteredUsersTable() {
       if (u.city && !citySet.has(u.city)) {
         citySet.add(u.city);
         cityOpts.push({ value: u.city, label: u.city });
+      }
+      if (u.company_name && !chapterSet.has(u.company_name)) {
+        chapterSet.add(u.company_name);
+        chapterOpts.push({ value: u.company_name, label: u.company_name });
       }
     });
 
@@ -211,6 +235,7 @@ export function UnregisteredUsersTable() {
     return [
       { key: "profile_type", label: "Tipo", options: typeOptions },
       { key: "team_name", label: "Equipo", options: sortOpts(teamOpts) },
+      { key: "company_name", label: "Chapter", options: sortOpts(chapterOpts) },
       { key: "city", label: "Ciudad", options: sortOpts(cityOpts) },
     ];
   }, [unregisteredUsers]);
