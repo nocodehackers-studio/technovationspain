@@ -300,6 +300,7 @@ export default function AdminUsers() {
       enableHiding: true,
       filterFn: (row, id, value) => {
         const roles = row.original.roles;
+        if (Array.isArray(value)) return value.some((v: string) => roles.includes(v as AppRole));
         return roles.includes(value as AppRole);
       },
       cell: ({ row }) =>
@@ -314,7 +315,9 @@ export default function AdminUsers() {
       header: "Estado",
       enableHiding: true,
       filterFn: (row, id, value) => {
-        return row.getValue(id) === value;
+        const v = row.getValue(id);
+        if (Array.isArray(value)) return value.includes(v as string);
+        return v === value;
       },
       cell: ({ row }) => (
         <StatusBadge status={row.original.verification_status || "pending"} />
@@ -324,6 +327,12 @@ export default function AdminUsers() {
       accessorKey: "team_name",
       header: "Equipo",
       enableHiding: true,
+      filterFn: (row, id, value) => {
+        const v = row.getValue(id) as string | null;
+        const normalized = v || "__empty__";
+        if (Array.isArray(value)) return value.includes(normalized);
+        return normalized === value;
+      },
       cell: ({ row }) => (
         <span className="text-sm">{row.original.team_name || "—"}</span>
       ),
@@ -340,6 +349,12 @@ export default function AdminUsers() {
       accessorKey: "hub_name",
       header: "Hub",
       enableHiding: true,
+      filterFn: (row, id, value) => {
+        const v = row.getValue(id) as string | null;
+        const normalized = v || "__empty__";
+        if (Array.isArray(value)) return value.includes(normalized);
+        return normalized === value;
+      },
       cell: ({ row }) => (
         <span className="text-sm">{row.original.hub_name || "—"}</span>
       ),
@@ -356,6 +371,12 @@ export default function AdminUsers() {
       accessorKey: "state",
       header: "Comunidad",
       enableHiding: true,
+      filterFn: (row, id, value) => {
+        const v = row.getValue(id) as string | null;
+        const normalized = v || "__empty__";
+        if (Array.isArray(value)) return value.includes(normalized);
+        return normalized === value;
+      },
       cell: ({ row }) => (
         <span className="text-sm max-w-[120px] truncate block">{row.original.state || "—"}</span>
       ),
@@ -490,38 +511,91 @@ export default function AdminUsers() {
     [staticColumns, dynamicColumns]
   );
 
-  // Filterable columns config
-  const filterableColumns: FilterableColumn[] = [
-    {
-      key: "verification_status",
-      label: "Estado",
-      options: [
-        { value: "pending", label: "Pendiente" },
-        { value: "verified", label: "Verificado" },
-        { value: "manual_review", label: "Revisión Manual" },
-        { value: "rejected", label: "Rechazado" },
-      ],
-    },
-    {
-      key: "roles",
-      label: "Rol",
-      options: [
-        { value: "participant", label: "Participante" },
-        { value: "mentor", label: "Mentor" },
-        { value: "judge", label: "Juez" },
-        { value: "chapter_ambassador", label: "Embajador" },
-        { value: "volunteer", label: "Voluntario" },
-        { value: "admin", label: "Admin" },
-      ],
-    },
-  ];
+  // Filterable columns config - dynamic options from data
+  const filterableColumns: FilterableColumn[] = useMemo(() => {
+    const hubOptions: FilterableColumn["options"] = [
+      { value: "__empty__", label: "Sin Hub" },
+    ];
+    const teamOptions: FilterableColumn["options"] = [
+      { value: "__empty__", label: "Sin equipo" },
+    ];
+    const stateOptions: FilterableColumn["options"] = [
+      { value: "__empty__", label: "Sin comunidad" },
+    ];
+
+    const hubSet = new Set<string>();
+    const teamSet = new Set<string>();
+    const stateSet = new Set<string>();
+
+    (users || []).forEach((u) => {
+      if (u.hub_name && !hubSet.has(u.hub_name)) {
+        hubSet.add(u.hub_name);
+        hubOptions.push({ value: u.hub_name, label: u.hub_name });
+      }
+      if (u.team_name && !teamSet.has(u.team_name)) {
+        teamSet.add(u.team_name);
+        teamOptions.push({ value: u.team_name, label: u.team_name });
+      }
+      if (u.state && !stateSet.has(u.state)) {
+        stateSet.add(u.state);
+        stateOptions.push({ value: u.state, label: u.state });
+      }
+    });
+
+    // Sort alphabetically (after the "Sin..." option)
+    const sortOpts = (opts: FilterableColumn["options"]) => {
+      const first = opts[0];
+      const rest = opts.slice(1).sort((a, b) => a.label.localeCompare(b.label));
+      return [first, ...rest];
+    };
+
+    return [
+      {
+        key: "verification_status",
+        label: "Estado",
+        options: [
+          { value: "pending", label: "Pendiente" },
+          { value: "verified", label: "Verificado" },
+          { value: "manual_review", label: "Revisión Manual" },
+          { value: "rejected", label: "Rechazado" },
+        ],
+      },
+      {
+        key: "roles",
+        label: "Rol",
+        options: [
+          { value: "participant", label: "Participante" },
+          { value: "mentor", label: "Mentor" },
+          { value: "judge", label: "Juez" },
+          { value: "chapter_ambassador", label: "Embajador" },
+          { value: "volunteer", label: "Voluntario" },
+          { value: "admin", label: "Admin" },
+        ],
+      },
+      {
+        key: "hub_name",
+        label: "Hub",
+        options: sortOpts(hubOptions),
+      },
+      {
+        key: "team_name",
+        label: "Equipo",
+        options: sortOpts(teamOptions),
+      },
+      {
+        key: "state",
+        label: "Comunidad",
+        options: sortOpts(stateOptions),
+      },
+    ];
+  }, [users]);
 
   // Get initial filters from URL params
   const initialFilters = useMemo(() => {
-    const filters: Record<string, string> = {};
+    const filters: Record<string, string[]> = {};
     const status = searchParams.get("status");
     if (status) {
-      filters.verification_status = status;
+      filters.verification_status = [status];
     }
     return filters;
   }, [searchParams]);
