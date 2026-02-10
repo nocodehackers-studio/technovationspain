@@ -57,6 +57,11 @@ export function useAdminCancelRegistration() {
         }
       }
 
+      // 4. Send cancellation email (fire and forget)
+      supabase.functions.invoke("send-cancellation-email", {
+        body: { registrationId },
+      }).catch((err) => console.error("Cancellation email error:", err));
+
       return { success: true };
     },
     onSuccess: (_, variables) => {

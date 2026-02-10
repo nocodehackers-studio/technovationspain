@@ -392,7 +392,12 @@ export function useCancelRegistration() {
           p_companions_count: companionsCount,
         });
       }
-      
+
+      // 4. Send cancellation email (fire and forget)
+      supabase.functions.invoke("send-cancellation-email", {
+        body: { registrationId },
+      }).catch((err) => console.error("Cancellation email error:", err));
+
       return registration;
     },
     onSuccess: (data) => {
