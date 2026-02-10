@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ColumnDef } from "@tanstack/react-table";
 import { supabase } from "@/integrations/supabase/client";
@@ -99,6 +99,14 @@ export function UnregisteredUsersTable() {
     {
       accessorKey: "team_name",
       header: "Equipo",
+      filterFn: (row, id, value) => {
+        const v = row.getValue(id) as string | null;
+        if (Array.isArray(value)) {
+          if (value.includes("__empty__") && !v) return true;
+          return value.includes(v as string);
+        }
+        return v === value;
+      },
       cell: ({ row }) => (
         <span className="text-sm">{row.original.team_name || "—"}</span>
       ),
@@ -106,6 +114,14 @@ export function UnregisteredUsersTable() {
     {
       accessorKey: "city",
       header: "Ciudad",
+      filterFn: (row, id, value) => {
+        const v = row.getValue(id) as string | null;
+        if (Array.isArray(value)) {
+          if (value.includes("__empty__") && !v) return true;
+          return value.includes(v as string);
+        }
+        return v === value;
+      },
       cell: ({ row }) => (
         <span className="text-sm">{row.original.city || "—"}</span>
       ),
@@ -155,18 +171,49 @@ export function UnregisteredUsersTable() {
     },
   ];
 
-  const filterableColumns: FilterableColumn[] = [
-    {
-      key: "profile_type",
-      label: "Tipo",
-      options: [
-        { value: "student", label: "Estudiante" },
-        { value: "mentor", label: "Mentor" },
-        { value: "judge", label: "Juez" },
-        { value: "chapter_ambassador", label: "Embajador" },
-      ],
-    },
-  ];
+  const filterableColumns: FilterableColumn[] = useMemo(() => {
+    const data = unregisteredUsers || [];
+
+    const typeOptions: FilterableColumn["options"] = [
+      { value: "student", label: "Estudiante" },
+      { value: "mentor", label: "Mentor" },
+      { value: "judge", label: "Juez" },
+      { value: "chapter_ambassador", label: "Embajador" },
+    ];
+
+    const teamOpts: FilterableColumn["options"] = [
+      { value: "__empty__", label: "Sin equipo" },
+    ];
+    const cityOpts: FilterableColumn["options"] = [
+      { value: "__empty__", label: "Sin ciudad" },
+    ];
+
+    const teamSet = new Set<string>();
+    const citySet = new Set<string>();
+
+    data.forEach((u) => {
+      if (u.team_name && !teamSet.has(u.team_name)) {
+        teamSet.add(u.team_name);
+        teamOpts.push({ value: u.team_name, label: u.team_name });
+      }
+      if (u.city && !citySet.has(u.city)) {
+        citySet.add(u.city);
+        cityOpts.push({ value: u.city, label: u.city });
+      }
+    });
+
+    const sortOpts = (opts: FilterableColumn["options"]) => {
+      const first = opts[0];
+      const rest = opts.slice(1).sort((a, b) => a.label.localeCompare(b.label));
+      return [first, ...rest];
+    };
+
+    return [
+      { key: "profile_type", label: "Tipo", options: typeOptions },
+      { key: "team_name", label: "Equipo", options: sortOpts(teamOpts) },
+      { key: "city", label: "Ciudad", options: sortOpts(cityOpts) },
+    ];
+  }, [unregisteredUsers]);
 
   return (
     <AirtableDataTable
