@@ -109,7 +109,7 @@ function generateEmailHtml(
               <table role="presentation" style="width: 100%; border-collapse: collapse;">
                 <tr>
                   <td align="center">
-                    <img src="${LOGO_TECHNOVATION}" alt="Technovation Girls" style="height: 50px; margin-right: 20px; display: inline-block; vertical-align: middle;">
+                    <img src="${LOGO_TECHNOVATION}" alt="Technovation Girls" style="height: 50px; margin-right: 20px; display: inline-block; vertical-align: middle; mix-blend-mode: multiply;">
                     <img src="${LOGO_POWER_TO_CODE}" alt="Power To Code" style="height: 45px; display: inline-block; vertical-align: middle;">
                   </td>
                 </tr>
