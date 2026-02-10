@@ -30,7 +30,7 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { MoreHorizontal, Edit, Trash2, Users, Upload, Mail, UserCircle, MapPin, CheckCircle2, Building2, GraduationCap, Clock } from "lucide-react";
+import { MoreHorizontal, Edit, Trash2, Users, Upload, Mail, UserCircle, MapPin, CheckCircle2, Building2, GraduationCap, Clock, HelpCircle } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Progress } from "@/components/ui/progress";
 import { Team, TeamCategory } from "@/types/database";
@@ -691,6 +691,26 @@ export default function AdminTeams() {
                   <SelectItem value="empty">❌ Sin whitelist</SelectItem>
                 </SelectContent>
               </Select>
+
+              {/* Legend icon */}
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground">
+                      <HelpCircle className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="max-w-xs p-3">
+                    <p className="font-semibold mb-2 text-sm">Estados de equipo</p>
+                    <ul className="space-y-1.5 text-xs">
+                      <li>✅ <strong>Completo</strong> — Todos los miembros del whitelist se han registrado en la plataforma.</li>
+                      <li>🔄 <strong>En progreso</strong> — Al menos 1 miembro registrado, pero faltan otros por registrarse.</li>
+                      <li>⏳ <strong>Sin activar</strong> — El equipo existe en el whitelist pero ningún miembro se ha registrado aún.</li>
+                      <li>❌ <strong>Sin whitelist</strong> — No hay datos importados de Technovation Global para este equipo.</li>
+                    </ul>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
             </div>
           }
         />
