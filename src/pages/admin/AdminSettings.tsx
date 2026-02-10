@@ -5,9 +5,12 @@ import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
-import { Settings, Mail, Bell, Shield, Database } from "lucide-react";
+import { Settings, Mail, Bell, Shield, Database, UserCheck } from "lucide-react";
+import { usePlatformSetting, useUpdatePlatformSetting } from "@/hooks/usePlatformSettings";
 
 export default function AdminSettings() {
+  const { data: judgeRegEnabled, isLoading: judgeLoading } = usePlatformSetting('judge_registration_enabled');
+  const updateSetting = useUpdatePlatformSetting();
   return (
     <AdminLayout title="Configuración">
       <div className="space-y-6 max-w-3xl">
@@ -17,6 +20,42 @@ export default function AdminSettings() {
             Ajustes generales de la plataforma
           </p>
         </div>
+
+        {/* Registration Settings */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <UserCheck className="h-5 w-5" />
+              Registro
+            </CardTitle>
+            <CardDescription>
+              Controla qué tipos de registro están activos en la plataforma
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label>Registro de jueces</Label>
+                <p className="text-sm text-muted-foreground">
+                  Permitir que nuevos jueces se registren en la plataforma
+                </p>
+              </div>
+              <Switch
+                checked={!!judgeRegEnabled}
+                disabled={judgeLoading || updateSetting.isPending}
+                onCheckedChange={(checked) => {
+                  updateSetting.mutate(
+                    { key: 'judge_registration_enabled', value: checked },
+                    {
+                      onSuccess: () => toast.success(checked ? 'Registro de jueces habilitado' : 'Registro de jueces deshabilitado'),
+                      onError: () => toast.error('Error al actualizar la configuración'),
+                    }
+                  );
+                }}
+              />
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Email Settings */}
         <Card>
