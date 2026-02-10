@@ -36,6 +36,12 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   ChevronLeft,
   ChevronRight,
@@ -46,6 +52,7 @@ import {
   SlidersHorizontal,
   Plus,
   X,
+  ChevronDown,
 } from "lucide-react";
 
 export interface FilterOption {
@@ -69,7 +76,7 @@ interface AirtableDataTableProps<TData, TValue> {
   data: TData[];
   searchPlaceholder?: string;
   filterableColumns?: FilterableColumn[];
-  initialFilters?: Record<string, string>;
+  initialFilters?: Record<string, string[]>;
   onAddColumn?: () => void;
   onExport?: (exportData: ExportData<TData>) => void;
   loading?: boolean;
@@ -96,7 +103,7 @@ export function AirtableDataTable<TData, TValue>({
   const [globalFilter, setGlobalFilter] = useState("");
   const [rowSelection, setRowSelection] = useState({});
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
-  const [activeFilters, setActiveFilters] = useState<Record<string, string>>(initialFilters);
+  const [activeFilters, setActiveFilters] = useState<Record<string, string[]>>(initialFilters);
   const [initialFiltersApplied, setInitialFiltersApplied] = useState(false);
 
   // Initialize column visibility from hiddenColumns prop
@@ -149,27 +156,46 @@ export function AirtableDataTable<TData, TValue>({
     }
   }, [initialFilters, initialFiltersApplied, data.length, table]);
 
-  const handleFilterChange = (columnKey: string, value: string) => {
+  const toggleFilterValue = (columnKey: string, value: string) => {
     setActiveFilters((prev) => {
       const updated = { ...prev };
-      if (value === "all") {
-        delete updated[columnKey];
-        table.getColumn(columnKey)?.setFilterValue(undefined);
+      const current = updated[columnKey] || [];
+      const idx = current.indexOf(value);
+      if (idx >= 0) {
+        const next = current.filter((v) => v !== value);
+        if (next.length === 0) {
+          delete updated[columnKey];
+          table.getColumn(columnKey)?.setFilterValue(undefined);
+        } else {
+          updated[columnKey] = next;
+          table.getColumn(columnKey)?.setFilterValue(next);
+        }
       } else {
-        updated[columnKey] = value;
-        table.getColumn(columnKey)?.setFilterValue(value);
+        updated[columnKey] = [...current, value];
+        table.getColumn(columnKey)?.setFilterValue([...current, value]);
       }
       return updated;
     });
   };
 
-  const clearFilter = (columnKey: string) => {
+  const clearFilter = (columnKey: string, value?: string) => {
     setActiveFilters((prev) => {
       const updated = { ...prev };
-      delete updated[columnKey];
+      if (!value) {
+        delete updated[columnKey];
+      } else {
+        const next = (updated[columnKey] || []).filter((v) => v !== value);
+        if (next.length === 0) {
+          delete updated[columnKey];
+        } else {
+          updated[columnKey] = next;
+          table.getColumn(columnKey)?.setFilterValue(next);
+          return updated;
+        }
+      }
+      table.getColumn(columnKey)?.setFilterValue(undefined);
       return updated;
     });
-    table.getColumn(columnKey)?.setFilterValue(undefined);
   };
 
   return (
@@ -259,49 +285,87 @@ export function AirtableDataTable<TData, TValue>({
         {/* Filters Row */}
         {filterableColumns.length > 0 && (
           <div className="flex flex-wrap items-center gap-2">
-            {/* Column Filters */}
-            {filterableColumns.map((filter) => (
-              <Select
-                key={filter.key}
-                value={activeFilters[filter.key] || "all"}
-                onValueChange={(value) => handleFilterChange(filter.key, value)}
-              >
-                <SelectTrigger className="w-full sm:w-[140px]">
-                  <SelectValue placeholder={filter.label} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos</SelectItem>
-                  {filter.options.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ))}
+            {/* Column Filters - Multi-select dropdowns */}
+            {filterableColumns.map((filter) => {
+              const selected = activeFilters[filter.key] || [];
+              const selectedCount = selected.length;
+              return (
+                <Popover key={filter.key}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className={`w-full sm:w-auto justify-between gap-1 ${selectedCount > 0 ? "border-primary text-primary" : ""}`}
+                    >
+                      {filter.label}
+                      {selectedCount > 0 && (
+                        <span className="ml-1 rounded-full bg-primary text-primary-foreground px-1.5 py-0.5 text-xs leading-none">
+                          {selectedCount}
+                        </span>
+                      )}
+                      <ChevronDown className="h-3.5 w-3.5 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-52 p-2" align="start">
+                    <div className="max-h-60 overflow-y-auto space-y-1">
+                      {filter.options.map((option) => {
+                        const isChecked = selected.includes(option.value);
+                        return (
+                          <label
+                            key={option.value}
+                            className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-accent cursor-pointer text-sm"
+                          >
+                            <Checkbox
+                              checked={isChecked}
+                              onCheckedChange={() => toggleFilterValue(filter.key, option.value)}
+                            />
+                            <span className="truncate">{option.label}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                    {selectedCount > 0 && (
+                      <>
+                        <div className="border-t my-1" />
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="w-full justify-center text-xs"
+                          onClick={() => clearFilter(filter.key)}
+                        >
+                          Limpiar filtro
+                        </Button>
+                      </>
+                    )}
+                  </PopoverContent>
+                </Popover>
+              );
+            })}
 
             {/* Active Filter Tags */}
-            {Object.entries(activeFilters).map(([key, value]) => {
+            {Object.entries(activeFilters).flatMap(([key, values]) => {
               const filterConfig = filterableColumns.find((f) => f.key === key);
-              const optionLabel = filterConfig?.options.find(
-                (o) => o.value === value
-              )?.label;
-              return (
-                <div
-                  key={key}
-                  className="flex items-center gap-1 rounded-full bg-primary/10 px-3 py-1 text-xs sm:text-sm"
-                >
-                  <span className="truncate max-w-[120px] sm:max-w-none">
-                    {filterConfig?.label}: {optionLabel}
-                  </span>
-                  <button
-                    onClick={() => clearFilter(key)}
-                    className="ml-1 hover:text-destructive"
+              return values.map((value) => {
+                const optionLabel = filterConfig?.options.find(
+                  (o) => o.value === value
+                )?.label || value;
+                return (
+                  <div
+                    key={`${key}-${value}`}
+                    className="flex items-center gap-1 rounded-full bg-primary/10 px-3 py-1 text-xs sm:text-sm"
                   >
-                    <X className="h-3 w-3" />
-                  </button>
-                </div>
-              );
+                    <span className="truncate max-w-[120px] sm:max-w-none">
+                      {filterConfig?.label}: {optionLabel}
+                    </span>
+                    <button
+                      onClick={() => clearFilter(key, value)}
+                      className="ml-1 hover:text-destructive"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                );
+              });
             })}
           </div>
         )}

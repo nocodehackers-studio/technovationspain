@@ -62,7 +62,11 @@ export function UnregisteredUsersTable() {
     {
       accessorKey: "profile_type",
       header: "Tipo",
-      filterFn: (row, id, value) => row.getValue(id) === value,
+      filterFn: (row, id, value) => {
+        const v = row.getValue(id);
+        if (Array.isArray(value)) return value.includes(v as string);
+        return v === value;
+      },
       cell: ({ row }) => (
         <ProfileTypeBadge type={row.original.profile_type as ProfileType} />
       ),
