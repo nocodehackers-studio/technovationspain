@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Textarea } from "@/components/ui/textarea";
+import { Separator } from "@/components/ui/separator";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,7 +30,7 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { MoreHorizontal, Edit, Trash2, Users, Upload, Mail, UserCircle, MapPin, CheckCircle2, Building2 } from "lucide-react";
+import { MoreHorizontal, Edit, Trash2, Users, Upload, Mail, UserCircle, MapPin, CheckCircle2, Building2, GraduationCap, Clock } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Progress } from "@/components/ui/progress";
 import { Team, TeamCategory } from "@/types/database";
@@ -53,11 +54,21 @@ interface TeamMember {
   } | null;
 }
 
+interface MemberDetail {
+  name: string;
+  email?: string;
+  type: 'student' | 'mentor';
+  registered: boolean;
+}
+
 interface TeamWithStats extends Team {
   team_members: { count: number }[];
   hub: { id: string; name: string } | null;
   whitelist_count: number;
   registered_count: number;
+  participant_count: number;
+  mentor_count: number;
+  members_detail: MemberDetail[];
   city?: string;
   notes?: string | null;
 }
@@ -78,7 +89,6 @@ export default function AdminTeams() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [membersDialogOpen, setMembersDialogOpen] = useState(false);
-  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   
   // Filters
   const [hubFilter, setHubFilter] = useState<string>("all");
@@ -91,7 +101,7 @@ export default function AdminTeams() {
   const [editMentorId, setEditMentorId] = useState<string>("");
   const [currentMentorId, setCurrentMentorId] = useState<string | null>(null);
 
-  // Fetch teams with member counts, hub info, whitelist stats, and city
+  // Fetch teams with member counts, hub info, whitelist stats, city, and member details
   const { data: teams, isLoading } = useQuery({
     queryKey: ["admin-teams"],
     queryFn: async () => {
@@ -103,28 +113,74 @@ export default function AdminTeams() {
 
       if (error) throw error;
       
-      // Get whitelist stats and city for all teams
-      const { data: whitelistStats } = await supabase
+      // Get whitelist stats, city, and member names for all teams
+      const { data: whitelistData } = await supabase
         .from("authorized_users")
-        .select("team_name, matched_profile_id, city");
+        .select("team_name, matched_profile_id, city, first_name, last_name, email, profile_type");
       
-      // Calculate stats per team and get most common city
+      // Get registered team members with profile info
+      const { data: registeredMembers } = await supabase
+        .from("team_members")
+        .select("team_id, member_type, user:profiles!team_members_user_id_fkey(id, email, first_name, last_name)");
+      
+      // Build registered members map by team_id
+      const registeredMap = new Map<string, { name: string; email: string; type: 'student' | 'mentor' }[]>();
+      registeredMembers?.forEach(m => {
+        if (!m.team_id || !m.user) return;
+        const list = registeredMap.get(m.team_id) || [];
+        const user = m.user as { id: string; email: string; first_name: string | null; last_name: string | null };
+        list.push({
+          name: user.first_name && user.last_name 
+            ? `${user.first_name} ${user.last_name}` 
+            : user.email,
+          email: user.email,
+          type: m.member_type === 'mentor' ? 'mentor' : 'student',
+        });
+        registeredMap.set(m.team_id, list);
+      });
+      
+      // Calculate stats per team
       const statsMap = new Map<string, { 
         whitelist_count: number; 
-        registered_count: number; 
+        registered_count: number;
+        participant_count: number;
+        mentor_count: number;
         cities: Map<string, number>;
+        whitelist_members: { name: string; email: string; type: 'student' | 'mentor'; registered: boolean }[];
       }>();
       
-      whitelistStats?.forEach(record => {
+      whitelistData?.forEach(record => {
         if (record.team_name) {
           const key = record.team_name.toLowerCase();
           const current = statsMap.get(key) || { 
             whitelist_count: 0, 
-            registered_count: 0, 
-            cities: new Map() 
+            registered_count: 0,
+            participant_count: 0,
+            mentor_count: 0,
+            cities: new Map(),
+            whitelist_members: [],
           };
           current.whitelist_count++;
-          if (record.matched_profile_id) current.registered_count++;
+          const isRegistered = !!record.matched_profile_id;
+          if (isRegistered) current.registered_count++;
+          
+          const isStudent = record.profile_type === 'student';
+          if (isStudent) {
+            if (isRegistered) current.participant_count++;
+          } else {
+            if (isRegistered) current.mentor_count++;
+          }
+          
+          const name = record.first_name && record.last_name 
+            ? `${record.first_name} ${record.last_name}` 
+            : record.email;
+          current.whitelist_members.push({
+            name,
+            email: record.email,
+            type: isStudent ? 'student' : 'mentor',
+            registered: isRegistered,
+          });
+          
           if (record.city) {
             current.cities.set(record.city, (current.cities.get(record.city) || 0) + 1);
           }
@@ -149,10 +205,27 @@ export default function AdminTeams() {
       // Merge stats with teams
       return teamsData?.map(team => {
         const stats = statsMap.get(team.name.toLowerCase());
+        const registered = registeredMap.get(team.id) || [];
+        
+        // Build members_detail: use whitelist if available, otherwise use registered members
+        let members_detail: MemberDetail[] = [];
+        if (stats && stats.whitelist_members.length > 0) {
+          members_detail = stats.whitelist_members;
+        } else if (registered.length > 0) {
+          members_detail = registered.map(r => ({ ...r, registered: true }));
+        }
+        
+        // Count from registered members (actual team_members table)
+        const participantCount = registered.filter(r => r.type === 'student').length;
+        const mentorCount = registered.filter(r => r.type === 'mentor').length;
+        
         return {
           ...team,
           whitelist_count: stats?.whitelist_count || 0,
           registered_count: stats?.registered_count || 0,
+          participant_count: participantCount,
+          mentor_count: mentorCount,
+          members_detail,
           city: getCityFromStats(stats),
         };
       }) as TeamWithStats[];
@@ -172,32 +245,19 @@ export default function AdminTeams() {
   // Filtered teams based on all filters
   const filteredTeams = useMemo(() => {
     return teams?.filter((team) => {
-      // Hub filter
       if (hubFilter !== "all") {
         if (hubFilter === "none" && team.hub_id) return false;
         if (hubFilter !== "none" && team.hub_id !== hubFilter) return false;
       }
-      // Category filter
       if (categoryFilter !== "all" && team.category !== categoryFilter) return false;
-      // Completion filter
       if (!filterByCompletionStatus(team, completionFilter)) return false;
       return true;
     }) || [];
   }, [teams, hubFilter, categoryFilter, completionFilter]);
 
   // Function to open team members dialog
-  const openTeamMembers = async (team: TeamWithStats) => {
+  const openTeamMembers = (team: TeamWithStats) => {
     setSelectedTeam(team);
-    const { data: members } = await supabase
-      .from("team_members")
-      .select(`
-        id,
-        member_type,
-        joined_at,
-        user:profiles!team_members_user_id_fkey(id, email, first_name, last_name)
-      `)
-      .eq("team_id", team.id);
-    setTeamMembers(members as TeamMember[] || []);
     setMembersDialogOpen(true);
   };
 
@@ -247,7 +307,6 @@ export default function AdminTeams() {
       mentorId: string | null;
       previousMentorId: string | null;
     }) => {
-      // Update team basic info
       const { error } = await supabase
         .from("teams")
         .update({ hub_id, notes })
@@ -255,9 +314,7 @@ export default function AdminTeams() {
       
       if (error) throw error;
 
-      // Handle mentor assignment
       if (mentorId !== previousMentorId) {
-        // Remove previous mentor if exists
         if (previousMentorId) {
           await supabase
             .from("team_members")
@@ -267,7 +324,6 @@ export default function AdminTeams() {
             .eq("member_type", "mentor");
         }
         
-        // Add new mentor if selected
         if (mentorId) {
           const { error: insertError } = await supabase
             .from("team_members")
@@ -315,7 +371,6 @@ export default function AdminTeams() {
     setEditHubId(team.hub_id || "");
     setEditNotes(team.notes || "");
     
-    // Fetch current mentor for this team
     const { data: mentorMember } = await supabase
       .from("team_members")
       .select("user_id")
@@ -403,18 +458,23 @@ export default function AdminTeams() {
       accessorKey: "team_members",
       header: "Miembros",
       cell: ({ row }) => {
-        const actualMembers = row.original.team_members?.[0]?.count || 0;
-        const whitelistCount = row.original.whitelist_count || 0;
-        const registeredCount = row.original.registered_count || 0;
+        const team = row.original;
+        const whitelistCount = team.whitelist_count || 0;
+        const registeredCount = team.registered_count || 0;
+        const participantCount = team.participant_count || 0;
+        const mentorCount = team.mentor_count || 0;
         const percentage = whitelistCount > 0 ? Math.round((registeredCount / whitelistCount) * 100) : 0;
         const isComplete = whitelistCount > 0 && registeredCount === whitelistCount;
         
-        // If no whitelist, show only actual members
-        if (whitelistCount === 0) {
+        const students = team.members_detail.filter(m => m.type === 'student');
+        const mentorsInTeam = team.members_detail.filter(m => m.type === 'mentor');
+        
+        // If no whitelist and no members
+        if (whitelistCount === 0 && participantCount === 0 && mentorCount === 0) {
           return (
-            <div className="flex items-center gap-2">
-              <Users className="h-4 w-4 text-muted-foreground" />
-              <span>{actualMembers}</span>
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Users className="h-4 w-4" />
+              <span className="text-sm">Sin miembros</span>
             </div>
           );
         }
@@ -423,30 +483,64 @@ export default function AdminTeams() {
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <div className="flex flex-col gap-1 min-w-[80px]">
-                  <div className="flex items-center gap-2">
-                    {isComplete ? (
-                      <CheckCircle2 className="h-4 w-4 text-secondary" />
-                    ) : (
-                      <Users className="h-4 w-4 text-muted-foreground" />
+                <div className="flex flex-col gap-1.5 min-w-[120px]">
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-1">
+                      <GraduationCap className="h-3.5 w-3.5 text-primary" />
+                      <span className="text-sm font-medium">{participantCount}</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Users className="h-3.5 w-3.5 text-muted-foreground" />
+                      <span className="text-sm font-medium">{mentorCount}</span>
+                    </div>
+                    {isComplete && (
+                      <CheckCircle2 className="h-3.5 w-3.5 text-secondary" />
                     )}
-                    <span className={isComplete ? "text-secondary font-medium" : ""}>
-                      {registeredCount}/{whitelistCount}
-                    </span>
                   </div>
-                  <Progress 
-                    value={percentage} 
-                    className="h-1.5"
-                  />
+                  {whitelistCount > 0 && (
+                    <div className="flex items-center gap-2">
+                      <Progress value={percentage} className="h-1.5 flex-1" />
+                      <span className="text-xs text-muted-foreground">{registeredCount}/{whitelistCount}</span>
+                    </div>
+                  )}
                 </div>
               </TooltipTrigger>
-              <TooltipContent>
-                <p>{registeredCount} de {whitelistCount} miembros registrados</p>
-                {actualMembers !== registeredCount && (
-                  <p className="text-xs text-muted-foreground">
-                    ({actualMembers} miembros vinculados actualmente)
+              <TooltipContent side="bottom" className="max-w-[280px]">
+                <div className="space-y-2">
+                  <p className="font-medium text-sm">
+                    {participantCount} estudiante{participantCount !== 1 ? 's' : ''}, {mentorCount} mentor{mentorCount !== 1 ? 'es' : ''}
                   </p>
-                )}
+                  {students.length > 0 && (
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground mb-1">Estudiantes:</p>
+                      {students.map((s, i) => (
+                        <p key={i} className="text-xs flex items-center gap-1">
+                          {s.registered ? (
+                            <CheckCircle2 className="h-3 w-3 text-secondary shrink-0" />
+                          ) : (
+                            <Clock className="h-3 w-3 text-warning shrink-0" />
+                          )}
+                          {s.name}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                  {mentorsInTeam.length > 0 && (
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground mb-1">Mentores:</p>
+                      {mentorsInTeam.map((m, i) => (
+                        <p key={i} className="text-xs flex items-center gap-1">
+                          {m.registered ? (
+                            <CheckCircle2 className="h-3 w-3 text-secondary shrink-0" />
+                          ) : (
+                            <Clock className="h-3 w-3 text-warning shrink-0" />
+                          )}
+                          {m.name}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
@@ -524,6 +618,12 @@ export default function AdminTeams() {
     },
   ];
 
+  // Members dialog helpers
+  const dialogStudents = selectedTeam?.members_detail.filter(m => m.type === 'student') || [];
+  const dialogMentors = selectedTeam?.members_detail.filter(m => m.type === 'mentor') || [];
+  const dialogRegistered = selectedTeam?.members_detail.filter(m => m.registered) || [];
+  const dialogPending = selectedTeam?.members_detail.filter(m => !m.registered) || [];
+
   return (
     <AdminLayout title="Gestión de Equipos">
       <div className="space-y-4">
@@ -596,7 +696,7 @@ export default function AdminTeams() {
         />
       </div>
 
-      {/* Edit Team Dialog - Only Hub and Notes editable */}
+      {/* Edit Team Dialog */}
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
         <DialogContent>
           <DialogHeader>
@@ -606,7 +706,6 @@ export default function AdminTeams() {
             </DialogDescription>
           </DialogHeader>
           
-          {/* Read-only CSV data section */}
           <div className="space-y-3 p-4 bg-muted/50 rounded-lg">
             <h4 className="text-sm font-medium text-muted-foreground">Datos importados (solo lectura)</h4>
             <div className="grid grid-cols-2 gap-3 text-sm">
@@ -629,7 +728,6 @@ export default function AdminTeams() {
             </div>
           </div>
 
-          {/* Editable fields */}
           <form onSubmit={handleEditSubmit} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="edit-hub">Hub</Label>
@@ -718,7 +816,7 @@ export default function AdminTeams() {
         }}
       />
 
-      {/* Team Members Dialog - Read Only */}
+      {/* Enhanced Team Members Dialog */}
       <Dialog open={membersDialogOpen} onOpenChange={setMembersDialogOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
@@ -727,56 +825,106 @@ export default function AdminTeams() {
               Miembros de {selectedTeam?.name}
             </DialogTitle>
             <DialogDescription>
-              {teamMembers.length} miembro{teamMembers.length !== 1 ? "s" : ""} en el equipo
-              <span className="block text-xs mt-1">
-                Los miembros se gestionan automáticamente vía importación CSV
+              <span className="flex items-center gap-3 mt-1">
+                <span className="flex items-center gap-1">
+                  <GraduationCap className="h-3.5 w-3.5" />
+                  {dialogStudents.length} estudiante{dialogStudents.length !== 1 ? 's' : ''}
+                </span>
+                <span className="flex items-center gap-1">
+                  <Users className="h-3.5 w-3.5" />
+                  {dialogMentors.length} mentor{dialogMentors.length !== 1 ? 'es' : ''}
+                </span>
               </span>
             </DialogDescription>
           </DialogHeader>
           <ScrollArea className="max-h-[400px]">
-            {teamMembers.length === 0 ? (
+            {selectedTeam?.members_detail.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
                 <UserCircle className="h-12 w-12 mx-auto mb-2 opacity-50" />
                 <p>Este equipo no tiene miembros</p>
                 <p className="text-xs mt-1">Los miembros se asignarán al importar el CSV de equipos</p>
               </div>
             ) : (
-              <div className="space-y-3">
-                {teamMembers.map((member) => (
-                  <div
-                    key={member.id}
-                    className="flex items-center gap-3 p-3 rounded-lg border bg-card"
-                  >
-                    <Avatar className="h-10 w-10">
-                      <AvatarFallback className="bg-primary/10 text-primary">
-                        {member.user?.first_name?.[0] || member.user?.email?.[0]?.toUpperCase() || "?"}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium truncate">
-                        {member.user?.first_name && member.user?.last_name
-                          ? `${member.user.first_name} ${member.user.last_name}`
-                          : member.user?.email || "Usuario desconocido"}
-                      </p>
-                      {member.user?.email && (
-                        <p className="text-sm text-muted-foreground flex items-center gap-1 truncate">
-                          <Mail className="h-3 w-3" />
-                          {member.user.email}
-                        </p>
-                      )}
+              <div className="space-y-4">
+                {/* Registered members */}
+                {dialogRegistered.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-medium text-muted-foreground mb-2 flex items-center gap-1.5">
+                      <CheckCircle2 className="h-4 w-4 text-secondary" />
+                      Registrados ({dialogRegistered.length})
+                    </h4>
+                    <div className="space-y-2">
+                      {dialogRegistered.map((member, i) => (
+                        <div
+                          key={i}
+                          className="flex items-center gap-3 p-3 rounded-lg border bg-card"
+                        >
+                          <Avatar className="h-9 w-9">
+                            <AvatarFallback className="bg-primary/10 text-primary text-sm">
+                              {member.name[0]?.toUpperCase() || "?"}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-sm truncate">{member.name}</p>
+                            {member.email && (
+                              <p className="text-xs text-muted-foreground flex items-center gap-1 truncate">
+                                <Mail className="h-3 w-3" />
+                                {member.email}
+                              </p>
+                            )}
+                          </div>
+                          <Badge
+                            variant="outline"
+                            className={
+                              member.type === "mentor"
+                                ? "bg-primary/10 text-primary border-primary/20"
+                                : "bg-secondary/20 text-secondary-foreground"
+                            }
+                          >
+                            {member.type === "mentor" ? "Mentor" : "Estudiante"}
+                          </Badge>
+                        </div>
+                      ))}
                     </div>
-                    <Badge
-                      variant="outline"
-                      className={
-                        member.member_type === "mentor"
-                          ? "bg-primary/10 text-primary border-primary/20"
-                          : "bg-secondary text-secondary-foreground"
-                      }
-                    >
-                      {member.member_type === "mentor" ? "Mentor" : "Estudiante"}
-                    </Badge>
                   </div>
-                ))}
+                )}
+
+                {/* Pending members */}
+                {dialogPending.length > 0 && (
+                  <div>
+                    {dialogRegistered.length > 0 && <Separator className="my-3" />}
+                    <h4 className="text-sm font-medium text-muted-foreground mb-2 flex items-center gap-1.5">
+                      <Clock className="h-4 w-4 text-warning" />
+                      Pendientes de registro ({dialogPending.length})
+                    </h4>
+                    <div className="space-y-2">
+                      {dialogPending.map((member, i) => (
+                        <div
+                          key={i}
+                          className="flex items-center gap-3 p-3 rounded-lg border border-dashed bg-muted/30"
+                        >
+                          <Avatar className="h-9 w-9">
+                            <AvatarFallback className="bg-warning/10 text-warning text-sm">
+                              {member.name[0]?.toUpperCase() || "?"}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-sm truncate text-muted-foreground">{member.name}</p>
+                            {member.email && (
+                              <p className="text-xs text-muted-foreground flex items-center gap-1 truncate">
+                                <Mail className="h-3 w-3" />
+                                {member.email}
+                              </p>
+                            )}
+                          </div>
+                          <Badge variant="outline" className="bg-warning/10 text-warning border-warning/20">
+                            Pendiente
+                          </Badge>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </ScrollArea>
