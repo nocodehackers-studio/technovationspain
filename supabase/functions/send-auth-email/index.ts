@@ -12,7 +12,7 @@ const BREVO_REPLY_TO_EMAIL = Deno.env.get("BREVO_REPLY_TO_EMAIL") || "soporte@po
 let hookSecret = Deno.env.get("SEND_EMAIL_HOOK_SECRET") as string;
 
 // Logo URLs from Supabase Storage
-const LOGO_TECHNOVATION = "https://orvkqnbshkxzyhqpjsdw.supabase.co/storage/v1/object/public/Assets/LOGO_Technovation_Girls_Transparente.png";
+const LOGO_TECHNOVATION = "https://technovationspain.lovable.app/images/Logo_Technovation_Girls_Transparente.png";
 const LOGO_POWER_TO_CODE = "https://orvkqnbshkxzyhqpjsdw.supabase.co/storage/v1/object/public/Assets/Logo%20transparente%20PowerToCode.png";
 
 // Supabase provides: "v1,whsec_<base64>". standardwebhooks expects ONLY the base64 part.
@@ -109,7 +109,7 @@ function generateEmailHtml(
               <table role="presentation" style="width: 100%; border-collapse: collapse;">
                 <tr>
                   <td align="center">
-                    <img src="${LOGO_TECHNOVATION}" alt="Technovation Girls" style="height: 50px; margin-right: 20px; display: inline-block; vertical-align: middle; mix-blend-mode: multiply;">
+                    <img src="${LOGO_TECHNOVATION}" alt="Technovation Girls" style="height: 50px; margin-right: 20px; display: inline-block; vertical-align: middle;">
                     <img src="${LOGO_POWER_TO_CODE}" alt="Power To Code" style="height: 45px; display: inline-block; vertical-align: middle;">
                   </td>
                 </tr>
