@@ -1,57 +1,41 @@
 
-
-## Plan: Email de invitacion para usuarios sin registrar
+## Plan: Mostrar equipos en la matriz de ocupacion
 
 ### Que se va a hacer
 
-Crear una nueva Edge Function `send-invite-reminder` que envie un email personalizado a usuarios del whitelist que aun no se han registrado. El email tendra un tono de "te animamos a registrarte" con un enlace directo al registro, diferente del magic link actual que dice "Hola de nuevo".
+Hacer que cada celda de la matriz de ocupacion sea expandible para ver los nombres de los equipos asignados. Al hacer clic en una celda (o con un tooltip/popover), se mostraran los equipos que estan en ese taller en ese turno.
+
+### Propuesta de diseno
+
+Cada celda de la matriz mantendra el indicador actual (semaforo + "3/20" + "2 equipos"), pero al hacer clic se abrira un **Popover** debajo mostrando la lista de equipos con su numero de participantes. Asi no se pierde la vista compacta pero tienes el detalle cuando lo necesitas.
+
+```text
++---------------------+------------------+------------------+
+| Taller              | Turno 1          | Turno 2          |
++---------------------+------------------+------------------+
+| Diseno y Usabilidad |  [clic]          |                  |
+|                     |  +-------------+ |                  |
+|                     |  | Equipo A (4)|  |                  |
+|                     |  | Equipo B (3)|  |                  |
+|                     |  +-------------+ |                  |
++---------------------+------------------+------------------+
+```
 
 ### Cambios
 
-#### 1. Nueva Edge Function: `send-invite-reminder`
+**`src/pages/admin/AdminWorkshopCapacity.tsx`:**
 
-Funcion que recibe el email y nombre del usuario, y envia un correo via Brevo con:
-- Asunto: "Te esperamos en Technovation Girls Madrid"
-- Mensaje personalizado: "Hola [nombre], aun no te has registrado en nuestra plataforma..."
-- Boton con enlace directo a la pagina de registro de la plataforma
-- Misma plantilla visual (logos, colores) que los emails actuales
-- No requiere webhook signature (se valida que el llamante sea admin via JWT)
+1. Importar `Popover`, `PopoverTrigger`, `PopoverContent` de los componentes UI
+2. Modificar la query de assignments para incluir tambien el `teamId` en el objeto de occupancy (ahora solo guarda `teamName`), para poder mostrar el conteo de participantes por equipo
+3. Cambiar la estructura de datos de `teams: string[]` a `teams: { name: string; participants: number }[]`
+4. Envolver cada celda de la tabla en un `Popover`:
+   - El trigger sera el indicador actual (semaforo + cifras) con cursor pointer
+   - El content mostrara una lista con el nombre de cada equipo y su numero de participantes entre parentesis
+   - Si no hay equipos, no se muestra popover
+5. Anadir un indicador visual (cursor pointer, hover sutil) para que se entienda que la celda es clicable
 
-#### 2. Boton "Enviar recordatorio" en la tabla de usuarios sin registrar
+### Resultado
 
-En `UnregisteredUsersTable.tsx`:
-- Anadir una columna de acciones con un boton/icono de "Enviar recordatorio" (icono de email) en cada fila
-- Al hacer clic, invoca la edge function con el email y nombre del usuario
-- Muestra toast de confirmacion
-
-#### 3. Accion desde el dialogo de "Invitar Usuario" existente
-
-En `AdminUsers.tsx`:
-- El dialogo actual de "Invitar Usuario" seguira funcionando para invitar emails nuevos (magic link)
-- No se modifica el flujo existente, ya que el nuevo flujo es especifico para usuarios del whitelist
-
-### Detalles tecnicos
-
-**Nueva Edge Function `supabase/functions/send-invite-reminder/index.ts`:**
-- Recibe: `{ email, firstName, lastName }` en el body
-- Valida JWT del admin (verify_jwt = true en config.toml)
-- Genera HTML con plantilla branded igual que send-auth-email
-- Contenido diferenciado:
-  - Heading: "Te esperamos en Technovation Girls Madrid"
-  - Intro: "Hola {nombre}, vemos que aun no te has registrado en nuestra plataforma de gestion de Technovation Girls Madrid. Registrate para poder acceder a los eventos, talleres y toda la informacion de la temporada."
-  - Boton: "Registrarme ahora" -> enlace a la pagina de inicio de la plataforma
-- Envia via Brevo API (misma config que send-auth-email)
-
-**`supabase/config.toml`:**
-- Anadir entrada para `send-invite-reminder` con `verify_jwt = true`
-
-**`src/components/admin/users/UnregisteredUsersTable.tsx`:**
-- Anadir columna de acciones con boton de email
-- Estado de loading individual por fila
-- Toast de exito/error
-- Opcionalmente: boton de "Enviar a todos" en la cabecera para envio masivo
-
-**Archivos afectados:**
-- `supabase/functions/send-invite-reminder/index.ts` (nuevo)
-- `supabase/config.toml` (nueva entrada)
-- `src/components/admin/users/UnregisteredUsersTable.tsx` (columna de acciones)
+- Vista compacta: misma matriz actual con semaforos y numeros
+- Al hacer clic en cualquier celda: popover con la lista de equipos y participantes de cada uno
+- Sin cambios en la estructura de la pagina ni navegacion adicional
