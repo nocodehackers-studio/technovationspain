@@ -1,65 +1,67 @@
 
+# Plan: Update Consent Text to Exact Legal Requirements
 
-# Fix: Reports and Event Stats Data Export
+## Summary
+The consent text needs to match the exact legal wording provided. Two components display consent text: the **ConsentModal** (shown during event registration) and the **ConsentPage** (public page for parents/guardians of minors). The ConsentModal is mostly correct but has minor differences. The ConsentPage uses a completely different simplified text and needs a full rewrite.
 
-## Issues Found
+## Changes Found
 
-### 1. Reports > Users tab: not updating properly
-The user stats query fetches `profiles` with `select("created_at, verification_status")` but Supabase has a default limit of 1000 rows. If there are more than 1000 profiles, recent registrations won't appear. The fix is to paginate or use a count query.
+### 1. ConsentModal.tsx (modal during registration) -- minor fixes
+The full RGPD tables are already present and correct. Three differences need fixing:
+- **"esta" accent**: Line 210 says "a favor de **esta**" but current code says "**esta**" -- actually, let me re-check... current code says "ésta" (with accent). The user's exact text uses "esta" (no accent). Fix needed.
+- **"al haber sacado" vs "al sacar"**: Line 221 currently says "al sacar una entrada" but should say "al haber sacado una entrada"
+- **Missing event location**: The final paragraph needs to include the venue address after the date (e.g., "en la Nave de Boetticher, C. Cifuentes, 5, Villaverde, 28021 Madrid")
 
-### 2. Reports > Events tab: only showing companions
-The event stats query (lines 109-132) tries to join `profiles` and `user_roles` via `event_registrations`, but those foreign keys don't exist. The `roleBreakdown` object is initialized but never populated -- `participants` and `mentors` stay at 0. Only `companions` gets a value. Additionally, the "Exportar Lista" button just shows a placeholder `toast.info("Exportacion en desarrollo")`.
+### 2. ConsentPage.tsx (public page for minors) -- full rewrite of consent text
+Lines 286-304 display a simplified paragraph that is completely different from the required legal text. This must be replaced with the full legal text including:
+- The two introductory paragraphs about RGPD
+- Table 1: "Informacion sobre proteccion de datos" (7 rows)
+- Table 2: "Informacion especifica sobre el tratamiento de imagenes" (5 rows)
+- The two closing paragraphs with dynamic event name/date/location
+- Currently this page has no access to event details (name, date, location). A new edge function is needed to fetch this info from the consent_token.
 
-### 3. Reports > Export tab: team members export is raw IDs
-The `exportTable("team_members", ...)` does a raw `select("*")`, which only exports `user_id` and `team_id` UUIDs -- not useful. The teams export also lacks student/mentor counts and their names.
+### 3. EventRegistrationPage.tsx -- pass location to modal
+- Currently passes `eventName` and `eventDate` to ConsentModal but not the location
+- Needs to pass `eventLocation` constructed from `event.location_name`, `event.location_address`, `event.location_city`
 
-### 4. Reports > Export tab: toast says "exportado correctamente" instead of "Exportacion en curso"
-The `exportTable` function uses `toast.loading()` then immediately dismisses it after the query completes and shows a success toast. The user wants to see "Exportacion en curso" as the loading message.
-
-### 5. Event Stats CSV export: missing team_name and companion details
-The `handleExport` in `EventStatsView.tsx` doesn't include `team_name`. The registration query doesn't fetch it either. Companion names/details are also not included in the export.
-
----
-
-## Plan
-
-### A. Fix Reports > Users tab (data limit)
-- Add `.limit(10000)` or use multiple paginated fetches to ensure all profiles are returned.
-
-### B. Fix Reports > Events tab stats
-- Rewrite the event stats query to use `event_ticket_types` (like the working `EventStatsView` does) instead of non-existent joins.
-- Calculate participants vs mentors/judges from `ticket_type.allowed_roles`.
-- Wire the "Exportar Lista" button to actually download the event registrations CSV (reuse `exportEventRegistrations`).
-
-### C. Fix Export tab: team members and teams exports
-- **Team Members**: Replace raw `select("*")` with a custom query that joins profiles (name, email) and teams (team name), exporting human-readable data.
-- **Teams**: Add a custom export that includes team name, hub, category, student count, mentor count, and lists student/mentor names and emails.
-- Remove the "Acompanantes" standalone export button (user says it's not useful).
-- Replace "Estudiantes Autorizados" with "Usuarios Autorizados" (table was migrated to `authorized_users`).
-
-### D. Fix toast message
-- Change `toast.loading` message from "Exportando..." to "Exportacion en curso..." and keep it visible until download completes.
-
-### E. Fix Event Stats export (EventStatsView.tsx)
-- Add `team_name` to the registration query and CSV export.
-- Fetch companion details (first_name, last_name, relationship) for each registration and include them as additional rows or columns in the CSV.
-
----
+### 4. New Edge Function: `get-consent-info`
+- The public ConsentPage only has a `consent_token` and no authentication, so it cannot query event details directly
+- A lightweight edge function will look up the consent_token in `event_registrations`, join to `events`, and return event name, date, and location fields
+- Uses service role key (like the existing `submit-event-consent`)
 
 ## Technical Details
 
-### Files to modify:
-1. **`src/pages/admin/AdminReports.tsx`**
-   - Users query: add `.limit(10000)` to profiles fetch
-   - Events tab: rewrite `eventStats` query to use ticket types for role breakdown; wire export button
-   - Export tab: replace `exportTable("team_members")` with custom `exportTeamMembers()` that joins profiles+teams
-   - Export tab: replace `exportTable("teams")` with custom `exportTeamsWithMembers()` that includes counts and member names
-   - Export tab: remove "Acompanantes" button, fix "authorized_students" to "authorized_users"
-   - Change toast messages to "Exportacion en curso"
+### File: `src/components/events/ConsentModal.tsx`
+- Add new prop: `eventLocation?: string`
+- Fix "esta" accent in "Terminos de la cesion" table row (line 210): change "esta" to "esta" (remove tilde from "esta")
+- Update final paragraph (line 221): change "al sacar" to "al haber sacado" and append location info: "en {eventLocation}"
 
-2. **`src/components/admin/events/EventStatsView.tsx`**
-   - Add `team_name` to the registration select query (line 62)
-   - Add `team_name` column to the table
-   - Add `team_name` to the CSV export `handleExport`
-   - Fetch companion details and append them to the CSV (as sub-rows under each registration, with columns: Nombre acompanante, Apellido, Parentesco)
+### File: `src/pages/events/EventRegistrationPage.tsx`
+- Construct location string from event fields: `${event.location_name}, ${event.location_address}, ${event.location_city}`
+- Pass it as `eventLocation` prop to `<ConsentModal />`
 
+### File: `src/pages/consent/ConsentPage.tsx`
+- Add `useEffect` + `useState` to fetch event info on mount via the new edge function when `consentToken` is available
+- Replace the simplified consent text section (lines 280-305) with the full legal text including:
+  - Two RGPD tables (matching ConsentModal structure)
+  - Dynamic event name, date, and location from the fetched data
+  - Participant info header
+- Show a loading state while fetching event info
+- Handle error state if token is invalid
+
+### New file: `supabase/functions/get-consent-info/index.ts`
+- Accepts POST with `{ consent_token: string }`
+- Uses service role client to query `event_registrations` by `consent_token`, joining `events` for name, date, location fields
+- Returns `{ event_name, event_date, event_location_name, event_location_address, event_location_city, participant_name, participant_age? }` or `{ error: "not_found" }`
+- Applies the same CORS whitelist as other edge functions
+- Does NOT require authentication (public endpoint for parents/guardians)
+
+### Shared consent text
+To avoid duplication between ConsentModal and ConsentPage, a shared React component `ConsentLegalText` will be extracted with the full legal text, accepting dynamic props for event name, date, location, participant name, and age. Both ConsentModal and ConsentPage will import and render this component.
+
+## Execution Order
+1. Create `supabase/functions/get-consent-info/index.ts` and deploy
+2. Create shared component `src/components/events/ConsentLegalText.tsx`
+3. Update `ConsentModal.tsx` to use shared component, add `eventLocation` prop
+4. Update `EventRegistrationPage.tsx` to pass `eventLocation`
+5. Update `ConsentPage.tsx` to fetch event info and use shared component
