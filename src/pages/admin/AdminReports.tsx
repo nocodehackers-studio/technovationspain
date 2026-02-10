@@ -18,8 +18,10 @@ import {
   ChartTooltipContent,
 } from "@/components/ui/chart";
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, CartesianGrid } from "recharts";
-import { Download, Users, Calendar, FileText } from "lucide-react";
+import { Download, Users, Calendar, FileText, Database } from "lucide-react";
 import { toast } from "sonner";
+import { startOfWeek, addWeeks, addDays, format } from "date-fns";
+import { es } from "date-fns/locale";
 
 export default function AdminReports() {
   const [selectedEventId, setSelectedEventId] = useState<string>("");
@@ -76,22 +78,20 @@ export default function AdminReports() {
         }
       });
 
-      // Weekly registrations (last 8 weeks)
+      // Weekly registrations (last 8 weeks) - Monday-based weeks
       const weeklyData: { week: string; count: number }[] = [];
-      const now = new Date();
+      const currentWeekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
       for (let i = 7; i >= 0; i--) {
-        const weekStart = new Date(now);
-        weekStart.setDate(weekStart.getDate() - i * 7);
-        const weekEnd = new Date(weekStart);
-        weekEnd.setDate(weekEnd.getDate() + 7);
+        const wStart = addWeeks(currentWeekStart, -i);
+        const wEnd = addDays(wStart, 7);
 
         const count = profiles?.filter((p) => {
           const created = new Date(p.created_at || "");
-          return created >= weekStart && created < weekEnd;
+          return created >= wStart && created < wEnd;
         }).length || 0;
 
         weeklyData.push({
-          week: weekStart.toLocaleDateString("es-ES", { day: "2-digit", month: "short" }),
+          week: format(wStart, "dd MMM", { locale: es }),
           count,
         });
       }
@@ -233,93 +233,149 @@ export default function AdminReports() {
   const exportTeamMembers = async () => {
     const toastId = toast.loading("Exportación en curso...");
 
-    const { data, error } = await supabase
-      .from("team_members")
-      .select(`
-        member_type, joined_at,
-        team:teams(name, category),
-        profile:profiles(first_name, last_name, email, phone)
-      `)
-      .limit(10000);
+    try {
+      // Fetch registered members
+      const { data: registeredMembers, error } = await supabase
+        .from("team_members")
+        .select(`
+          member_type, joined_at,
+          team:teams(name, category),
+          profile:profiles(first_name, last_name, email, phone)
+        `)
+        .limit(10000);
 
-    if (error) {
+      if (error) throw error;
+
+      // Fetch whitelist members (pending = no matched_profile_id)
+      const { data: whitelistMembers } = await supabase
+        .from("authorized_users")
+        .select("first_name, last_name, email, phone, team_name, profile_type, matched_profile_id")
+        .not("team_name", "is", null)
+        .limit(10000);
+
+      const flatData: Record<string, string>[] = [];
+
+      // Add registered members
+      registeredMembers?.forEach((tm) => {
+        flatData.push({
+          Equipo: tm.team?.name || "",
+          Categoría: tm.team?.category || "",
+          Tipo: tm.member_type === "participant" ? "Estudiante" : "Mentor",
+          Nombre: tm.profile?.first_name || "",
+          Apellido: tm.profile?.last_name || "",
+          Email: tm.profile?.email || "",
+          Teléfono: tm.profile?.phone || "",
+          Estado: "Registrado",
+          "Fecha ingreso": tm.joined_at || "",
+        });
+      });
+
+      // Add pending whitelist members (not matched to any profile)
+      whitelistMembers?.filter(w => !w.matched_profile_id).forEach((w) => {
+        flatData.push({
+          Equipo: w.team_name || "",
+          Categoría: "",
+          Tipo: w.profile_type === "student" ? "Estudiante" : w.profile_type === "mentor" ? "Mentor" : w.profile_type || "",
+          Nombre: w.first_name || "",
+          Apellido: w.last_name || "",
+          Email: w.email || "",
+          Teléfono: w.phone || "",
+          Estado: "Pendiente",
+          "Fecha ingreso": "",
+        });
+      });
+
+      exportToCSV(flatData, "miembros_equipo");
       toast.dismiss(toastId);
-      toast.error(`Error al exportar: ${error.message}`);
-      return;
+      toast.success("Miembros de equipo exportado correctamente");
+    } catch (err: any) {
+      toast.dismiss(toastId);
+      toast.error(`Error al exportar: ${err.message}`);
     }
-
-    const flatData = data?.map((tm) => ({
-      Equipo: tm.team?.name || "",
-      Categoría: tm.team?.category || "",
-      Tipo: tm.member_type || "",
-      Nombre: tm.profile?.first_name || "",
-      Apellido: tm.profile?.last_name || "",
-      Email: tm.profile?.email || "",
-      Teléfono: tm.profile?.phone || "",
-      "Fecha ingreso": tm.joined_at || "",
-    })) || [];
-
-    exportToCSV(flatData, "miembros_equipo");
-    toast.dismiss(toastId);
-    toast.success("Miembros de equipo exportado correctamente");
   };
 
   const exportTeamsWithDetails = async () => {
     const toastId = toast.loading("Exportación en curso...");
 
-    const { data: teams, error: teamsError } = await supabase
-      .from("teams")
-      .select(`
-        id, name, category, tg_team_id, notes,
-        hub:hubs(name)
-      `)
-      .limit(10000);
+    try {
+      const { data: teams, error: teamsError } = await supabase
+        .from("teams")
+        .select(`
+          id, name, category, tg_team_id, notes,
+          hub:hubs(name)
+        `)
+        .limit(10000);
 
-    if (teamsError) {
+      if (teamsError) throw teamsError;
+
+      const teamIds = teams?.map((t) => t.id) || [];
+      
+      // Fetch registered members
+      const { data: members } = await supabase
+        .from("team_members")
+        .select(`
+          team_id, member_type,
+          profile:profiles(first_name, last_name, email)
+        `)
+        .in("team_id", teamIds)
+        .limit(10000);
+
+      // Fetch whitelist members grouped by team_name
+      const { data: whitelistMembers } = await supabase
+        .from("authorized_users")
+        .select("first_name, last_name, email, team_name, profile_type, matched_profile_id")
+        .not("team_name", "is", null)
+        .limit(10000);
+
+      const membersByTeam: Record<string, typeof members> = {};
+      members?.forEach((m) => {
+        if (m.team_id) {
+          if (!membersByTeam[m.team_id]) membersByTeam[m.team_id] = [];
+          membersByTeam[m.team_id]!.push(m);
+        }
+      });
+
+      // Group whitelist by team_name
+      const whitelistByTeam: Record<string, typeof whitelistMembers> = {};
+      whitelistMembers?.forEach((w) => {
+        const tn = w.team_name || "";
+        if (!whitelistByTeam[tn]) whitelistByTeam[tn] = [];
+        whitelistByTeam[tn]!.push(w);
+      });
+
+      const flatData = teams?.map((t) => {
+        const teamMembers = membersByTeam[t.id] || [];
+        const regStudents = teamMembers.filter((m) => m.member_type === "participant");
+        const regMentors = teamMembers.filter((m) => m.member_type === "mentor");
+
+        const wl = whitelistByTeam[t.name] || [];
+        const pendingStudents = wl.filter(w => !w.matched_profile_id && w.profile_type === "student");
+        const pendingMentors = wl.filter(w => !w.matched_profile_id && w.profile_type === "mentor");
+
+        return {
+          Equipo: t.name,
+          Hub: t.hub?.name || "",
+          Categoría: t.category || "",
+          "TG Team ID": t.tg_team_id || "",
+          "Nº Estudiantes registradas": regStudents.length,
+          "Nº Estudiantes pendientes": pendingStudents.length,
+          "Nº Mentores registrados": regMentors.length,
+          "Nº Mentores pendientes": pendingMentors.length,
+          "Estudiantes registradas": regStudents.map((s) => `${s.profile?.first_name || ""} ${s.profile?.last_name || ""} (${s.profile?.email || ""})`).join("; "),
+          "Estudiantes pendientes": pendingStudents.map((s) => `${s.first_name || ""} ${s.last_name || ""} (${s.email || ""})`).join("; "),
+          "Mentores registrados": regMentors.map((m) => `${m.profile?.first_name || ""} ${m.profile?.last_name || ""} (${m.profile?.email || ""})`).join("; "),
+          "Mentores pendientes": pendingMentors.map((m) => `${m.first_name || ""} ${m.last_name || ""} (${m.email || ""})`).join("; "),
+          Notas: t.notes || "",
+        };
+      }) || [];
+
+      exportToCSV(flatData, "equipos_detalle");
       toast.dismiss(toastId);
-      toast.error(`Error al exportar: ${teamsError.message}`);
-      return;
+      toast.success("Equipos exportado correctamente");
+    } catch (err: any) {
+      toast.dismiss(toastId);
+      toast.error(`Error al exportar: ${err.message}`);
     }
-
-    const teamIds = teams?.map((t) => t.id) || [];
-    const { data: members } = await supabase
-      .from("team_members")
-      .select(`
-        team_id, member_type,
-        profile:profiles(first_name, last_name, email)
-      `)
-      .in("team_id", teamIds)
-      .limit(10000);
-
-    const membersByTeam: Record<string, typeof members> = {};
-    members?.forEach((m) => {
-      if (m.team_id) {
-        if (!membersByTeam[m.team_id]) membersByTeam[m.team_id] = [];
-        membersByTeam[m.team_id]!.push(m);
-      }
-    });
-
-    const flatData = teams?.map((t) => {
-      const teamMembers = membersByTeam[t.id] || [];
-      const students = teamMembers.filter((m) => m.member_type === "participant");
-      const mentors = teamMembers.filter((m) => m.member_type === "mentor");
-
-      return {
-        Equipo: t.name,
-        Hub: t.hub?.name || "",
-        Categoría: t.category || "",
-        "TG Team ID": t.tg_team_id || "",
-        "Nº Estudiantes": students.length,
-        "Nº Mentores": mentors.length,
-        Estudiantes: students.map((s) => `${s.profile?.first_name || ""} ${s.profile?.last_name || ""} (${s.profile?.email || ""})`).join("; "),
-        Mentores: mentors.map((m) => `${m.profile?.first_name || ""} ${m.profile?.last_name || ""} (${m.profile?.email || ""})`).join("; "),
-        Notas: t.notes || "",
-      };
-    }) || [];
-
-    exportToCSV(flatData, "equipos_detalle");
-    toast.dismiss(toastId);
-    toast.success("Equipos exportado correctamente");
   };
 
   const exportEventRegistrations = async () => {
@@ -330,42 +386,193 @@ export default function AdminReports() {
 
     const toastId = toast.loading("Exportación en curso...");
 
-    const { data, error } = await supabase
-      .from("event_registrations")
-      .select(`
-        registration_number,
-        first_name,
-        last_name,
-        email,
-        phone,
-        team_name,
-        team_id_tg,
-        tg_email,
-        registration_status,
-        checked_in_at,
-        image_consent,
-        data_consent,
-        created_at,
-        ticket_type:event_ticket_types(name)
-      `)
-      .eq("event_id", selectedEventId)
-      .limit(10000);
+    try {
+      // Only main registrations (not companions)
+      const { data, error } = await supabase
+        .from("event_registrations")
+        .select(`
+          id,
+          registration_number,
+          first_name,
+          last_name,
+          email,
+          phone,
+          team_name,
+          team_id_tg,
+          tg_email,
+          registration_status,
+          checked_in_at,
+          image_consent,
+          data_consent,
+          created_at,
+          ticket_type:event_ticket_types(name)
+        `)
+        .eq("event_id", selectedEventId)
+        .eq("is_companion", false)
+        .neq("registration_status", "cancelled")
+        .limit(10000);
 
-    if (error) {
+      if (error) throw error;
+
+      // Fetch companions for these registrations
+      const regIds = data?.map(r => r.id) || [];
+      let companionsByReg: Record<string, { first_name: string | null; last_name: string | null; relationship: string | null }[]> = {};
+      
+      if (regIds.length > 0) {
+        const { data: companions } = await supabase
+          .from("companions")
+          .select("event_registration_id, first_name, last_name, relationship")
+          .in("event_registration_id", regIds);
+
+        companions?.forEach(c => {
+          if (c.event_registration_id) {
+            if (!companionsByReg[c.event_registration_id]) companionsByReg[c.event_registration_id] = [];
+            companionsByReg[c.event_registration_id].push(c);
+          }
+        });
+      }
+
+      // Build CSV rows with nested companions
+      const csvRows: Record<string, string | number | boolean | null>[] = [];
+      data?.forEach(r => {
+        csvRows.push({
+          "Nº Registro": r.registration_number || "",
+          Nombre: r.first_name || "",
+          Apellido: r.last_name || "",
+          Email: r.email || "",
+          Teléfono: r.phone || "",
+          Equipo: r.team_name || "",
+          "TG Team ID": r.team_id_tg || "",
+          "TG Email": r.tg_email || "",
+          "Tipo Entrada": r.ticket_type?.name || "",
+          Estado: r.registration_status || "",
+          "Check-in": r.checked_in_at ? format(new Date(r.checked_in_at), "dd/MM/yyyy HH:mm") : "",
+          "Consentimiento imagen": r.image_consent ? "Sí" : "No",
+          "Consentimiento datos": r.data_consent ? "Sí" : "No",
+          "Fecha registro": r.created_at ? format(new Date(r.created_at), "dd/MM/yyyy HH:mm") : "",
+        });
+
+        // Add companion rows
+        const comps = companionsByReg[r.id] || [];
+        comps.forEach(c => {
+          csvRows.push({
+            "Nº Registro": "",
+            Nombre: `  ↳ ${c.first_name || ""}`,
+            Apellido: c.last_name || "",
+            Email: "",
+            Teléfono: "",
+            Equipo: r.team_name || "",
+            "TG Team ID": "",
+            "TG Email": "",
+            "Tipo Entrada": `Acompañante (${c.relationship || ""})`,
+            Estado: "",
+            "Check-in": "",
+            "Consentimiento imagen": "",
+            "Consentimiento datos": "",
+            "Fecha registro": "",
+          });
+        });
+      });
+
+      const eventName = events?.find((e) => e.id === selectedEventId)?.name || "evento";
+      exportToCSV(csvRows, `registros_${eventName.replace(/\s+/g, "_")}`);
       toast.dismiss(toastId);
-      toast.error(`Error al exportar: ${error.message}`);
-      return;
+      toast.success("Registros exportados correctamente");
+    } catch (err: any) {
+      toast.dismiss(toastId);
+      toast.error(`Error al exportar: ${err.message}`);
     }
+  };
 
-    const flatData = data?.map((r) => ({
-      ...r,
-      ticket_type: r.ticket_type?.name || "",
-    }));
+  // Cross-referenced export: profiles + authorized_users + roles + teams
+  const exportUsersCrossReferenced = async () => {
+    const toastId = toast.loading("Exportación en curso...");
 
-    const eventName = events?.find((e) => e.id === selectedEventId)?.name || "evento";
-    exportToCSV(flatData || [], `registros_${eventName.replace(/\s+/g, "_")}`);
-    toast.dismiss(toastId);
-    toast.success("Registros exportados correctamente");
+    try {
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("id, first_name, last_name, email, verification_status, hub_id, created_at, tg_id, tg_email, date_of_birth, phone, dni")
+        .limit(10000);
+
+      const { data: roles } = await supabase
+        .from("user_roles")
+        .select("user_id, role")
+        .limit(10000);
+
+      const { data: teamMembers } = await supabase
+        .from("team_members")
+        .select("user_id, team:teams(name)")
+        .limit(10000);
+
+      const { data: hubs } = await supabase
+        .from("hubs")
+        .select("id, name")
+        .limit(10000);
+
+      const { data: authorizedUsers } = await supabase
+        .from("authorized_users")
+        .select("matched_profile_id, email, city, state, school_name, company_name, age, parent_name, parent_email, parental_consent, media_consent, team_name, profile_type, imported_at, tg_id")
+        .limit(10000);
+
+      // Build lookup maps
+      const roleMap: Record<string, string[]> = {};
+      roles?.forEach(r => {
+        if (!roleMap[r.user_id]) roleMap[r.user_id] = [];
+        roleMap[r.user_id].push(r.role);
+      });
+
+      const teamMap: Record<string, string> = {};
+      teamMembers?.forEach(tm => {
+        if (tm.user_id && tm.team?.name) teamMap[tm.user_id] = tm.team.name;
+      });
+
+      const hubMap: Record<string, string> = {};
+      hubs?.forEach(h => { hubMap[h.id] = h.name; });
+
+      const auByProfile: Record<string, typeof authorizedUsers extends (infer T)[] | null ? T : never> = {};
+      const auByEmail: Record<string, typeof authorizedUsers extends (infer T)[] | null ? T : never> = {};
+      authorizedUsers?.forEach(au => {
+        if (au.matched_profile_id) auByProfile[au.matched_profile_id] = au;
+        auByEmail[au.email.toLowerCase()] = au;
+      });
+
+      const csvRows = profiles?.map(p => {
+        const au = auByProfile[p.id] || auByEmail[p.email.toLowerCase()];
+        return {
+          Nombre: p.first_name || "",
+          Apellido: p.last_name || "",
+          Email: p.email,
+          Rol: (roleMap[p.id] || []).join(", "),
+          "Estado verificación": p.verification_status || "",
+          Hub: p.hub_id ? (hubMap[p.hub_id] || "") : "",
+          Equipo: teamMap[p.id] || au?.team_name || "",
+          "TG ID": p.tg_id || au?.tg_id || "",
+          "TG Email": p.tg_email || "",
+          DNI: p.dni || "",
+          Teléfono: p.phone || "",
+          "Fecha nacimiento": p.date_of_birth || "",
+          Ciudad: au?.city || "",
+          "Comunidad Autónoma": au?.state || "",
+          Colegio: au?.school_name || "",
+          Empresa: au?.company_name || "",
+          "Edad (CSV)": au?.age ?? "",
+          "Nombre padre/madre": au?.parent_name || "",
+          "Email padre/madre": au?.parent_email || "",
+          "Consentimiento parental": au?.parental_consent || "",
+          "Consentimiento media": au?.media_consent || "",
+          "Tipo perfil (CSV)": au?.profile_type || "",
+          "Fecha registro plataforma": p.created_at ? format(new Date(p.created_at), "dd/MM/yyyy HH:mm") : "",
+          "Fecha importación CSV": au?.imported_at ? format(new Date(au.imported_at), "dd/MM/yyyy HH:mm") : "",
+        };
+      }) || [];
+
+      exportToCSV(csvRows, "usuarios_completo_cruzado");
+      toast.dismiss(toastId);
+      toast.success("Exportación cruzada completada");
+    } catch (err: any) {
+      toast.dismiss(toastId);
+      toast.error(`Error al exportar: ${err.message}`);
+    }
   };
 
   const COLORS = ["hsl(270, 80%, 55%)", "hsl(200, 90%, 50%)", "hsl(175, 80%, 45%)", "hsl(150, 80%, 42%)", "hsl(35, 95%, 55%)"];
@@ -614,10 +821,17 @@ export default function AdminReports() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
-                {/* Usuarios */}
+              {/* Usuarios */}
                 <div className="space-y-2">
                   <h3 className="font-medium">Usuarios</h3>
                   <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    <Button
+                      variant="default"
+                      onClick={exportUsersCrossReferenced}
+                    >
+                      <Database className="mr-2 h-4 w-4" />
+                      Usuarios Completo (cruzado)
+                    </Button>
                     <Button
                       variant="outline"
                       onClick={() => exportTable("profiles", "usuarios")}
