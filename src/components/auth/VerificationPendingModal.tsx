@@ -64,8 +64,7 @@ export function VerificationPendingModal() {
               <div className="text-sm">
                 <p className="font-medium">¿Por qué necesitamos verificarte?</p>
                 <p className="text-muted-foreground mt-1">
-                  Para garantizar la seguridad de todas las participantes y cumplir con la 
-                  normativa de protección de datos (RGPD/LOPDGDD), verificamos que todos los 
+                  Para garantizar la seguridad de todas las participantes, verificamos que todos los 
                   usuarios estén registrados en Technovation Global.
                 </p>
               </div>

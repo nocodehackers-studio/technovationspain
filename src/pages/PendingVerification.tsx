@@ -41,7 +41,7 @@ export default function PendingVerification() {
           </div>
           <CardTitle className="text-2xl">Verificación pendiente</CardTitle>
           <CardDescription className="text-base">
-            Para garantizar la seguridad de todas las participantes, verificamos que todos los usuarios estén registrados en Technovation Global.
+              Para garantizar la seguridad de todas las participantes, verificamos que todos los usuarios estén registrados en Technovation Global.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
