@@ -241,7 +241,7 @@ export default function EventDetailPage() {
                   
                   {event.registration_close_date && (
                     <p className="text-xs text-center text-muted-foreground">
-                      Inscripciones hasta el {format(new Date(event.registration_close_date), "d 'de' MMMM", { locale: es })}
+                      Inscripciones hasta el {format(new Date(event.registration_close_date.split('T')[0].split(' ')[0] + 'T12:00:00'), "d 'de' MMMM", { locale: es })}
                     </p>
                   )}
                 </CardContent>
