@@ -182,7 +182,7 @@ export default function ParticipantDashboard() {
                   ¡Hola, {profile?.first_name || 'Participante'}!
                 </h1>
                 <p className="text-primary-foreground/80 text-sm">
-                  Bienvenido/a a Technovation Spain
+                  Bienvenido/a a Technovation Girls Madrid
                 </p>
               </div>
             </div>

@@ -153,7 +153,7 @@ export default function MentorDashboard() {
                   ¡Hola, {profile?.first_name || 'Mentor'}!
                 </h1>
                 <p className="text-secondary-foreground/80 text-sm">
-                  Panel de Mentor - Technovation Spain
+                  Panel de Mentor - Technovation Girls Madrid
                 </p>
               </div>
             </div>
