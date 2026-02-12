@@ -40,7 +40,7 @@ export default function RegisterJudge() {
     setLoading(true);
     
     const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    const baseUrl = isLocalhost ? window.location.origin : 'https://technovationspain.lovable.app';
+    const baseUrl = isLocalhost ? window.location.origin : 'https://app.powertocode.org';
     
     const { error } = await supabase.auth.signInWithOtp({
       email,

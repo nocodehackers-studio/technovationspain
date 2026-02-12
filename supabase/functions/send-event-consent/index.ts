@@ -18,7 +18,6 @@ function escapeHtml(text: string | null | undefined): string {
 }
 
 const ALLOWED_ORIGINS = [
-  "https://technovationspain.lovable.app",
   "https://app.powertocode.org",
   "http://localhost:5173",
 ];

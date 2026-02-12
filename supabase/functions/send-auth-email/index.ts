@@ -12,7 +12,7 @@ const BREVO_REPLY_TO_EMAIL = Deno.env.get("BREVO_REPLY_TO_EMAIL") || "soporte@po
 let hookSecret = Deno.env.get("SEND_EMAIL_HOOK_SECRET") as string;
 
 // Logo URLs from Supabase Storage
-const LOGO_TECHNOVATION = "https://technovationspain.lovable.app/images/Logo_Technovation_Girls_Transparente.png";
+const LOGO_TECHNOVATION = "https://app.powertocode.org/images/Logo_Technovation_Girls_Transparente.png";
 const LOGO_POWER_TO_CODE = "https://orvkqnbshkxzyhqpjsdw.supabase.co/storage/v1/object/public/Assets/Logo%20transparente%20PowerToCode.png";
 
 // Supabase provides: "v1,whsec_<base64>". standardwebhooks expects ONLY the base64 part.
@@ -25,7 +25,6 @@ if (hookSecret?.startsWith("v1,whsec_")) {
 }
 
 const ALLOWED_ORIGINS = [
-  "https://technovationspain.lovable.app",
   "https://app.powertocode.org",
   "http://localhost:5173",
 ];

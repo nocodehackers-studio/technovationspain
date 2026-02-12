@@ -5,7 +5,7 @@ const BREVO_SENDER_EMAIL = Deno.env.get("BREVO_SENDER_EMAIL") || "comunicacion@p
 const BREVO_SENDER_NAME = Deno.env.get("BREVO_SENDER_NAME") || "Technovation Girls Madrid";
 const BREVO_REPLY_TO_EMAIL = Deno.env.get("BREVO_REPLY_TO_EMAIL") || "soporte@powertocode.org";
 
-const LOGO_TECHNOVATION = "https://technovationspain.lovable.app/images/Logo_Technovation_Girls_Transparente.png";
+const LOGO_TECHNOVATION = "https://app.powertocode.org/images/Logo_Technovation_Girls_Transparente.png";
 const LOGO_POWER_TO_CODE = "https://orvkqnbshkxzyhqpjsdw.supabase.co/storage/v1/object/public/Assets/Logo%20transparente%20PowerToCode.png";
 
 const corsHeaders = {

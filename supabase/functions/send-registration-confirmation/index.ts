@@ -8,7 +8,6 @@ const BREVO_SENDER_NAME = Deno.env.get("BREVO_SENDER_NAME") || "Technovation Gir
 const BREVO_REPLY_TO_EMAIL = Deno.env.get("BREVO_REPLY_TO_EMAIL") || "soporte@powertocode.org";
 
 const ALLOWED_ORIGINS = [
-  "https://technovationspain.lovable.app",
   "https://app.powertocode.org",
   "http://localhost:5173",
 ];
@@ -197,8 +196,8 @@ const handler = async (req: Request): Promise<Response> => {
     });
 
     // Build URLs
-    const ticketUrl = `https://technovationspain.lovable.app/tickets/${registration.id}`;
-    const validateUrl = `https://technovationspain.lovable.app/validate/${registration.qr_code}`;
+    const ticketUrl = `https://app.powertocode.org/tickets/${registration.id}`;
+    const validateUrl = `https://app.powertocode.org/validate/${registration.qr_code}`;
 
     // Format time without seconds
     const formatTime = (timeStr: string | null): string => {
@@ -271,7 +270,7 @@ const handler = async (req: Request): Promise<Response> => {
       console.log("Generating companion QR codes...");
       
       for (const companion of companions) {
-        const companionValidateUrl = `https://technovationspain.lovable.app/validate/${companion.qr_code}`;
+        const companionValidateUrl = `https://app.powertocode.org/validate/${companion.qr_code}`;
         const companionQrBuffer = await generateQRCode(companionValidateUrl);
         const companionQrFileName = `qr-codes/${companion.qr_code}.png`;
         

@@ -7,7 +7,6 @@ const BREVO_SENDER_NAME = Deno.env.get("BREVO_SENDER_NAME") || "Technovation Gir
 const BREVO_REPLY_TO_EMAIL = Deno.env.get("BREVO_REPLY_TO_EMAIL") || "soporte@powertocode.org";
 
 const ALLOWED_ORIGINS = [
-  "https://technovationspain.lovable.app",
   "https://app.powertocode.org",
   "http://localhost:5173",
 ];
@@ -256,7 +255,7 @@ const handler = async (req: Request): Promise<Response> => {
     // Send emails with rate limiting
     for (const registration of registrations || []) {
       try {
-        const ticketUrl = `https://technovationspain.lovable.app/tickets/${registration.id}`;
+        const ticketUrl = `https://app.powertocode.org/tickets/${registration.id}`;
 
         const templateVars: Record<string, string> = {
           "{nombre}": registration.first_name || "",

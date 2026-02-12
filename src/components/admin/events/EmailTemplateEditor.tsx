@@ -93,7 +93,7 @@ export function EmailTemplateEditor({
       "{ciudad}": "Madrid",
       "{numero_registro}": "TGM-2025-ABC123",
       "{tipo_entrada}": "Participante",
-      "{enlace_entrada}": "https://technovationspain.lovable.app/tickets/xxx",
+      "{enlace_entrada}": "https://app.powertocode.org/tickets/xxx",
     };
 
     Object.entries(sampleData).forEach(([key, value]) => {
