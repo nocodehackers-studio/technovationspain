@@ -85,6 +85,16 @@ const mapDivisionToCategory = (division: string): string => {
   return "junior"; // Default
 };
 
+// Split multi-team name string into individual team names.
+// Handles: "TeamA and TeamB", "TeamA, TeamB, and TeamC", "TeamA, TeamB"
+const splitTeamNames = (teamNameRaw: string): string[] => {
+  if (!teamNameRaw || !teamNameRaw.trim()) return [];
+  // Replace " and " with ", " to normalize separators
+  const normalized = teamNameRaw.replace(/\s+and\s+/gi, ', ');
+  // Split by "," and trim each
+  return normalized.split(',').map(s => s.trim()).filter(s => s.length > 0);
+};
+
 // Mapping from CSV headers to DB fields
 const CSV_FIELD_MAPPINGS: Record<string, string> = {
   "participant id": "tg_id",
@@ -512,16 +522,19 @@ export default function AdminImportUnified() {
     
     console.log('[CSV Import] Detected changes:', changesCount);
 
-    // Detect unique teams from CSV
+    // Detect unique teams from CSV (splitting multi-team names like "TeamA and TeamB")
     const uniqueTeamsMap = new Map<string, { name: string; division: string }>();
     for (const record of records) {
       if (record.team_name?.trim() && record.team_division?.trim()) {
-        const key = record.team_name.toLowerCase().trim();
-        if (!uniqueTeamsMap.has(key)) {
-          uniqueTeamsMap.set(key, {
-            name: record.team_name.trim(),
-            division: record.team_division.trim(),
-          });
+        const teamNames = splitTeamNames(record.team_name);
+        for (const teamName of teamNames) {
+          const key = teamName.toLowerCase();
+          if (!uniqueTeamsMap.has(key)) {
+            uniqueTeamsMap.set(key, {
+              name: teamName,
+              division: record.team_division.trim(),
+            });
+          }
         }
       }
     }
