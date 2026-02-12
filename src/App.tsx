@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/hooks/useAuth";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { VerificationPendingModal } from "@/components/auth/VerificationPendingModal";
+import { supabaseConfigError } from "@/integrations/supabase/client";
 
 // Pages
 import Index from "./pages/Index";
@@ -58,7 +59,24 @@ import ConsentPage from "./pages/consent/ConsentPage";
 
 const queryClient = new QueryClient();
 
-const App = () => (
+const App = () => {
+  if (supabaseConfigError) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-muted p-4">
+        <div className="text-center max-w-md space-y-4">
+          <h1 className="text-2xl font-bold">Plataforma en mantenimiento</h1>
+          <p className="text-muted-foreground">
+            Estamos realizando mejoras. Por favor, inténtalo de nuevo en unos minutos.
+          </p>
+          <p className="text-sm text-muted-foreground">
+            Si el problema persiste, contacta al administrador del sitio.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
       <Toaster />
@@ -241,6 +259,7 @@ const App = () => (
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>
-);
+  );
+};
 
 export default App;
