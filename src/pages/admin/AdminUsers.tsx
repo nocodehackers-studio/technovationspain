@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ColumnDef } from "@tanstack/react-table";
@@ -65,6 +65,29 @@ export default function AdminUsers() {
   const [newFieldLabel, setNewFieldLabel] = useState("");
   const [hiddenColumns, setHiddenColumns] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState("registered");
+  const [inviteCooldown, setInviteCooldown] = useState(0);
+  const inviteIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const startInviteCooldown = useCallback((seconds: number) => {
+    if (inviteIntervalRef.current) clearInterval(inviteIntervalRef.current);
+    setInviteCooldown(seconds);
+    inviteIntervalRef.current = setInterval(() => {
+      setInviteCooldown((prev) => {
+        if (prev <= 1) {
+          if (inviteIntervalRef.current) clearInterval(inviteIntervalRef.current);
+          inviteIntervalRef.current = null;
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (inviteIntervalRef.current) clearInterval(inviteIntervalRef.current);
+    };
+  }, []);
 
   // Fetch users with roles, teams, and hub info
   const { data: users, isLoading } = useQuery({
@@ -833,9 +856,19 @@ export default function AdminUsers() {
               });
 
               if (error) {
-                toast.error(`Error: ${error.message}`);
+                if (
+                  ('status' in error && (error as any).status === 429) ||
+                  error.message?.toLowerCase().includes('rate limit') ||
+                  error.message?.toLowerCase().includes('too many requests')
+                ) {
+                  toast.error('Por favor, espera 120s antes de intentarlo de nuevo.');
+                  startInviteCooldown(120);
+                } else {
+                  toast.error(`Error: ${error.message}`);
+                }
               } else {
                 toast.success(`Se ha enviado un Magic Link a ${email}`);
+                startInviteCooldown(60);
                 setCreateDialogOpen(false);
               }
             }}
@@ -859,7 +892,11 @@ export default function AdminUsers() {
               >
                 Cancelar
               </Button>
-              <Button type="submit">Enviar Magic Link</Button>
+              <Button type="submit" disabled={inviteCooldown > 0}>
+                {inviteCooldown > 0
+                  ? `Enviar Magic Link (${inviteCooldown}s)`
+                  : "Enviar Magic Link"}
+              </Button>
             </DialogFooter>
           </form>
         </DialogContent>

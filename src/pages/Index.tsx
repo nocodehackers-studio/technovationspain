@@ -1,16 +1,17 @@
-import { useState } from "react";
+import { useCallback } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { useOtpFlow } from "@/hooks/useOtpFlow";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { LoadingPage } from "@/components/ui/loading-spinner";
+import { OtpVerificationView } from "@/components/auth/OtpVerificationView";
 import { toast } from "sonner";
-import { Mail, ArrowLeft, Loader2, Info, KeyRound, UserPlus } from "lucide-react";
-import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
+import { ArrowLeft, Loader2, Info, UserPlus } from "lucide-react";
 
 // Logos from Supabase Storage
 const LOGO_TECHNOVATION = "https://orvkqnbshkxzyhqpjsdw.supabase.co/storage/v1/object/public/Assets/LOGO_Technovation_Girls_Transparente.png";
@@ -19,11 +20,72 @@ const LOGO_POWER_TO_CODE = "https://orvkqnbshkxzyhqpjsdw.supabase.co/storage/v1/
 export default function Index() {
   const navigate = useNavigate();
   const { user, isLoading, role, needsOnboarding, isVerified } = useAuth();
-  const [email, setEmail] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [emailSent, setEmailSent] = useState(false);
-  const [otpCode, setOtpCode] = useState("");
-  const [verifyingOtp, setVerifyingOtp] = useState(false);
+
+  const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  const baseUrl = isLocalhost ? window.location.origin : 'https://technovationspain.lovable.app';
+
+  const beforeSend = useCallback(async (email: string): Promise<boolean> => {
+    const { data: emailExists, error: checkError } = await supabase
+      .rpc('check_email_exists', { check_email: email });
+
+    if (checkError) {
+      console.error('Error checking email:', checkError);
+      return true; // Continue on error as fallback
+    }
+
+    if (!emailExists) {
+      toast.info("Este email no está registrado. Por favor, crea una cuenta.");
+      navigate('/register', { state: { email } });
+      return false;
+    }
+
+    return true;
+  }, [navigate]);
+
+  const onVerified = useCallback(async (session: { user: { id: string } }) => {
+    // Check profile to determine redirect
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('onboarding_completed, verification_status')
+      .eq('id', session.user.id)
+      .maybeSingle();
+
+    if (!profile?.onboarding_completed) {
+      navigate('/onboarding', { replace: true });
+      return;
+    }
+
+    // Check role for redirect
+    const { data: rolesData } = await supabase
+      .from('user_roles')
+      .select('role')
+      .eq('user_id', session.user.id);
+
+    type AppRole = 'admin' | 'mentor' | 'judge' | 'volunteer' | 'participant';
+    const rolePriority: AppRole[] = ['admin', 'mentor', 'judge', 'volunteer', 'participant'];
+    const userRoles = (rolesData?.map(r => r.role) || []) as AppRole[];
+    const highestRole = rolePriority.find(r => userRoles.includes(r));
+
+    if (highestRole === 'admin') {
+      navigate('/admin', { replace: true });
+    } else if (profile?.verification_status !== 'verified') {
+      navigate('/pending-verification', { replace: true });
+    } else if (highestRole === 'volunteer') {
+      navigate('/voluntario/dashboard', { replace: true });
+    } else if (highestRole === 'mentor') {
+      navigate('/mentor/dashboard', { replace: true });
+    } else {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [navigate]);
+
+  const otp = useOtpFlow({
+    otpOptions: {
+      emailRedirectTo: `${baseUrl}/auth/callback`,
+    },
+    beforeSend,
+    onVerified,
+  });
 
   // Show loading while checking auth
   if (isLoading) {
@@ -54,213 +116,20 @@ export default function Index() {
     return <Navigate to="/dashboard" replace />;
   }
 
-  const handleSignUp = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (!email) {
-      toast.error("Por favor, introduce tu email");
-      return;
-    }
-
-    setLoading(true);
-    
-    // Check if the email exists in profiles before sending OTP
-    const { data: emailExists, error: checkError } = await supabase
-      .rpc('check_email_exists', { check_email: email });
-    
-    if (checkError) {
-      console.error('Error checking email:', checkError);
-      // On error, continue with normal flow as fallback
-    } else if (!emailExists) {
-      // Email not registered: redirect to registration
-      setLoading(false);
-      toast.info("Este email no está registrado. Por favor, crea una cuenta.");
-      navigate('/register', { state: { email } });
-      return;
-    }
-    
-    // Email exists: proceed with OTP
-    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    const baseUrl = isLocalhost ? window.location.origin : 'https://technovationspain.lovable.app';
-    
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: {
-        emailRedirectTo: `${baseUrl}/auth/callback`,
-      },
-    });
-
-    setLoading(false);
-
-    if (error) {
-      toast.error(`Error: ${error.message}`);
-    } else {
-      setEmailSent(true);
-      toast.success("¡Enlace enviado! Revisa tu correo electrónico");
-    }
-  };
-
-  const handleVerifyOtp = async () => {
-    if (otpCode.length !== 8) {
-      toast.error("Introduce el código de 8 dígitos completo");
-      return;
-    }
-
-    setVerifyingOtp(true);
-
-    try {
-      const { data, error } = await supabase.auth.verifyOtp({
-        email,
-        token: otpCode,
-        type: 'email',
-      });
-
-      if (error) throw error;
-
-      if (data.session) {
-        toast.success("¡Verificación exitosa!");
-        
-        // Check profile to determine redirect
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('onboarding_completed, verification_status')
-          .eq('id', data.session.user.id)
-          .maybeSingle();
-        
-        if (!profile?.onboarding_completed) {
-          navigate('/onboarding', { replace: true });
-          return;
-        }
-        
-        // Check role for redirect
-        const { data: rolesData } = await supabase
-          .from('user_roles')
-          .select('role')
-          .eq('user_id', data.session.user.id);
-        
-        type AppRole = 'admin' | 'mentor' | 'judge' | 'volunteer' | 'participant';
-        const rolePriority: AppRole[] = ['admin', 'mentor', 'judge', 'volunteer', 'participant'];
-        const userRoles = (rolesData?.map(r => r.role) || []) as AppRole[];
-        const highestRole = rolePriority.find(r => userRoles.includes(r));
-        
-        if (highestRole === 'admin') {
-          navigate('/admin', { replace: true });
-        } else if (profile?.verification_status !== 'verified') {
-          navigate('/pending-verification', { replace: true });
-        } else if (highestRole === 'volunteer') {
-          navigate('/voluntario/dashboard', { replace: true });
-        } else if (highestRole === 'mentor') {
-          navigate('/mentor/dashboard', { replace: true });
-        } else {
-          navigate('/dashboard', { replace: true });
-        }
-      }
-    } catch (error: any) {
-      toast.error(error.message || "Código inválido o expirado");
-    } finally {
-      setVerifyingOtp(false);
-    }
-  };
-
-  if (emailSent) {
+  if (otp.emailSent) {
     return (
       <div className="flex min-h-screen items-center justify-center p-4 bg-muted">
-        <Card className="w-full max-w-md card-hover">
-          <CardHeader className="text-center">
-            {/* Logos */}
-            <div className="flex items-center justify-center gap-6 mb-6">
-              <img 
-                src={LOGO_TECHNOVATION} 
-                alt="Technovation Girls Madrid" 
-                className="h-14 w-auto"
-              />
-              <div className="h-10 w-px bg-border" />
-              <img 
-                src={LOGO_POWER_TO_CODE} 
-                alt="Power to Code" 
-                className="h-12 w-auto"
-              />
-            </div>
-            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-secondary/20">
-              <Mail className="h-7 w-7 text-secondary" />
-            </div>
-            <CardTitle className="text-xl font-display text-primary">Revisa tu correo</CardTitle>
-            <CardDescription>
-              Hemos enviado un enlace a <strong>{email}</strong>
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <p className="text-center text-sm text-muted-foreground">
-              Haz clic en el enlace del correo para completar tu registro. 
-              El enlace expira en 1 hora.
-            </p>
-
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center">
-                <span className="w-full border-t" />
-              </div>
-              <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-card px-2 text-muted-foreground">o usa el código</span>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <div className="flex flex-col items-center gap-2">
-                <Label htmlFor="otp" className="text-sm font-medium">
-                  <KeyRound className="inline h-4 w-4 mr-1" />
-                  Código de verificación
-                </Label>
-                <InputOTP
-                  maxLength={8}
-                  value={otpCode}
-                  onChange={(value) => setOtpCode(value)}
-                >
-                  <InputOTPGroup>
-                    <InputOTPSlot index={0} />
-                    <InputOTPSlot index={1} />
-                    <InputOTPSlot index={2} />
-                    <InputOTPSlot index={3} />
-                    <InputOTPSlot index={4} />
-                    <InputOTPSlot index={5} />
-                    <InputOTPSlot index={6} />
-                    <InputOTPSlot index={7} />
-                  </InputOTPGroup>
-                </InputOTP>
-                <p className="text-xs text-muted-foreground">
-                  Introduce el código de 8 dígitos del correo
-                </p>
-              </div>
-
-              <Button 
-                className="w-full" 
-                onClick={handleVerifyOtp}
-                disabled={verifyingOtp || otpCode.length !== 8}
-              >
-                {verifyingOtp ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Verificando...
-                  </>
-                ) : (
-                  "Verificar código"
-                )}
-              </Button>
-            </div>
-          </CardContent>
-          <CardFooter className="flex flex-col gap-3">
-            <Button 
-              variant="outline" 
-              className="w-full"
-              onClick={() => {
-                setEmailSent(false);
-                setOtpCode("");
-              }}
-            >
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              Volver e intentar con otro email
-            </Button>
-          </CardFooter>
-        </Card>
+        <OtpVerificationView
+          email={otp.email}
+          otpCode={otp.otpCode}
+          setOtpCode={otp.setOtpCode}
+          verifyingOtp={otp.verifyingOtp}
+          cooldownRemaining={otp.cooldownRemaining}
+          onVerify={otp.verifyOtp}
+          onResend={otp.resendOtp}
+          onBack={otp.resetFlow}
+          loading={otp.loading}
+        />
       </div>
     );
   }
@@ -271,15 +140,15 @@ export default function Index() {
         <CardHeader className="text-center">
           {/* Logos */}
           <div className="flex items-center justify-center gap-6 mb-4">
-            <img 
-              src={LOGO_TECHNOVATION} 
-              alt="Technovation Girls Madrid" 
+            <img
+              src={LOGO_TECHNOVATION}
+              alt="Technovation Girls Madrid"
               className="h-14 w-auto"
             />
             <div className="h-10 w-px bg-border" />
-            <img 
-              src={LOGO_POWER_TO_CODE} 
-              alt="Power to Code" 
+            <img
+              src={LOGO_POWER_TO_CODE}
+              alt="Power to Code"
               className="h-12 w-auto"
             />
           </div>
@@ -288,24 +157,24 @@ export default function Index() {
             Introduce tu email para acceder a tu cuenta
           </CardDescription>
         </CardHeader>
-        <form onSubmit={handleSignUp}>
+        <form onSubmit={otp.sendOtp}>
           <CardContent className="space-y-4">
             <Alert className="border-muted bg-accent/5">
               <Info className="h-4 w-4 text-accent" />
               <AlertDescription className="text-sm">
-                <strong>Importante:</strong> Usa el mismo email con el que te registraste 
+                <strong>Importante:</strong> Usa el mismo email con el que te registraste
                 en Technovation Global para verificar tu cuenta automáticamente.
               </AlertDescription>
             </Alert>
-            
+
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <Input
                 id="email"
                 type="email"
                 placeholder="tu@email.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                value={otp.email}
+                onChange={(e) => otp.setEmail(e.target.value)}
                 required
                 autoComplete="email"
               />
@@ -315,8 +184,8 @@ export default function Index() {
             </div>
           </CardContent>
           <CardFooter className="flex flex-col gap-3">
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? (
+            <Button type="submit" className="w-full" disabled={otp.loading}>
+              {otp.loading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   Enviando...
