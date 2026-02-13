@@ -4,7 +4,7 @@ const BREVO_API_KEY = Deno.env.get("BREVO_API_KEY");
 const BREVO_SENDER_EMAIL = Deno.env.get("BREVO_SENDER_EMAIL") || "comunicacion@powertocode.org";
 const BREVO_SENDER_NAME = Deno.env.get("BREVO_SENDER_NAME") || "Technovation Girls Madrid";
 const BREVO_REPLY_TO_EMAIL = Deno.env.get("BREVO_REPLY_TO_EMAIL") || "soporte@powertocode.org";
-const PUBLIC_SITE_URL = Deno.env.get("PUBLIC_SITE_URL") || "https://technovation.es";
+const PUBLIC_SITE_URL = Deno.env.get("PUBLIC_SITE_URL")?.replace(/\/+$/, "");
 
 // Escape HTML to prevent XSS in email templates
 function escapeHtml(text: string | null | undefined): string {
@@ -18,14 +18,18 @@ function escapeHtml(text: string | null | undefined): string {
 }
 
 const ALLOWED_ORIGINS = [
-  "https://app.powertocode.org",
+  PUBLIC_SITE_URL,
   "http://localhost:5173",
-];
+].filter(Boolean) as string[];
+
+if (!PUBLIC_SITE_URL) {
+  console.warn("PUBLIC_SITE_URL is not set — CORS will reject all non-localhost origins");
+}
 
 function getCorsHeaders(req: Request) {
   const origin = req.headers.get("origin") || "";
   return {
-    "Access-Control-Allow-Origin": ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0],
+    "Access-Control-Allow-Origin": ALLOWED_ORIGINS.includes(origin) ? origin : (PUBLIC_SITE_URL || ""),
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   };
 }
@@ -80,6 +84,15 @@ Deno.serve(async (req) => {
       );
     }
 
+    // Validate PUBLIC_SITE_URL is configured
+    if (!PUBLIC_SITE_URL) {
+      console.error("PUBLIC_SITE_URL is not configured");
+      return new Response(
+        JSON.stringify({ error: "internal_error" }),
+        { status: 500, headers: { "Content-Type": "application/json", ...corsHeaders } }
+      );
+    }
+
     const { registrationId }: EventConsentRequest = await req.json();
     console.log("Processing event consent for registration:", registrationId);
 
@@ -110,6 +123,15 @@ Deno.serve(async (req) => {
       return new Response(
         JSON.stringify({ error: "Forbidden - not your registration" }),
         { status: 403, headers: { "Content-Type": "application/json", ...corsHeaders } }
+      );
+    }
+
+    // Validate consent_token exists before proceeding
+    if (!registration.consent_token) {
+      console.error("consent_token is missing for registration:", registrationId);
+      return new Response(
+        JSON.stringify({ error: "consent_token_missing" }),
+        { status: 500, headers: { "Content-Type": "application/json", ...corsHeaders } }
       );
     }
 

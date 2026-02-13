@@ -1,14 +1,20 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
+const PUBLIC_SITE_URL = Deno.env.get("PUBLIC_SITE_URL")?.replace(/\/+$/, "");
+
 const ALLOWED_ORIGINS = [
-  "https://app.powertocode.org",
+  PUBLIC_SITE_URL,
   "http://localhost:5173",
-];
+].filter(Boolean) as string[];
+
+if (!PUBLIC_SITE_URL) {
+  console.warn("PUBLIC_SITE_URL is not set — CORS will reject all non-localhost origins");
+}
 
 function getCorsHeaders(req: Request) {
   const origin = req.headers.get("origin") || "";
   return {
-    "Access-Control-Allow-Origin": ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0],
+    "Access-Control-Allow-Origin": ALLOWED_ORIGINS.includes(origin) ? origin : (PUBLIC_SITE_URL || ""),
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   };
 }
