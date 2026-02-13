@@ -152,6 +152,72 @@ export default function AdminImportTeams() {
     });
   };
 
+  // Batch helper: fetch existing profile emails in batches of 500
+  const fetchExistingProfileEmailsInBatches = async (emails: string[]): Promise<Set<string>> => {
+    const QUERY_BATCH_SIZE = 500;
+    const found = new Set<string>();
+    const normalizedEmails = emails.map(e => e.toLowerCase());
+
+    for (let i = 0; i < normalizedEmails.length; i += QUERY_BATCH_SIZE) {
+      const batch = normalizedEmails.slice(i, i + QUERY_BATCH_SIZE);
+
+      const { data: emailData } = await supabase
+        .from("profiles")
+        .select("email, tg_email")
+        .in("email", batch);
+
+      emailData?.forEach(p => {
+        if (p.email) found.add(p.email.toLowerCase());
+        if (p.tg_email) found.add(p.tg_email.toLowerCase());
+      });
+
+      const { data: tgData } = await supabase
+        .from("profiles")
+        .select("email, tg_email")
+        .in("tg_email", batch);
+
+      tgData?.forEach(p => {
+        if (p.email) found.add(p.email.toLowerCase());
+        if (p.tg_email) found.add(p.tg_email.toLowerCase());
+      });
+    }
+
+    return found;
+  };
+
+  // Batch helper: fetch profile IDs by email in batches of 500
+  const fetchProfileIdsByEmailInBatches = async (emails: string[]): Promise<Map<string, string>> => {
+    const QUERY_BATCH_SIZE = 500;
+    const emailToId = new Map<string, string>();
+    const normalizedEmails = emails.map(e => e.toLowerCase());
+
+    for (let i = 0; i < normalizedEmails.length; i += QUERY_BATCH_SIZE) {
+      const batch = normalizedEmails.slice(i, i + QUERY_BATCH_SIZE);
+
+      const { data: emailData } = await supabase
+        .from("profiles")
+        .select("id, email, tg_email")
+        .in("email", batch);
+
+      emailData?.forEach(p => {
+        if (p.email) emailToId.set(p.email.toLowerCase(), p.id);
+        if (p.tg_email) emailToId.set(p.tg_email.toLowerCase(), p.id);
+      });
+
+      const { data: tgData } = await supabase
+        .from("profiles")
+        .select("id, email, tg_email")
+        .in("tg_email", batch);
+
+      tgData?.forEach(p => {
+        if (p.email) emailToId.set(p.email.toLowerCase(), p.id);
+        if (p.tg_email) emailToId.set(p.tg_email.toLowerCase(), p.id);
+      });
+    }
+
+    return emailToId;
+  };
+
   // Analyze teams and generate preview stats
   const analyzeTeams = async (teams: ParsedTeam[]): Promise<PreviewStats> => {
     // Get existing teams by tg_team_id
@@ -173,16 +239,7 @@ export default function AdminImportTeams() {
     let mentorsFound = 0;
 
     if (allEmails.length > 0) {
-      const { data: profiles } = await supabase
-        .from("profiles")
-        .select("email, tg_email")
-        .or(`email.in.(${allEmails.join(",")}),tg_email.in.(${allEmails.join(",")})`);
-
-      const profileEmails = new Set<string>();
-      profiles?.forEach((p) => {
-        if (p.email) profileEmails.add(p.email.toLowerCase());
-        if (p.tg_email) profileEmails.add(p.tg_email.toLowerCase());
-      });
+      const profileEmails = await fetchExistingProfileEmailsInBatches(allEmails);
 
       studentsFound = allStudentEmails.filter((e) => profileEmails.has(e)).length;
       mentorsFound = allMentorEmails.filter((e) => profileEmails.has(e)).length;
@@ -307,6 +364,12 @@ export default function AdminImportTeams() {
         setProgressMessage(`Procesando lote ${batchNumber}/${totalBatches}...`);
         setProgress(Math.round((i / parsedTeams.length) * 100));
 
+        // Pre-fetch all email→profileId mappings for this batch
+        const allBatchEmails = [...new Set(
+          batch.flatMap(t => [...t.studentEmails, ...t.mentorEmails])
+        )];
+        const emailToProfileId = await fetchProfileIdsByEmailInBatches(allBatchEmails);
+
         for (const team of batch) {
           try {
             // Check if team exists by tg_team_id first
@@ -372,15 +435,11 @@ export default function AdminImportTeams() {
             // Collect all emails for profile lookup
             const allEmailsForTeam = [...team.studentEmails, ...team.mentorEmails];
             
-            // Get profile IDs for validation prefetch
+            // Get profile IDs for validation prefetch (using pre-fetched map)
             const profileIdsToValidate: string[] = [];
             for (const email of allEmailsForTeam) {
-              const { data: profile } = await supabase
-                .from("profiles")
-                .select("id")
-                .or(`email.ilike.${email},tg_email.ilike.${email}`)
-                .maybeSingle();
-              if (profile) profileIdsToValidate.push(profile.id);
+              const profileId = emailToProfileId.get(email.toLowerCase());
+              if (profileId) profileIdsToValidate.push(profileId);
             }
             
             if (profileIdsToValidate.length > 0) {
@@ -394,7 +453,8 @@ export default function AdminImportTeams() {
                 email,
                 team.name,
                 team.division,
-                validationCache
+                validationCache,
+                emailToProfileId
               );
               if (linked.memberLinked) results.membersLinked++;
               if (linked.whitelistUpdated) results.whitelistUpdated++;
@@ -409,7 +469,8 @@ export default function AdminImportTeams() {
                 email,
                 team.name,
                 team.division,
-                validationCache
+                validationCache,
+                emailToProfileId
               );
               if (linked.memberLinked) results.membersLinked++;
               if (linked.whitelistUpdated) results.whitelistUpdated++;
@@ -457,7 +518,8 @@ export default function AdminImportTeams() {
     email: string,
     teamName: string,
     teamDivision: string,
-    validationCache: ReturnType<typeof createValidationCache>
+    validationCache: ReturnType<typeof createValidationCache>,
+    emailToProfileId?: Map<string, string>
   ): Promise<{
     memberLinked: boolean;
     whitelistUpdated: boolean;
@@ -466,12 +528,19 @@ export default function AdminImportTeams() {
     skipReason?: string;
   }> => {
     try {
-      // Search in profiles
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("id")
-        .or(`email.ilike.${email},tg_email.ilike.${email}`)
-        .maybeSingle();
+      // Search in profiles (use pre-fetched map when available)
+      let profileId: string | undefined;
+      if (emailToProfileId) {
+        profileId = emailToProfileId.get(email.toLowerCase());
+      } else {
+        const { data: profileData } = await supabase
+          .from("profiles")
+          .select("id")
+          .or(`email.ilike.${email},tg_email.ilike.${email}`)
+          .maybeSingle();
+        profileId = profileData?.id;
+      }
+      const profile = profileId ? { id: profileId } : null;
 
       if (profile) {
         // Validate before adding
