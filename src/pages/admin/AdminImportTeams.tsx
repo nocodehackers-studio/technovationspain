@@ -513,16 +513,37 @@ export default function AdminImportTeams() {
       // Not in profiles, check authorized_users
       const { data: authorizedUser } = await supabase
         .from("authorized_users")
-        .select("id, matched_profile_id")
+        .select("id, matched_profile_id, team_name")
         .ilike("email", email)
         .maybeSingle();
 
       if (authorizedUser && !authorizedUser.matched_profile_id) {
-        // Update whitelist with team info
+        // Accumulate team names instead of overwriting
+        let updatedTeamName = teamName;
+        if (authorizedUser.team_name) {
+          // Split existing names using the same logic as splitTeamNames / trigger
+          const existingNames = authorizedUser.team_name
+            .replace(/\s+and\s+/gi, ", ")
+            .split(",")
+            .map((s: string) => s.trim())
+            .filter((s: string) => s.length > 0);
+
+          const alreadyPresent = existingNames.some(
+            (name: string) => name.toLowerCase() === teamName.toLowerCase()
+          );
+
+          if (alreadyPresent) {
+            updatedTeamName = authorizedUser.team_name;
+          } else {
+            updatedTeamName = [...existingNames, teamName].join(", ");
+          }
+        }
+
+        // Update whitelist with accumulated team info
         const { error } = await supabase
           .from("authorized_users")
           .update({
-            team_name: teamName,
+            team_name: updatedTeamName,
             team_division: teamDivision,
           })
           .eq("id", authorizedUser.id);
