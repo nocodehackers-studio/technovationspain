@@ -4,7 +4,7 @@ const BREVO_API_KEY = Deno.env.get("BREVO_API_KEY");
 const BREVO_SENDER_EMAIL = Deno.env.get("BREVO_SENDER_EMAIL") || "comunicacion@powertocode.org";
 const BREVO_SENDER_NAME = Deno.env.get("BREVO_SENDER_NAME") || "Technovation Girls Madrid";
 const BREVO_REPLY_TO_EMAIL = Deno.env.get("BREVO_REPLY_TO_EMAIL") || "soporte@powertocode.org";
-const PUBLIC_SITE_URL = Deno.env.get("PUBLIC_SITE_URL") || "https://technovation.es";
+const PUBLIC_SITE_URL = Deno.env.get("PUBLIC_SITE_URL") || "https://app.powertocode.org";
 
 // Escape HTML to prevent XSS in email templates
 function escapeHtml(text: string | null | undefined): string {
