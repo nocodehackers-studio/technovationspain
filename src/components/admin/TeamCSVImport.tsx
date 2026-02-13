@@ -463,12 +463,39 @@ export function TeamCSVImport({ open, onOpenChange, onImportComplete }: TeamCSVI
                   user_id: userId,
                   member_type: validation.memberType, // Use validated member type
                 });
-              
+
               if (insertError) {
                 console.error("Error inserting team member:", insertError);
                 importResult.errors.push(`Error vinculando mentor ${email}: ${insertError.message}`);
               } else {
                 importResult.membersLinked++;
+              }
+            }
+          } else {
+            // Mentor not registered yet - update authorized_users team_name
+            // so the auto-verify trigger links them when they register
+            const { data: authorizedUser } = await supabase
+              .from("authorized_users")
+              .select("id, team_name")
+              .ilike("email", email)
+              .maybeSingle();
+
+            if (authorizedUser) {
+              const existingNames = (authorizedUser.team_name || "")
+                .replace(/\s+and\s+/gi, ",")
+                .split(",")
+                .map((s: string) => s.trim().toLowerCase())
+                .filter((s: string) => s.length > 0);
+
+              if (!existingNames.includes(team.name.toLowerCase())) {
+                const updatedTeamName = authorizedUser.team_name
+                  ? `${authorizedUser.team_name}, ${team.name}`
+                  : team.name;
+
+                await supabase
+                  .from("authorized_users")
+                  .update({ team_name: updatedTeamName })
+                  .eq("id", authorizedUser.id);
               }
             }
           }
