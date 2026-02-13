@@ -287,16 +287,29 @@ export function TeamCSVImport({ open, onOpenChange, onImportComplete }: TeamCSVI
     });
     const uniqueEmails = [...new Set(allEmails)];
 
-    // Fetch all profiles at once
-    const { data: profiles } = await supabase
-      .from("profiles")
-      .select("id, email, tg_email");
-
+    // Fetch profiles matching the emails in the CSV (in batches to avoid row limits)
     const profileEmailMap = new Map<string, string>();
-    profiles?.forEach((p) => {
-      if (p.email) profileEmailMap.set(p.email.toLowerCase(), p.id);
-      if (p.tg_email) profileEmailMap.set(p.tg_email.toLowerCase(), p.id);
-    });
+    const PROFILE_BATCH_SIZE = 500;
+
+    for (let i = 0; i < uniqueEmails.length; i += PROFILE_BATCH_SIZE) {
+      const batch = uniqueEmails.slice(i, i + PROFILE_BATCH_SIZE);
+
+      const [{ data: byEmail }, { data: byTgEmail }] = await Promise.all([
+        supabase
+          .from("profiles")
+          .select("id, email, tg_email")
+          .in("email", batch),
+        supabase
+          .from("profiles")
+          .select("id, email, tg_email")
+          .in("tg_email", batch),
+      ]);
+
+      [...(byEmail || []), ...(byTgEmail || [])].forEach((p) => {
+        if (p.email) profileEmailMap.set(p.email.toLowerCase(), p.id);
+        if (p.tg_email) profileEmailMap.set(p.tg_email.toLowerCase(), p.id);
+      });
+    }
 
     // Process each team
     for (const team of parsedTeams) {
