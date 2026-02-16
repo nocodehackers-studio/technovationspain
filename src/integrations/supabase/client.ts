@@ -2,16 +2,31 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
-const SUPABASE_URL = "https://orvkqnbshkxzyhqpjsdw.supabase.co";
-const SUPABASE_PUBLISHABLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9ydmtxbmJzaGt4enlocXBqc2R3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg1NTA0NTgsImV4cCI6MjA4NDEyNjQ1OH0.Mdb2h5UejjiCClh2IN_VRFyl1PPMT4oAHfiasHWcsJY";
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+
+export const supabaseConfigError = !SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY;
+
+if (supabaseConfigError) {
+  console.error(
+    "[SUPABASE CONFIG] Missing VITE_SUPABASE_URL or VITE_SUPABASE_PUBLISHABLE_KEY environment variables. " +
+    "Check your .env file or Vercel environment settings."
+  );
+} else {
+  console.info(`[SUPABASE] Connected to: ${SUPABASE_URL}`);
+}
 
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
 
-export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
-  auth: {
-    storage: localStorage,
-    persistSession: true,
-    autoRefreshToken: true,
+export const supabase = createClient<Database>(
+  SUPABASE_URL || "https://placeholder.supabase.co",
+  SUPABASE_PUBLISHABLE_KEY || "placeholder",
+  {
+    auth: {
+      storage: localStorage,
+      persistSession: true,
+      autoRefreshToken: true,
+    }
   }
-});
+);
