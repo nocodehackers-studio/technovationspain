@@ -193,7 +193,8 @@ CREATE TABLE public.event_registrations (
   registration_number TEXT UNIQUE,
   participant_count INTEGER DEFAULT 1,
   checked_in_at TIMESTAMPTZ,
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  consent_token UUID DEFAULT gen_random_uuid() NOT NULL
 );
 
 COMMENT ON COLUMN public.event_registrations.participant_count IS 'Número de participantes del equipo que asistirán al evento';
@@ -484,6 +485,7 @@ CREATE INDEX idx_event_ticket_types_event_id ON public.event_ticket_types(event_
 CREATE INDEX idx_event_registrations_ticket_type_id ON public.event_registrations(ticket_type_id);
 CREATE INDEX idx_event_registrations_registration_number ON public.event_registrations(registration_number);
 CREATE INDEX idx_event_registrations_tg_email ON public.event_registrations(tg_email);
+CREATE UNIQUE INDEX idx_event_registrations_consent_token ON public.event_registrations(consent_token);
 CREATE INDEX idx_event_registrations_active ON public.event_registrations(event_id, user_id)
   WHERE registration_status != 'cancelled';
 -- event_agenda
