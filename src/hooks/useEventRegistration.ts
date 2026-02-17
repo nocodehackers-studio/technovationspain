@@ -316,7 +316,8 @@ export function useRegistration(registrationId: string) {
         .select(`
           *,
           event:events(*),
-          ticket_type:event_ticket_types(*)
+          ticket_type:event_ticket_types(*),
+          consent:event_ticket_consents(id)
         `)
         .eq('id', registrationId)
         .single();

@@ -2,10 +2,11 @@ import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { ArrowLeft, Calendar, MapPin, Download, CalendarPlus, XCircle, Users, ChevronDown, ChevronRight } from 'lucide-react';
+import { ArrowLeft, Calendar, MapPin, Download, CalendarPlus, XCircle, Users, ChevronDown, ChevronRight, AlertTriangle } from 'lucide-react';
 import { useRegistration, useCancelRegistration, useRegistrationCompanions } from '@/hooks/useEventRegistration';
 import { useAuth } from '@/hooks/useAuth';
 import { getDashboardPath } from '@/lib/dashboard-routes';
+import { isMinor } from '@/lib/age-utils';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
@@ -28,7 +29,7 @@ import {
 export default function TicketDetailPage() {
   const { registrationId } = useParams<{ registrationId: string }>();
   const navigate = useNavigate();
-  const { role } = useAuth();
+  const { role, profile } = useAuth();
   const dashboardPath = getDashboardPath(role);
   const { data: registration, isLoading, error } = useRegistration(registrationId || '');
   const { data: companions, isLoading: companionsLoading } = useRegistrationCompanions(registrationId || '');
@@ -143,6 +144,22 @@ export default function TicketDetailPage() {
           </CardHeader>
           
           <CardContent className="p-6 space-y-6">
+            {/* Consent pending banner — only for minors (≤13) */}
+            {registration.registration_status === 'confirmed' &&
+             isMinor(profile?.date_of_birth) &&
+             (!(registration as any).consent ||
+              (Array.isArray((registration as any).consent) && (registration as any).consent.length === 0)) && (
+              <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 text-orange-600 mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-sm font-medium text-orange-800">Pendiente de consentimiento</p>
+                  <p className="text-xs text-orange-600">
+                    El padre/madre/tutor debe firmar el consentimiento para poder asistir al evento.
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* QR Code */}
             <div className="flex justify-center py-4">
               <QRTicket code={registration.qr_code} size={200} />
