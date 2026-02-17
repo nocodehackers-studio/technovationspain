@@ -210,3 +210,4 @@ Las claves de Supabase se gestionan automáticamente. Para Edge Functions, los s
 ---
 
 Desarrollado con [Lovable](https://lovable.dev)
+
