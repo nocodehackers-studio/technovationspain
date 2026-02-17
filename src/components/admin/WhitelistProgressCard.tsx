@@ -60,8 +60,8 @@ export function WhitelistProgressCard({ stats, isLoading }: WhitelistProgressCar
             <ClipboardList className="h-5 w-5" />
           </div>
           <div>
-            <CardTitle className="text-base sm:text-lg">Progreso de Registro - Whitelist</CardTitle>
-            <CardDescription>Usuarios de Technovation Global</CardDescription>
+            <CardTitle className="text-base sm:text-lg">Progreso de Verificación</CardTitle>
+            <CardDescription>Usuarios registrados en la plataforma</CardDescription>
           </div>
         </div>
       </CardHeader>
@@ -71,7 +71,7 @@ export function WhitelistProgressCard({ stats, isLoading }: WhitelistProgressCar
           <div className="text-2xl sm:text-3xl font-bold tracking-tight">
             {stats.registered} <span className="text-muted-foreground font-normal">/ {stats.total}</span>
           </div>
-          <p className="text-sm text-muted-foreground">usuarios registrados</p>
+          <p className="text-sm text-muted-foreground">usuarios verificados</p>
         </div>
 
         {/* Progress bar */}
@@ -84,7 +84,7 @@ export function WhitelistProgressCard({ stats, isLoading }: WhitelistProgressCar
         {pending > 0 && (
           <div className="flex items-center gap-2 text-warning bg-warning/10 rounded-lg px-3 py-2">
             <AlertTriangle className="h-4 w-4 shrink-0" />
-            <span className="text-sm font-medium">{pending} usuarios pendientes de registro</span>
+            <span className="text-sm font-medium">{pending} usuarios pendientes de verificación</span>
           </div>
         )}
 

@@ -35,20 +35,40 @@ export default function AdminDashboard() {
     },
   });
 
-  // Fetch whitelist stats
+  // Fetch registration progress stats from real profiles + roles
   const { data: whitelistStats, isLoading: isLoadingWhitelist } = useQuery({
-    queryKey: ["admin-whitelist-stats"],
+    queryKey: ["admin-registration-progress"],
     queryFn: async () => {
-      // Get all authorized_users with their registration status
-      const { data: allUsers } = await supabase
-        .from("authorized_users")
-        .select("profile_type, matched_profile_id");
+      // Get all profiles with their verification status
+      const { data: allProfiles } = await supabase
+        .from("profiles")
+        .select("id, verification_status");
 
-      if (!allUsers) return null;
+      // Get all user roles to determine type breakdown
+      const { data: allRoles } = await supabase
+        .from("user_roles")
+        .select("user_id, role");
+
+      if (!allProfiles) return null;
+
+      const verifiedIds = new Set(
+        allProfiles.filter(p => p.verification_status === "verified").map(p => p.id)
+      );
+
+      // Build a map of user_id -> role for breakdown
+      const roleMap = new Map<string, string>();
+      allRoles?.forEach(r => {
+        // Map app_role to display type
+        const displayType =
+          r.role === "participant" ? "student" :
+          r.role === "mentor" ? "mentor" :
+          r.role === "judge" ? "judge" : null;
+        if (displayType) roleMap.set(r.user_id, displayType);
+      });
 
       const stats = {
-        total: allUsers.length,
-        registered: allUsers.filter(u => u.matched_profile_id !== null).length,
+        total: allProfiles.length,
+        registered: verifiedIds.size,
         byType: {
           student: { total: 0, registered: 0 },
           mentor: { total: 0, registered: 0 },
@@ -56,12 +76,13 @@ export default function AdminDashboard() {
         },
       };
 
-      allUsers.forEach((user) => {
-        const type = user.profile_type as keyof typeof stats.byType;
+      // Count by role (only verified users have roles assigned)
+      roleMap.forEach((type, userId) => {
         if (type in stats.byType) {
-          stats.byType[type].total++;
-          if (user.matched_profile_id !== null) {
-            stats.byType[type].registered++;
+          const key = type as keyof typeof stats.byType;
+          stats.byType[key].total++;
+          if (verifiedIds.has(userId)) {
+            stats.byType[key].registered++;
           }
         }
       });
@@ -124,18 +145,59 @@ export default function AdminDashboard() {
     },
   });
 
-  // Fetch upcoming events
+  // Fetch upcoming events with real registration counts
   const { data: upcomingEventsList } = useQuery({
     queryKey: ["admin-upcoming-events"],
     queryFn: async () => {
-      const { data } = await supabase
+      const { data: eventsData } = await supabase
         .from("events")
         .select("*")
         .gte("date", new Date().toISOString().split("T")[0])
         .order("date", { ascending: true })
         .limit(5);
-      
-      return data || [];
+
+      if (!eventsData || eventsData.length === 0) return [];
+
+      const eventIds = eventsData.map(e => e.id);
+
+      // Get non-cancelled, non-companion registrations for these events
+      const { data: registrations } = await supabase
+        .from("event_registrations")
+        .select("id, event_id")
+        .in("event_id", eventIds)
+        .neq("registration_status", "cancelled")
+        .eq("is_companion", false);
+
+      // Get companions for those registrations
+      const regIds = registrations?.map(r => r.id) || [];
+      const { data: companions } = regIds.length > 0
+        ? await supabase
+            .from("companions")
+            .select("event_registration_id")
+            .in("event_registration_id", regIds)
+        : { data: [] };
+
+      // Build count maps
+      const regCounts = new Map<string, number>();
+      registrations?.forEach(r => {
+        regCounts.set(r.event_id!, (regCounts.get(r.event_id!) || 0) + 1);
+      });
+
+      const regToEvent = new Map<string, string>();
+      registrations?.forEach(r => regToEvent.set(r.id, r.event_id!));
+
+      const companionCounts = new Map<string, number>();
+      companions?.forEach(c => {
+        const eventId = regToEvent.get(c.event_registration_id!);
+        if (eventId) {
+          companionCounts.set(eventId, (companionCounts.get(eventId) || 0) + 1);
+        }
+      });
+
+      return eventsData.map(event => ({
+        ...event,
+        real_registrations: (regCounts.get(event.id) || 0) + (companionCounts.get(event.id) || 0),
+      }));
     },
   });
 
@@ -203,7 +265,7 @@ export default function AdminDashboard() {
                     </div>
                     <div className="flex sm:flex-col items-center sm:items-end gap-2 sm:gap-1">
                       <span className="text-sm font-medium">
-                        {event.current_registrations || 0} / {event.max_capacity || "∞"}
+                        {event.real_registrations || 0} / {event.max_capacity || "∞"}
                       </span>
                       <span className="text-xs text-muted-foreground">registrados</span>
                     </div>
