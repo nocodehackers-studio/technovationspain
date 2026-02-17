@@ -53,11 +53,13 @@ export function useEvent(eventId: string) {
         `)
         .eq('id', eventId)
         .single();
-      
+
       if (error) throw error;
       return data as EventWithDetails;
     },
     enabled: !!eventId,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -86,7 +88,7 @@ export function useExistingRegistration(eventId: string) {
     queryFn: async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return null;
-      
+
       const { data } = await supabase
         .from('event_registrations')
         .select('id, registration_status, registration_number')
@@ -94,10 +96,12 @@ export function useExistingRegistration(eventId: string) {
         .eq('user_id', user.id)
         .neq('registration_status', 'cancelled') // Exclude cancelled registrations
         .maybeSingle();
-      
+
       return data;
     },
     enabled: !!eventId,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   });
 }
 

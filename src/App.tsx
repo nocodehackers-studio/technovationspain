@@ -56,7 +56,14 @@ import WorkshopPreferencesPage from "./pages/events/WorkshopPreferencesPage";
 import ValidatePage from "./pages/validate/ValidatePage";
 import ConsentPage from "./pages/consent/ConsentPage";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      refetchOnWindowFocus: false,
+      staleTime: 5 * 60 * 1000, // 5 minutes
+    },
+  },
+});
 
 const App = () => (
   <QueryClientProvider client={queryClient}>

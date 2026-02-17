@@ -76,22 +76,52 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
         console.log('Auth event:', event);
-        
+
+        if (event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') {
+          // Token refreshed or initial session — only update session silently
+          // if the access_token actually changed, preventing unnecessary re-renders.
+          // INITIAL_SESSION is also handled by getSession() below.
+          setSession((prev) => {
+            if (prev?.access_token === session?.access_token) return prev;
+            return session;
+          });
+          return;
+        }
+
+        if (event === 'SIGNED_IN') {
+          // Supabase fires SIGNED_IN both on real login AND on tab visibility
+          // recovery (see _recoverAndRefresh in GoTrueClient). We only want to
+          // refetch the profile on a genuine new login — not on tab switch.
+          setUser((prevUser) => {
+            if (prevUser?.id === session?.user?.id) {
+              // Same user — tab recovery, not a new login. Skip silently.
+              console.log('Auth event: SIGNED_IN ignored (tab recovery, same user)');
+              setSession((prev) => {
+                if (prev?.access_token === session?.access_token) return prev;
+                return session;
+              });
+              return prevUser;
+            }
+            // Different user or first login — proceed with full setup
+            console.log('Auth event: SIGNED_IN processed (new login)');
+            setSession(session);
+            if (session?.user) {
+              setTimeout(() => fetchProfile(session.user.id), 0);
+            }
+            return session?.user ?? null;
+          });
+          return;
+        }
+
         setSession(session);
         setUser(session?.user ?? null);
 
-        // Only reload profile when user actually changes
-        if (event === 'SIGNED_IN') {
-          // User just logged in
-          setTimeout(() => fetchProfile(session!.user.id), 0);
-        } else if (event === 'USER_UPDATED') {
-          // User data changed (e.g., email, metadata)
+        if (event === 'USER_UPDATED') {
           setTimeout(() => fetchProfile(session!.user.id), 0);
         } else if (event === 'SIGNED_OUT') {
           setProfile(null);
           setRole(null);
         }
-        // TOKEN_REFRESHED and INITIAL_SESSION don't need to reload profile
       }
     );
 
