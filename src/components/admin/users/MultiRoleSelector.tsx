@@ -1,13 +1,12 @@
 import { useState, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { RoleBadges } from "@/components/admin/RoleBadge";
 import { toast } from "sonner";
-import { Shield, Crown, Users, GraduationCap, Scale, QrCode } from "lucide-react";
+import { Shield, Crown, Users, GraduationCap, Scale, QrCode, Check } from "lucide-react";
 import { AppRole } from "@/types/database";
 
 interface MultiRoleSelectorProps {
@@ -196,10 +195,15 @@ export function MultiRoleSelector({ userId }: MultiRoleSelectorProps) {
               }`}
               onClick={() => handlePrimaryRoleChange(role)}
             >
-              <Checkbox
-                checked={currentPrimaryRole === role}
-                className="pointer-events-none"
-              />
+              <div
+                className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border ${
+                  currentPrimaryRole === role
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-muted-foreground/30"
+                }`}
+              >
+                {currentPrimaryRole === role && <Check className="h-3 w-3" />}
+              </div>
               <div className="flex items-center gap-1.5">
                 {icon}
                 <span className="text-sm">{label}</span>
