@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -127,6 +127,8 @@ export default function EventRegistrationPage() {
   const [companions, setCompanions] = useState<CompanionData[]>([]);
   const [consentModalOpen, setConsentModalOpen] = useState(false);
   const [consentData, setConsentData] = useState<{ signerFullName: string; signerDni: string } | null>(null);
+  const hasPrefilledProfile = useRef(false);
+  const hasPrefilledTeam = useRef(false);
 
   const userIsMinor = isMinor(profile?.date_of_birth);
   
@@ -145,9 +147,11 @@ export default function EventRegistrationPage() {
         .eq('user_id', profile.id)
         .eq('member_type', 'participant')
         .maybeSingle();
-      return data?.team as { name: string; tg_team_id: string | null } | null;
+      return (data?.team as { name: string; tg_team_id: string | null }) ?? null;
     },
     enabled: !!profile?.id,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   });
   
   const form = useForm<RegistrationFormValues>({
@@ -166,26 +170,27 @@ export default function EventRegistrationPage() {
     },
   });
   
-  // Update form values when profile or team loads
+  // Pre-fill form from profile data ONLY ONCE to avoid overwriting user edits
   useEffect(() => {
-    if (profile) {
+    if (profile && !hasPrefilledProfile.current) {
+      hasPrefilledProfile.current = true;
       form.setValue('first_name', profile.first_name || '');
       form.setValue('last_name', profile.last_name || '');
       form.setValue('email', profile.email || '');
       form.setValue('phone', profile.phone || '');
       form.setValue('tg_email', profile.tg_email || '');
-      
-      // Pre-fill DNI from profile
       if (profile.dni) {
         form.setValue('dni', profile.dni);
       }
     }
-    
-    // Pre-fill team name if user has one assigned
-    if (userTeam?.name) {
+  }, [profile, form]);
+
+  useEffect(() => {
+    if (userTeam?.name && !hasPrefilledTeam.current) {
+      hasPrefilledTeam.current = true;
       form.setValue('team_name', userTeam.name);
     }
-  }, [profile, userTeam, form]);
+  }, [userTeam, form]);
   
 const selectedTicketId = form.watch('ticket_type_id');
   const selectedTicket = event?.ticket_types?.find(t => t.id === selectedTicketId);

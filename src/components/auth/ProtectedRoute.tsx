@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { LoadingPage } from '@/components/ui/loading-spinner';
@@ -9,15 +10,22 @@ interface ProtectedRouteProps {
   requireVerified?: boolean;
 }
 
-export function ProtectedRoute({ 
-  children, 
+export function ProtectedRoute({
+  children,
   requiredRoles,
-  requireVerified = false 
+  requireVerified = false
 }: ProtectedRouteProps) {
   const { user, role, isLoading, isVerified, needsOnboarding } = useAuth();
   const location = useLocation();
 
-  if (isLoading) {
+  // Once auth has initialized, never show loading spinner again
+  // to avoid unmounting children (e.g. forms) on transient loading states.
+  const hasInitialized = useRef(false);
+  if (!isLoading) {
+    hasInitialized.current = true;
+  }
+
+  if (isLoading && !hasInitialized.current) {
     return <LoadingPage message="Verificando sesión..." />;
   }
 
