@@ -194,7 +194,8 @@ export function UserEditSheet({
         }).catch((err) => console.error("Welcome email error:", err));
       },
     });
-  }, [user, updateVerificationMutation]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   const handleReject = useCallback(() => {
     if (!user) return;
@@ -202,7 +203,8 @@ export function UserEditSheet({
       userId: user.id,
       status: "rejected",
     });
-  }, [user, updateVerificationMutation]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
