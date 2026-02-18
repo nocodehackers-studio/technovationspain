@@ -144,12 +144,11 @@ export default function EventRegistrationPage() {
       if (!profile?.id) return null;
       const { data } = await supabase
         .from('team_members')
-        .select('team:teams(name, tg_team_id)')
+        .select('team:teams(id, name, tg_team_id)')
         .eq('user_id', profile.id)
         .eq('member_type', 'participant')
         .maybeSingle();
-      if (!data || !data.team) return null;
-      return data.team as { name: string; tg_team_id: string | null };
+      return (data?.team as { id: string; name: string; tg_team_id: string | null }) ?? null;
     },
     enabled: !!profile?.id,
     staleTime: 5 * 60 * 1000,
@@ -391,6 +390,7 @@ const selectedTicketId = form.watch('ticket_type_id');
         dni: values.dni,
         phone: values.phone,
         team_name: values.team_name || undefined,
+        team_id: userTeam?.id,
         tg_email: values.tg_email || undefined,
         image_consent: values.image_consent,
         data_consent: values.data_consent,
