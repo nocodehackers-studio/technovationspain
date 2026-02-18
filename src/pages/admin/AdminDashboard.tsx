@@ -91,56 +91,46 @@ export default function AdminDashboard() {
     },
   });
 
-  // Fetch team registration stats
+  // Fetch team registration stats (based on real team_members, not whitelist)
   const { data: teamStats, isLoading: isLoadingTeamStats } = useQuery({
     queryKey: ["admin-team-registration-stats"],
     queryFn: async () => {
-      // Get all teams
-      const { data: teams } = await supabase.from("teams").select("id, name");
-      
-      // Get whitelist stats by team
-      const { data: whitelist } = await supabase
-        .from("authorized_users")
-        .select("team_name, matched_profile_id")
-        .not("team_name", "is", null);
-      
-      if (!teams) return null;
-      
-      // Calculate stats per team
-      const teamStatsMap = new Map<string, { whitelist: number; registered: number }>();
-      
-      whitelist?.forEach(u => {
-        const key = u.team_name?.toLowerCase();
-        if (!key) return;
-        const current = teamStatsMap.get(key) || { whitelist: 0, registered: 0 };
-        current.whitelist++;
-        if (u.matched_profile_id) current.registered++;
-        teamStatsMap.set(key, current);
-      });
-      
-      // Classify teams
-      let complete = 0, inProgress = 0, notStarted = 0, noData = 0;
-      
-      teams.forEach(team => {
-        const stats = teamStatsMap.get(team.name.toLowerCase());
-        if (!stats || stats.whitelist === 0) {
-          noData++;
-        } else if (stats.registered === stats.whitelist) {
-          complete++;
-        } else if (stats.registered > 0) {
-          inProgress++;
-        } else {
-          notStarted++;
+      // Total teams
+      const { count: totalTeams } = await supabase
+        .from("teams")
+        .select("*", { count: "exact", head: true });
+
+      // Teams with at least 1 registered participant (in team_members)
+      const { data: teamsWithMembers } = await supabase
+        .from("team_members")
+        .select("team_id")
+        .eq("member_type", "participant");
+
+      const uniqueTeamIds = new Set(teamsWithMembers?.map(tm => tm.team_id) || []);
+
+      // Breakdown by category
+      const { data: allTeams } = await supabase
+        .from("teams")
+        .select("id, category");
+
+      const byCategory = {
+        beginner: { total: 0, active: 0 },
+        junior: { total: 0, active: 0 },
+        senior: { total: 0, active: 0 },
+      };
+
+      allTeams?.forEach(team => {
+        const cat = team.category as keyof typeof byCategory;
+        if (cat && byCategory[cat]) {
+          byCategory[cat].total++;
+          if (uniqueTeamIds.has(team.id)) byCategory[cat].active++;
         }
       });
-      
+
       return {
-        total: teams.length,
-        complete,
-        inProgress,
-        notStarted,
-        noData,
-        active: complete + inProgress,
+        total: totalTeams || 0,
+        withParticipants: uniqueTeamIds.size,
+        byCategory,
       };
     },
   });
