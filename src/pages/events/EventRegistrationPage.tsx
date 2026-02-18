@@ -148,7 +148,12 @@ export default function EventRegistrationPage() {
         .eq('user_id', profile.id)
         .eq('member_type', 'participant')
         .maybeSingle();
+<<<<<<< feature/sync-team-id-registrations
       return (data?.team as { id: string; name: string; tg_team_id: string | null }) ?? null;
+=======
+      if (!data || !data.team) return null;
+      return data.team as { name: string; tg_team_id: string | null };
+>>>>>>> staging
     },
     enabled: !!profile?.id,
     staleTime: 5 * 60 * 1000,
