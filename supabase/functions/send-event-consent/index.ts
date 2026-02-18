@@ -117,13 +117,24 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Verify ownership: user must own the registration
+    // Verify ownership OR admin role
     if (registration.user_id !== user.id) {
-      console.error("User does not own this registration");
-      return new Response(
-        JSON.stringify({ error: "Forbidden - not your registration" }),
-        { status: 403, headers: { "Content-Type": "application/json", ...corsHeaders } }
-      );
+      // Check if caller is admin
+      const { data: roleData } = await supabase
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", user.id)
+        .eq("role", "admin")
+        .maybeSingle();
+
+      if (!roleData) {
+        console.error("User does not own this registration and is not admin");
+        return new Response(
+          JSON.stringify({ error: "Forbidden - not your registration" }),
+          { status: 403, headers: { "Content-Type": "application/json", ...corsHeaders } }
+        );
+      }
+      console.log("Admin user sending consent on behalf of user:", registration.user_id);
     }
 
     // Validate consent_token exists before proceeding
