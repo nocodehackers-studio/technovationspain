@@ -71,6 +71,7 @@ export function useAdminCancelRegistration() {
       queryClient.invalidateQueries({ queryKey: ["event-registrations-stats", variables.eventId] });
       queryClient.invalidateQueries({ queryKey: ["event-stats", variables.eventId] });
       queryClient.invalidateQueries({ queryKey: ["event-companions-count", variables.eventId] });
+      queryClient.invalidateQueries({ queryKey: ["event-team-stats", variables.eventId] });
     },
     onError: (error: Error) => {
       toast.error(error.message || "Error al cancelar la inscripción");

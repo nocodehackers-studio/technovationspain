@@ -8,7 +8,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/admin/ConfirmDialog";
 import { useAdminCancelRegistration } from "@/hooks/useAdminCancelRegistration";
-import { Users, UserPlus, GraduationCap, Ticket, UsersRound, XCircle, FileCheck } from "lucide-react";
+import { useEventTeamStats } from "@/hooks/useEventTeamStats";
+import { TeamRegistrationSummary } from "./TeamRegistrationSummary";
+import { Users, Users2, UserPlus, GraduationCap, Ticket, UsersRound, XCircle, FileCheck } from "lucide-react";
 import { ColumnDef } from "@tanstack/react-table";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -53,6 +55,7 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
   const [registrationToCancel, setRegistrationToCancel] = useState<RegistrationWithCompanions | null>(null);
   const [hiddenColumns] = useState<string[]>(["dni", "phone"]);
   const cancelMutation = useAdminCancelRegistration();
+  const { data: teamStats, isLoading: teamStatsLoading } = useEventTeamStats(eventId);
 
   // Fetch event data
   const { data: event } = useQuery({
@@ -489,7 +492,7 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
       </div>
 
       {/* Metrics Grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
         <MetricCard
           title="Participantes"
           value={metrics.participantsCount}
@@ -509,6 +512,12 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
           color="success"
         />
         <MetricCard
+          title="Equipos"
+          value={teamStats?.length || 0}
+          icon={<Users2 />}
+          color="accent"
+        />
+        <MetricCard
           title="Consentimientos"
           value={`${metrics.consentsSigned} / ${metrics.consentsTotal}`}
           icon={<FileCheck />}
@@ -521,6 +530,12 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
           color={metrics.remainingTickets < 20 ? "warning" : "accent"}
         />
       </div>
+
+      {/* Team Registration Summary */}
+      <TeamRegistrationSummary
+        teams={teamStats || []}
+        isLoading={teamStatsLoading}
+      />
 
       {/* Registrations Table */}
       <div>
