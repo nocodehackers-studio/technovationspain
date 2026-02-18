@@ -573,6 +573,15 @@ export default function AdminImportTeams() {
           });
 
           if (error) return { memberLinked: false, whitelistUpdated: false, error: error.message };
+
+          // Sync existing event registrations: set team_id and official team_name
+          await supabase
+            .from("event_registrations")
+            .update({ team_id: teamId, team_name: teamName })
+            .eq("user_id", profile.id)
+            .is("team_id", null)
+            .neq("registration_status", "cancelled");
+
           return { memberLinked: true, whitelistUpdated: false };
         }
 
