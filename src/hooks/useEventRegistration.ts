@@ -28,6 +28,7 @@ interface RegistrationFormData {
   dni?: string;
   phone?: string;
   team_name?: string;
+  team_id?: string;
   team_id_tg?: string;
   tg_email?: string;
   is_companion?: boolean;
@@ -53,11 +54,13 @@ export function useEvent(eventId: string) {
         `)
         .eq('id', eventId)
         .single();
-      
+
       if (error) throw error;
       return data as EventWithDetails;
     },
     enabled: !!eventId,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -86,7 +89,7 @@ export function useExistingRegistration(eventId: string) {
     queryFn: async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return null;
-      
+
       const { data } = await supabase
         .from('event_registrations')
         .select('id, registration_status, registration_number')
@@ -94,10 +97,12 @@ export function useExistingRegistration(eventId: string) {
         .eq('user_id', user.id)
         .neq('registration_status', 'cancelled') // Exclude cancelled registrations
         .maybeSingle();
-      
+
       return data;
     },
     enabled: !!eventId,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -159,7 +164,37 @@ export function useEventRegistration(eventId: string) {
       const qrCode = generateQRCode();
       const registrationNumber = generateRegistrationNumber();
       
-      // 3. Create main registration
+      // 3. Resolve team_id: from formData, team_members, or name match
+      let resolvedTeamId: string | null = formData.team_id || null;
+      let resolvedTeamName: string | null = formData.team_name || null;
+
+      if (!resolvedTeamId && user) {
+        // Check if user belongs to a team via team_members
+        const { data: membership } = await supabase
+          .from('team_members')
+          .select('team_id, team:teams(id, name)')
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+        if (membership?.team_id) {
+          resolvedTeamId = membership.team_id;
+          const team = membership.team as { id: string; name: string } | null;
+          if (team?.name) resolvedTeamName = team.name;
+        }
+      }
+
+      // If still no team_id but user typed a team name, try to match
+      if (!resolvedTeamId && resolvedTeamName) {
+        const { data: matchedTeam } = await supabase
+          .from('teams')
+          .select('id')
+          .ilike('name', resolvedTeamName)
+          .maybeSingle();
+
+        if (matchedTeam?.id) resolvedTeamId = matchedTeam.id;
+      }
+
+      // 4. Create main registration
       const { data: registration, error } = await supabase
         .from('event_registrations')
         .insert({
@@ -171,7 +206,8 @@ export function useEventRegistration(eventId: string) {
           email: formData.email,
           dni: formData.dni || null,
           phone: formData.phone || null,
-          team_name: formData.team_name || null,
+          team_id: resolvedTeamId,
+          team_name: resolvedTeamName,
           team_id_tg: formData.team_id_tg || null,
           tg_email: formData.tg_email || null,
           is_companion: formData.is_companion || false,
@@ -234,18 +270,23 @@ export function useEventRegistration(eventId: string) {
 
         // 8. Consent handling (conditional on age)
         if (!isMinorUser && formData.signer_full_name) {
-          // Adult path: insert consent record directly (authenticated client)
+          // Adult path: use edge function (bypasses RLS) to record consent
           try {
-            const { error: consentError } = await supabase.from('event_ticket_consents').insert({
-              event_registration_id: registration.id,
-              signer_full_name: formData.signer_full_name,
-              signer_dni: formData.signer_dni || '',
-              signer_relationship: 'self',
-              signature: formData.signer_full_name, // typed name IS the digital signature for adults
-              minor_name: null,
-              minor_age: null,
+            const response = await supabase.functions.invoke('submit-event-consent', {
+              body: {
+                consent_token: registration.consent_token,
+                signer_full_name: formData.signer_full_name,
+                signer_dni: formData.signer_dni || '',
+                signer_relationship: 'self',
+                signature: formData.signer_full_name,
+              },
             });
-            if (consentError) throw consentError;
+            // Check transport-level error (HTTP 4xx/5xx)
+            if (response.error) throw response.error;
+            // Check application-level error (HTTP 200 with error in body)
+            if (response.data?.error) {
+              throw new Error(response.data.message || response.data.error);
+            }
           } catch (consentErr) {
             console.error('CONSENT_INSERT_FAILED: Adult consent failed after registration', {
               registrationId: registration.id,
@@ -316,7 +357,8 @@ export function useRegistration(registrationId: string) {
         .select(`
           *,
           event:events(*),
-          ticket_type:event_ticket_types(*)
+          ticket_type:event_ticket_types(*),
+          consent:event_ticket_consents(id)
         `)
         .eq('id', registrationId)
         .single();

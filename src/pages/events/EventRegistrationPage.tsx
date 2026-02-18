@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -127,6 +127,9 @@ export default function EventRegistrationPage() {
   const [companions, setCompanions] = useState<CompanionData[]>([]);
   const [consentModalOpen, setConsentModalOpen] = useState(false);
   const [consentData, setConsentData] = useState<{ signerFullName: string; signerDni: string } | null>(null);
+  const consentDataRef = useRef<{ signerFullName: string; signerDni: string } | null>(null);
+  const hasPrefilledProfile = useRef(false);
+  const hasPrefilledTeam = useRef(false);
 
   const userIsMinor = isMinor(profile?.date_of_birth);
   
@@ -141,13 +144,15 @@ export default function EventRegistrationPage() {
       if (!profile?.id) return null;
       const { data } = await supabase
         .from('team_members')
-        .select('team:teams(name, tg_team_id)')
+        .select('team:teams(id, name, tg_team_id)')
         .eq('user_id', profile.id)
         .eq('member_type', 'participant')
         .maybeSingle();
-      return data?.team as { name: string; tg_team_id: string | null } | null;
+      return (data?.team as { id: string; name: string; tg_team_id: string | null }) ?? null;
     },
     enabled: !!profile?.id,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   });
   
   const form = useForm<RegistrationFormValues>({
@@ -166,26 +171,27 @@ export default function EventRegistrationPage() {
     },
   });
   
-  // Update form values when profile or team loads
+  // Pre-fill form from profile data ONLY ONCE to avoid overwriting user edits
   useEffect(() => {
-    if (profile) {
+    if (profile && !hasPrefilledProfile.current) {
+      hasPrefilledProfile.current = true;
       form.setValue('first_name', profile.first_name || '');
       form.setValue('last_name', profile.last_name || '');
       form.setValue('email', profile.email || '');
       form.setValue('phone', profile.phone || '');
       form.setValue('tg_email', profile.tg_email || '');
-      
-      // Pre-fill DNI from profile
       if (profile.dni) {
         form.setValue('dni', profile.dni);
       }
     }
-    
-    // Pre-fill team name if user has one assigned
-    if (userTeam?.name) {
+  }, [profile, form]);
+
+  useEffect(() => {
+    if (userTeam?.name && !hasPrefilledTeam.current) {
+      hasPrefilledTeam.current = true;
       form.setValue('team_name', userTeam.name);
     }
-  }, [profile, userTeam, form]);
+  }, [userTeam, form]);
   
 const selectedTicketId = form.watch('ticket_type_id');
   const selectedTicket = event?.ticket_types?.find(t => t.id === selectedTicketId);
@@ -384,13 +390,14 @@ const selectedTicketId = form.watch('ticket_type_id');
         dni: values.dni,
         phone: values.phone,
         team_name: values.team_name || undefined,
+        team_id: userTeam?.id,
         tg_email: values.tg_email || undefined,
         image_consent: values.image_consent,
         data_consent: values.data_consent,
         companions: companions.length > 0 ? companions : undefined,
-        // Consent data for adults
-        signer_full_name: consentData?.signerFullName,
-        signer_dni: consentData?.signerDni,
+        // Consent data for adults (use ref to avoid stale closure from setTimeout)
+        signer_full_name: consentDataRef.current?.signerFullName,
+        signer_dni: consentDataRef.current?.signerDni,
         date_of_birth: profile?.date_of_birth,
       });
 
@@ -403,12 +410,14 @@ const selectedTicketId = form.watch('ticket_type_id');
     } catch (err: any) {
       toast.error(err.message || 'Error al procesar la inscripción');
     } finally {
+      consentDataRef.current = null;
       setConsentData(null);
       setConsentModalOpen(false);
     }
   };
 
   const handleConsentConfirm = (data: { signerFullName: string; signerDni: string }) => {
+    consentDataRef.current = data;
     setConsentData(data);
     setConsentModalOpen(false);
     // Programmatically submit the form after consent is confirmed

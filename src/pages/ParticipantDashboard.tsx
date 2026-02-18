@@ -23,6 +23,7 @@ import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
+import { isMinor } from '@/lib/age-utils';
 
 
 export default function ParticipantDashboard() {
@@ -74,7 +75,8 @@ export default function ParticipantDashboard() {
         .select(`
           *,
           event:events(*),
-          ticket_type:event_ticket_types(*)
+          ticket_type:event_ticket_types(*),
+          consent:event_ticket_consents(id)
         `)
         .eq('user_id', user.id)
         .eq('is_companion', false)
@@ -379,17 +381,24 @@ export default function ParticipantDashboard() {
                                 <span>{ticketType?.name || 'General'}</span>
                               </div>
                             </div>
-                            <Badge 
-                              variant={
-                                reg.registration_status === 'confirmed' ? 'default' : 
-                                reg.registration_status === 'waitlisted' ? 'orange' : 
-                                'secondary'
-                              }
-                            >
-                              {reg.registration_status === 'confirmed' ? 'Confirmada' : 
-                               reg.registration_status === 'waitlisted' ? 'Lista de espera' : 
-                               'Pendiente'}
-                            </Badge>
+                            <div className="flex flex-col items-end gap-1">
+                              <Badge
+                                variant={
+                                  reg.registration_status === 'confirmed' ? 'default' :
+                                  reg.registration_status === 'waitlisted' ? 'orange' :
+                                  'secondary'
+                                }
+                              >
+                                {reg.registration_status === 'confirmed' ? 'Confirmada' :
+                                 reg.registration_status === 'waitlisted' ? 'Lista de espera' :
+                                 'Pendiente'}
+                              </Badge>
+                              {reg.registration_status === 'confirmed' && isMinor(profile?.date_of_birth) && (!reg.consent || reg.consent.length === 0) && (
+                                <Badge variant="orange" className="text-xs">
+                                  Pendiente de consentimiento
+                                </Badge>
+                              )}
+                            </div>
                           </Link>
                           
                           {/* Companion registrations */}

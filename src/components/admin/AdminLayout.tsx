@@ -1,4 +1,4 @@
-import { ReactNode } from "react";
+import React, { ReactNode } from "react";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AdminSidebar } from "./AdminSidebar";
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
@@ -49,16 +49,16 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
             <Breadcrumb className="hidden md:flex">
               <BreadcrumbList>
                 {breadcrumbs.map((crumb, index) => (
-                  <BreadcrumbItem key={crumb.path}>
-                    {index < breadcrumbs.length - 1 ? (
-                      <>
+                  <React.Fragment key={crumb.path}>
+                    <BreadcrumbItem>
+                      {index < breadcrumbs.length - 1 ? (
                         <BreadcrumbLink href={crumb.path}>{crumb.label}</BreadcrumbLink>
-                        <BreadcrumbSeparator />
-                      </>
-                    ) : (
-                      <BreadcrumbPage>{title || crumb.label}</BreadcrumbPage>
-                    )}
-                  </BreadcrumbItem>
+                      ) : (
+                        <BreadcrumbPage>{title || crumb.label}</BreadcrumbPage>
+                      )}
+                    </BreadcrumbItem>
+                    {index < breadcrumbs.length - 1 && <BreadcrumbSeparator />}
+                  </React.Fragment>
                 ))}
               </BreadcrumbList>
             </Breadcrumb>

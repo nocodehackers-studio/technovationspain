@@ -341,6 +341,12 @@ export default function AdminUsers() {
       accessorKey: "school_name",
       header: "Colegio/Empresa",
       enableHiding: true,
+      filterFn: (row, id, value) => {
+        const v = row.getValue(id) as string | null;
+        const normalized = v || "__empty__";
+        if (Array.isArray(value)) return value.includes(normalized);
+        return normalized === value;
+      },
       cell: ({ row }) => (
         <span className="text-sm max-w-[150px] truncate block">{row.original.school_name || "—"}</span>
       ),
@@ -522,10 +528,14 @@ export default function AdminUsers() {
     const stateOptions: FilterableColumn["options"] = [
       { value: "__empty__", label: "Sin comunidad" },
     ];
+    const schoolOptions: FilterableColumn["options"] = [
+      { value: "__empty__", label: "Sin chapter" },
+    ];
 
     const hubSet = new Set<string>();
     const teamSet = new Set<string>();
     const stateSet = new Set<string>();
+    const schoolSet = new Set<string>();
 
     (users || []).forEach((u) => {
       if (u.hub_name && !hubSet.has(u.hub_name)) {
@@ -539,6 +549,10 @@ export default function AdminUsers() {
       if (u.state && !stateSet.has(u.state)) {
         stateSet.add(u.state);
         stateOptions.push({ value: u.state, label: u.state });
+      }
+      if (u.school_name && !schoolSet.has(u.school_name)) {
+        schoolSet.add(u.school_name);
+        schoolOptions.push({ value: u.school_name, label: u.school_name });
       }
     });
 
@@ -581,6 +595,11 @@ export default function AdminUsers() {
         key: "team_name",
         label: "Equipo",
         options: sortOpts(teamOptions),
+      },
+      {
+        key: "school_name",
+        label: "Chapter",
+        options: sortOpts(schoolOptions),
       },
       {
         key: "state",
