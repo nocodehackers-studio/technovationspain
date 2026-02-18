@@ -28,6 +28,7 @@ interface RegistrationFormData {
   dni?: string;
   phone?: string;
   team_name?: string;
+  team_id?: string;
   team_id_tg?: string;
   tg_email?: string;
   is_companion?: boolean;
@@ -163,7 +164,37 @@ export function useEventRegistration(eventId: string) {
       const qrCode = generateQRCode();
       const registrationNumber = generateRegistrationNumber();
       
-      // 3. Create main registration
+      // 3. Resolve team_id: from formData, team_members, or name match
+      let resolvedTeamId: string | null = formData.team_id || null;
+      let resolvedTeamName: string | null = formData.team_name || null;
+
+      if (!resolvedTeamId && user) {
+        // Check if user belongs to a team via team_members
+        const { data: membership } = await supabase
+          .from('team_members')
+          .select('team_id, team:teams(id, name)')
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+        if (membership?.team_id) {
+          resolvedTeamId = membership.team_id;
+          const team = membership.team as { id: string; name: string } | null;
+          if (team?.name) resolvedTeamName = team.name;
+        }
+      }
+
+      // If still no team_id but user typed a team name, try to match
+      if (!resolvedTeamId && resolvedTeamName) {
+        const { data: matchedTeam } = await supabase
+          .from('teams')
+          .select('id')
+          .ilike('name', resolvedTeamName)
+          .maybeSingle();
+
+        if (matchedTeam?.id) resolvedTeamId = matchedTeam.id;
+      }
+
+      // 4. Create main registration
       const { data: registration, error } = await supabase
         .from('event_registrations')
         .insert({
@@ -175,7 +206,8 @@ export function useEventRegistration(eventId: string) {
           email: formData.email,
           dni: formData.dni || null,
           phone: formData.phone || null,
-          team_name: formData.team_name || null,
+          team_id: resolvedTeamId,
+          team_name: resolvedTeamName,
           team_id_tg: formData.team_id_tg || null,
           tg_email: formData.tg_email || null,
           is_companion: formData.is_companion || false,
