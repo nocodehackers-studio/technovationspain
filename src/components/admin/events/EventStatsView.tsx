@@ -2,13 +2,13 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { MetricCard } from "@/components/admin/MetricCard";
-import { DataTable } from "@/components/admin/DataTable";
+import { AirtableDataTable, FilterableColumn, ExportData } from "@/components/admin/AirtableDataTable";
 import { RegistrationStatusBadge } from "@/components/events/RegistrationStatusBadge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/admin/ConfirmDialog";
 import { useAdminCancelRegistration } from "@/hooks/useAdminCancelRegistration";
-import { Users, UserPlus, GraduationCap, Ticket, UsersRound, XCircle } from "lucide-react";
+import { Users, UserPlus, GraduationCap, Ticket, UsersRound, XCircle, FileCheck } from "lucide-react";
 import { ColumnDef } from "@tanstack/react-table";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -23,6 +23,7 @@ interface RegistrationWithCompanions {
   last_name: string | null;
   email: string | null;
   phone: string | null;
+  dni: string | null;
   registration_status: string | null;
   checked_in_at: string | null;
   created_at: string | null;
@@ -34,12 +35,25 @@ interface RegistrationWithCompanions {
     allowed_roles: string[] | null;
   } | null;
   companions_count: number;
-  companions_details: { first_name: string | null; last_name: string | null; relationship: string | null }[];
+  companions_details: {
+    first_name: string | null;
+    last_name: string | null;
+    relationship: string | null;
+    dni: string | null;
+    checked_in_at: string | null;
+  }[];
+  has_consent: boolean;
+  consent_signed_at: string | null;
+  // Derived fields for filtering
+  ticket_type_name: string;
+  consent_status: string;
 }
 
 export function EventStatsView({ eventId }: EventStatsViewProps) {
   const [registrationToCancel, setRegistrationToCancel] = useState<RegistrationWithCompanions | null>(null);
+  const [hiddenColumns] = useState<string[]>(["dni", "phone"]);
   const cancelMutation = useAdminCancelRegistration();
+
   // Fetch event data
   const { data: event } = useQuery({
     queryKey: ["event-stats", eventId],
@@ -55,16 +69,17 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
     },
   });
 
-  // Fetch registrations with ticket types
+  // Fetch registrations with ticket types and consent
   const { data: registrations, isLoading } = useQuery({
     queryKey: ["event-registrations-stats", eventId],
     queryFn: async () => {
       const { data: regs, error } = await supabase
         .from("event_registrations")
         .select(`
-          id, first_name, last_name, email, phone, registration_status,
+          id, first_name, last_name, email, phone, dni, registration_status,
           checked_in_at, created_at, registration_number, team_name,
-          ticket_type:event_ticket_types(id, name, allowed_roles)
+          ticket_type:event_ticket_types(id, name, allowed_roles),
+          consent:event_ticket_consents(id, signed_at)
         `)
         .eq("event_id", eventId)
         .eq("is_companion", false)
@@ -73,17 +88,17 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
 
       if (error) throw error;
 
-      // Get companion counts
+      // Get companion details
       const regIds = regs?.map((r) => r.id) || [];
       if (regIds.length === 0) return [];
 
       const { data: companions } = await supabase
         .from("companions")
-        .select("event_registration_id, first_name, last_name, relationship")
+        .select("event_registration_id, first_name, last_name, relationship, dni, checked_in_at")
         .in("event_registration_id", regIds);
 
       const companionCounts: Record<string, number> = {};
-      const companionDetails: Record<string, { first_name: string | null; last_name: string | null; relationship: string | null }[]> = {};
+      const companionDetails: Record<string, RegistrationWithCompanions["companions_details"]> = {};
       companions?.forEach((c) => {
         if (c.event_registration_id) {
           companionCounts[c.event_registration_id] = (companionCounts[c.event_registration_id] || 0) + 1;
@@ -92,15 +107,31 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
             first_name: c.first_name,
             last_name: c.last_name,
             relationship: c.relationship,
+            dni: c.dni,
+            checked_in_at: c.checked_in_at,
           });
         }
       });
 
-      return regs?.map((r) => ({
-        ...r,
-        companions_count: companionCounts[r.id] || 0,
-        companions_details: companionDetails[r.id] || [],
-      })) as RegistrationWithCompanions[];
+      return regs?.map((r) => {
+        // Supabase returns one-to-one relations as object, one-to-many as array
+        const raw = r.consent as unknown;
+        const consentRecord = raw && typeof raw === "object" && !Array.isArray(raw)
+          ? (raw as { id: string; signed_at: string })
+          : Array.isArray(raw) && raw.length > 0
+            ? (raw[0] as { id: string; signed_at: string })
+            : null;
+
+        return {
+          ...r,
+          companions_count: companionCounts[r.id] || 0,
+          companions_details: companionDetails[r.id] || [],
+          has_consent: !!consentRecord,
+          consent_signed_at: consentRecord?.signed_at || null,
+          ticket_type_name: r.ticket_type?.name || "",
+          consent_status: consentRecord ? "signed" : "pending",
+        };
+      }) as RegistrationWithCompanions[];
     },
   });
 
@@ -108,7 +139,6 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
   const { data: allCompanions } = useQuery({
     queryKey: ["event-companions-count", eventId],
     queryFn: async () => {
-      // First get all registration IDs for this event
       const { data: regIds } = await supabase
         .from("event_registrations")
         .select("id")
@@ -154,15 +184,63 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
       (event?.max_capacity || 0) - totalAttendees
     );
 
-    return { 
-      participantsCount, 
-      mentorsCount, 
-      companionsCount, 
+    const consentsTotal = regs.length;
+    const consentsSigned = regs.filter((r) => r.has_consent).length;
+
+    return {
+      participantsCount,
+      mentorsCount,
+      companionsCount,
       mainRegistrations,
       totalAttendees,
-      remainingTickets 
+      remainingTickets,
+      consentsTotal,
+      consentsSigned,
     };
   }, [registrations, allCompanions, event]);
+
+  // Filterable columns
+  const filterableColumns: FilterableColumn[] = useMemo(() => {
+    const regs = registrations || [];
+    const ticketTypes = [...new Set(regs.map((r) => r.ticket_type?.name).filter(Boolean))];
+    const teams = [...new Set(regs.map((r) => r.team_name).filter(Boolean))].sort();
+
+    return [
+      {
+        key: "ticket_type_name",
+        label: "Tipo Entrada",
+        options: ticketTypes.map((t) => ({ value: t!, label: t! })),
+      },
+      {
+        key: "registration_status",
+        label: "Estado",
+        options: [
+          { value: "confirmed", label: "Confirmado" },
+          { value: "waitlisted", label: "En lista de espera" },
+        ],
+      },
+      {
+        key: "consent_status",
+        label: "Consentimiento",
+        options: [
+          { value: "signed", label: "Firmado" },
+          { value: "pending", label: "Pendiente" },
+        ],
+      },
+      ...(teams.length > 0
+        ? [
+            {
+              key: "team_name",
+              label: "Equipo",
+              options: [
+                ...teams.map((t) => ({ value: t!, label: t! })),
+                { value: "__empty__", label: "Sin equipo" },
+              ],
+            },
+          ]
+        : []),
+    ];
+  }, [registrations]);
 
   // Table columns
   const columns: ColumnDef<RegistrationWithCompanions>[] = useMemo(
@@ -171,7 +249,7 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
         accessorKey: "name",
         header: "Nombre",
         accessorFn: (row) =>
-          `${row.first_name || ""} ${row.last_name || ""}`.trim() || row.email || "-",
+          `${row.first_name || ""} ${row.last_name || ""} ${row.email || ""}`.trim().toLowerCase(),
         cell: ({ row }) => {
           const name = `${row.original.first_name || ""} ${row.original.last_name || ""}`.trim();
           return (
@@ -183,15 +261,39 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
         },
       },
       {
+        accessorKey: "dni",
+        header: "DNI",
+        cell: ({ row }) => (
+          <span className="text-sm font-mono">{row.original.dni || "-"}</span>
+        ),
+      },
+      {
+        accessorKey: "phone",
+        header: "Teléfono",
+        cell: ({ row }) => (
+          <span className="text-sm">{row.original.phone || "-"}</span>
+        ),
+      },
+      {
         accessorKey: "team_name",
         header: "Equipo",
+        filterFn: (row, _id, filterValues: string[]) => {
+          if (!filterValues?.length) return true;
+          const value = row.original.team_name;
+          if (filterValues.includes("__empty__") && !value) return true;
+          return filterValues.includes(value || "");
+        },
         cell: ({ row }) => (
           <span className="text-sm">{row.original.team_name || "-"}</span>
         ),
       },
       {
-        accessorKey: "ticket_type.name",
+        accessorKey: "ticket_type_name",
         header: "Tipo Entrada",
+        filterFn: (row, _id, filterValues: string[]) => {
+          if (!filterValues?.length) return true;
+          return filterValues.includes(row.original.ticket_type_name);
+        },
         cell: ({ row }) => (
           <span className="text-sm">{row.original.ticket_type?.name || "-"}</span>
         ),
@@ -212,8 +314,34 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
         },
       },
       {
+        accessorKey: "consent_status",
+        header: "Consentimiento",
+        filterFn: (row, _id, filterValues: string[]) => {
+          if (!filterValues?.length) return true;
+          return filterValues.includes(row.original.consent_status);
+        },
+        cell: ({ row }) => {
+          if (row.original.has_consent) {
+            return (
+              <Badge className="bg-success/10 text-success border-success/20 hover:bg-success/20" variant="outline">
+                Firmado
+              </Badge>
+            );
+          }
+          return (
+            <Badge className="bg-warning/10 text-warning border-warning/20 hover:bg-warning/20" variant="outline">
+              Pendiente
+            </Badge>
+          );
+        },
+      },
+      {
         accessorKey: "registration_status",
         header: "Estado",
+        filterFn: (row, _id, filterValues: string[]) => {
+          if (!filterValues?.length) return true;
+          return filterValues.includes(row.original.registration_status || "");
+        },
         cell: ({ row }) => (
           <RegistrationStatusBadge status={row.original.registration_status || "confirmed"} />
         ),
@@ -253,7 +381,10 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => setRegistrationToCancel(row.original)}
+            onClick={(e) => {
+              e.stopPropagation();
+              setRegistrationToCancel(row.original);
+            }}
             title="Cancelar inscripción"
           >
             <XCircle className="h-4 w-4 text-destructive" />
@@ -265,19 +396,22 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
   );
 
   // Export CSV
-  const handleExport = () => {
-    if (!registrations || registrations.length === 0) return;
+  const handleExport = (exportData: ExportData<RegistrationWithCompanions>) => {
+    const rows = exportData.rows;
+    if (rows.length === 0) return;
 
     const csvRows: Record<string, string | number>[] = [];
 
-    registrations.forEach((r) => {
+    rows.forEach((r) => {
       csvRows.push({
         Nombre: `${r.first_name || ""} ${r.last_name || ""}`.trim(),
         Email: r.email || "",
+        DNI: r.dni || "",
         Teléfono: r.phone || "",
         Equipo: r.team_name || "",
         "Tipo Entrada": r.ticket_type?.name || "",
         Acompañantes: r.companions_count,
+        Consentimiento: r.has_consent ? "Sí" : "No",
         Estado: r.registration_status || "",
         "Check-in": r.checked_in_at
           ? format(new Date(r.checked_in_at), "dd/MM/yyyy HH:mm")
@@ -292,12 +426,16 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
         csvRows.push({
           Nombre: `  ↳ ${comp.first_name || ""} ${comp.last_name || ""}`.trim(),
           Email: "",
+          DNI: comp.dni || "",
           Teléfono: "",
           Equipo: r.team_name || "",
           "Tipo Entrada": `Acompañante (${comp.relationship || ""})`,
           Acompañantes: "",
+          Consentimiento: "",
           Estado: "",
-          "Check-in": "",
+          "Check-in": comp.checked_in_at
+            ? format(new Date(comp.checked_in_at), "dd/MM/yyyy HH:mm")
+            : "No",
           "Fecha registro": "",
         });
       });
@@ -351,7 +489,7 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
       </div>
 
       {/* Metrics Grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <MetricCard
           title="Participantes"
           value={metrics.participantsCount}
@@ -371,6 +509,12 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
           color="success"
         />
         <MetricCard
+          title="Consentimientos"
+          value={`${metrics.consentsSigned} / ${metrics.consentsTotal}`}
+          icon={<FileCheck />}
+          color={metrics.consentsSigned === metrics.consentsTotal ? "success" : "warning"}
+        />
+        <MetricCard
           title="Entradas restantes"
           value={event?.max_capacity ? metrics.remainingTickets : "∞"}
           icon={<Ticket />}
@@ -381,11 +525,13 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
       {/* Registrations Table */}
       <div>
         <h3 className="text-lg font-semibold mb-4">Listado de Inscripciones</h3>
-        <DataTable
+        <AirtableDataTable
           columns={columns}
           data={registrations || []}
           loading={isLoading}
           searchPlaceholder="Buscar por nombre o email..."
+          filterableColumns={filterableColumns}
+          hiddenColumns={hiddenColumns}
           onExport={handleExport}
         />
       </div>

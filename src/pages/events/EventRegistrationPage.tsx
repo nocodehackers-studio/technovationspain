@@ -127,6 +127,7 @@ export default function EventRegistrationPage() {
   const [companions, setCompanions] = useState<CompanionData[]>([]);
   const [consentModalOpen, setConsentModalOpen] = useState(false);
   const [consentData, setConsentData] = useState<{ signerFullName: string; signerDni: string } | null>(null);
+  const consentDataRef = useRef<{ signerFullName: string; signerDni: string } | null>(null);
   const hasPrefilledProfile = useRef(false);
   const hasPrefilledTeam = useRef(false);
 
@@ -394,9 +395,9 @@ const selectedTicketId = form.watch('ticket_type_id');
         image_consent: values.image_consent,
         data_consent: values.data_consent,
         companions: companions.length > 0 ? companions : undefined,
-        // Consent data for adults
-        signer_full_name: consentData?.signerFullName,
-        signer_dni: consentData?.signerDni,
+        // Consent data for adults (use ref to avoid stale closure from setTimeout)
+        signer_full_name: consentDataRef.current?.signerFullName,
+        signer_dni: consentDataRef.current?.signerDni,
         date_of_birth: profile?.date_of_birth,
       });
 
@@ -409,12 +410,14 @@ const selectedTicketId = form.watch('ticket_type_id');
     } catch (err: any) {
       toast.error(err.message || 'Error al procesar la inscripción');
     } finally {
+      consentDataRef.current = null;
       setConsentData(null);
       setConsentModalOpen(false);
     }
   };
 
   const handleConsentConfirm = (data: { signerFullName: string; signerDni: string }) => {
+    consentDataRef.current = data;
     setConsentData(data);
     setConsentModalOpen(false);
     // Programmatically submit the form after consent is confirmed

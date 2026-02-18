@@ -238,18 +238,23 @@ export function useEventRegistration(eventId: string) {
 
         // 8. Consent handling (conditional on age)
         if (!isMinorUser && formData.signer_full_name) {
-          // Adult path: insert consent record directly (authenticated client)
+          // Adult path: use edge function (bypasses RLS) to record consent
           try {
-            const { error: consentError } = await supabase.from('event_ticket_consents').insert({
-              event_registration_id: registration.id,
-              signer_full_name: formData.signer_full_name,
-              signer_dni: formData.signer_dni || '',
-              signer_relationship: 'self',
-              signature: formData.signer_full_name, // typed name IS the digital signature for adults
-              minor_name: null,
-              minor_age: null,
+            const response = await supabase.functions.invoke('submit-event-consent', {
+              body: {
+                consent_token: registration.consent_token,
+                signer_full_name: formData.signer_full_name,
+                signer_dni: formData.signer_dni || '',
+                signer_relationship: 'self',
+                signature: formData.signer_full_name,
+              },
             });
-            if (consentError) throw consentError;
+            // Check transport-level error (HTTP 4xx/5xx)
+            if (response.error) throw response.error;
+            // Check application-level error (HTTP 200 with error in body)
+            if (response.data?.error) {
+              throw new Error(response.data.message || response.data.error);
+            }
           } catch (consentErr) {
             console.error('CONSENT_INSERT_FAILED: Adult consent failed after registration', {
               registrationId: registration.id,
