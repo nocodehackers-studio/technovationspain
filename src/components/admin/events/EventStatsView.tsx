@@ -10,7 +10,9 @@ import { ConfirmDialog } from "@/components/admin/ConfirmDialog";
 import { useAdminCancelRegistration } from "@/hooks/useAdminCancelRegistration";
 import { useEventTeamStats } from "@/hooks/useEventTeamStats";
 import { TeamRegistrationSummary } from "./TeamRegistrationSummary";
-import { Users, Users2, UserPlus, GraduationCap, Ticket, UsersRound, XCircle, FileCheck } from "lucide-react";
+import { Users, Users2, UserPlus, GraduationCap, Ticket, UsersRound, XCircle, FileCheck, Mail, Loader2 } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { toast } from "@/hooks/use-toast";
 import { ColumnDef } from "@tanstack/react-table";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -21,6 +23,7 @@ interface EventStatsViewProps {
 
 interface RegistrationWithCompanions {
   id: string;
+  user_id: string;
   first_name: string | null;
   last_name: string | null;
   email: string | null;
@@ -54,8 +57,37 @@ interface RegistrationWithCompanions {
 export function EventStatsView({ eventId }: EventStatsViewProps) {
   const [registrationToCancel, setRegistrationToCancel] = useState<RegistrationWithCompanions | null>(null);
   const [hiddenColumns] = useState<string[]>(["dni", "phone"]);
+  const [sendingConsentIds, setSendingConsentIds] = useState<Set<string>>(new Set());
   const cancelMutation = useAdminCancelRegistration();
   const { data: teamStats, isLoading: teamStatsLoading } = useEventTeamStats(eventId);
+
+  const handleResendConsent = async (registration: RegistrationWithCompanions) => {
+    setSendingConsentIds((prev) => new Set(prev).add(registration.id));
+    try {
+      const { data, error } = await supabase.functions.invoke("send-event-consent", {
+        body: { registrationId: registration.id },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      toast({
+        title: "Email enviado",
+        description: `Consentimiento reenviado para ${registration.first_name || ""} ${registration.last_name || ""}`.trim(),
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "No se pudo enviar el email";
+      toast({
+        title: "Error al enviar",
+        description: message,
+        variant: "destructive",
+      });
+    } finally {
+      setSendingConsentIds((prev) => {
+        const next = new Set(prev);
+        next.delete(registration.id);
+        return next;
+      });
+    }
+  };
 
   // Fetch event data
   const { data: event } = useQuery({
@@ -79,7 +111,7 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
       const { data: regs, error } = await supabase
         .from("event_registrations")
         .select(`
-          id, first_name, last_name, email, phone, dni, registration_status,
+          id, user_id, first_name, last_name, email, phone, dni, registration_status,
           checked_in_at, created_at, registration_number, team_name,
           ticket_type:event_ticket_types(id, name, allowed_roles),
           consent:event_ticket_consents(id, signed_at)
@@ -332,9 +364,32 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
             );
           }
           return (
-            <Badge className="bg-warning/10 text-warning border-warning/20 hover:bg-warning/20" variant="outline">
-              Pendiente
-            </Badge>
+            <div className="flex items-center gap-1">
+              <Badge className="bg-warning/10 text-warning border-warning/20 hover:bg-warning/20" variant="outline">
+                Pendiente
+              </Badge>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6"
+                    disabled={sendingConsentIds.has(row.original.id)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleResendConsent(row.original);
+                    }}
+                  >
+                    {sendingConsentIds.has(row.original.id) ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <Mail className="h-3 w-3" />
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Reenviar email de consentimiento</TooltipContent>
+              </Tooltip>
+            </div>
           );
         },
       },
@@ -395,7 +450,8 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
         ),
       },
     ],
-    []
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sendingConsentIds]
   );
 
   // Export CSV
