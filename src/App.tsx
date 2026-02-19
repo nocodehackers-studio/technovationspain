@@ -15,13 +15,6 @@ import PendingVerification from "./pages/PendingVerification";
 import NotFound from "./pages/NotFound";
 import ParticipantDashboard from "./pages/ParticipantDashboard";
 
-// Registration Pages
-import RegisterSelect from "./pages/register/RegisterSelect";
-import RegisterStudent from "./pages/register/RegisterStudent";
-import RegisterMentor from "./pages/register/RegisterMentor";
-import RegisterJudge from "./pages/register/RegisterJudge";
-import RegisterVolunteer from "./pages/register/RegisterVolunteer";
-
 // Volunteer Pages
 import VolunteerDashboard from "./pages/volunteer/VolunteerDashboard";
 
@@ -43,6 +36,7 @@ import AdminWorkshopSchedule from "./pages/admin/AdminWorkshopSchedule";
 import AdminReports from "./pages/admin/AdminReports";
 import AdminSettings from "./pages/admin/AdminSettings";
 import AdminTickets from "./pages/admin/AdminTickets";
+import AdminImportBatch from "./pages/admin/AdminImportBatch";
 
 // Event Pages
 import EventsListPage from "./pages/events/EventsListPage";
@@ -72,28 +66,19 @@ const App = () => (
         <AuthProvider>
           {/* Global verification modal - blocks navigation for unverified users */}
           <VerificationPendingModal />
-          
+
           <Routes>
             {/* Public routes */}
             <Route path="/auth/callback" element={<AuthCallback />} />
             <Route path="/pending-verification" element={<PendingVerification />} />
-            
-            {/* Registration routes (public) */}
-            <Route path="/register" element={<RegisterSelect />} />
-            <Route path="/register/student" element={<RegisterStudent />} />
-            <Route path="/register/mentor" element={<RegisterMentor />} />
-            <Route path="/register/judge" element={<RegisterJudge />} />
-            
-            {/* Volunteer registration (public) */}
-            <Route path="/voluntario" element={<RegisterVolunteer />} />
-            
-            {/* Volunteer dashboard (protected) */}
-            <Route path="/voluntario/dashboard" element={
-              <ProtectedRoute requiredRoles={["volunteer", "admin"]}>
+
+            {/* Volunteer page (access controlled inside the component via is_volunteer) */}
+            <Route path="/voluntario" element={
+              <ProtectedRoute>
                 <VolunteerDashboard />
               </ProtectedRoute>
             } />
-            
+
             {/* Mentor dashboard (protected) */}
             <Route path="/mentor/dashboard" element={
               <ProtectedRoute requiredRoles={["mentor", "admin"]}>
@@ -106,91 +91,96 @@ const App = () => (
                 <Onboarding />
               </ProtectedRoute>
             } />
-            
+
             {/* Admin routes */}
             <Route path="/admin" element={
-              <ProtectedRoute requiredRoles={["admin"]}>
+              <ProtectedRoute requiredRoles={["admin", "chapter_ambassador"]}>
                 <AdminDashboard />
               </ProtectedRoute>
             } />
             <Route path="/admin/users" element={
-              <ProtectedRoute requiredRoles={["admin"]}>
+              <ProtectedRoute requiredRoles={["admin", "chapter_ambassador"]}>
                 <AdminUsers />
               </ProtectedRoute>
             } />
             <Route path="/admin/teams" element={
-              <ProtectedRoute requiredRoles={["admin"]}>
+              <ProtectedRoute requiredRoles={["admin", "chapter_ambassador"]}>
                 <AdminTeams />
               </ProtectedRoute>
             } />
             <Route path="/admin/hubs" element={
-              <ProtectedRoute requiredRoles={["admin"]}>
+              <ProtectedRoute requiredRoles={["admin", "chapter_ambassador"]}>
                 <AdminHubs />
               </ProtectedRoute>
             } />
             <Route path="/admin/events" element={
-              <ProtectedRoute requiredRoles={["admin"]}>
+              <ProtectedRoute requiredRoles={["admin", "chapter_ambassador"]}>
                 <AdminEvents />
               </ProtectedRoute>
             } />
             <Route path="/admin/events/new" element={
-              <ProtectedRoute requiredRoles={["admin"]}>
+              <ProtectedRoute requiredRoles={["admin", "chapter_ambassador"]}>
                 <AdminEventEditor />
               </ProtectedRoute>
             } />
             <Route path="/admin/events/:eventId/edit" element={
-              <ProtectedRoute requiredRoles={["admin"]}>
+              <ProtectedRoute requiredRoles={["admin", "chapter_ambassador"]}>
                 <AdminEventEditor />
               </ProtectedRoute>
             } />
             <Route path="/admin/workshops" element={
-              <ProtectedRoute requiredRoles={["admin"]}>
+              <ProtectedRoute requiredRoles={["admin", "chapter_ambassador"]}>
                 <AdminWorkshops />
               </ProtectedRoute>
             } />
             <Route path="/admin/events/:eventId/workshops/capacity" element={
-              <ProtectedRoute requiredRoles={["admin"]}>
+              <ProtectedRoute requiredRoles={["admin", "chapter_ambassador"]}>
                 <AdminWorkshopCapacity />
               </ProtectedRoute>
             } />
             <Route path="/admin/events/:eventId/workshops/preferences" element={
-              <ProtectedRoute requiredRoles={["admin"]}>
+              <ProtectedRoute requiredRoles={["admin", "chapter_ambassador"]}>
                 <AdminWorkshopPreferences />
               </ProtectedRoute>
             } />
             <Route path="/admin/events/:eventId/workshops/assign" element={
-              <ProtectedRoute requiredRoles={["admin"]}>
+              <ProtectedRoute requiredRoles={["admin", "chapter_ambassador"]}>
                 <AdminWorkshopAssignment />
               </ProtectedRoute>
             } />
             <Route path="/admin/events/:eventId/workshops/schedule" element={
-              <ProtectedRoute requiredRoles={["admin"]}>
+              <ProtectedRoute requiredRoles={["admin", "chapter_ambassador"]}>
                 <AdminWorkshopSchedule />
               </ProtectedRoute>
             } />
             <Route path="/admin/reports" element={
-              <ProtectedRoute requiredRoles={["admin"]}>
+              <ProtectedRoute requiredRoles={["admin", "chapter_ambassador"]}>
                 <AdminReports />
               </ProtectedRoute>
             } />
             <Route path="/admin/settings" element={
-              <ProtectedRoute requiredRoles={["admin"]}>
+              <ProtectedRoute requiredRoles={["admin", "chapter_ambassador"]}>
                 <AdminSettings />
               </ProtectedRoute>
             } />
             <Route path="/admin/tickets" element={
-              <ProtectedRoute requiredRoles={["admin"]}>
+              <ProtectedRoute requiredRoles={["admin", "chapter_ambassador"]}>
                 <AdminTickets />
               </ProtectedRoute>
             } />
-            
+            <Route path="/admin/import" element={
+              <ProtectedRoute requiredRoles={["admin"]}>
+                <AdminImportBatch />
+              </ProtectedRoute>
+            } />
+
             {/* Participant dashboard */}
             <Route path="/dashboard" element={
               <ProtectedRoute>
                 <ParticipantDashboard />
               </ProtectedRoute>
             } />
-            
+
             {/* Event routes */}
             <Route path="/events" element={
               <ProtectedRoute>

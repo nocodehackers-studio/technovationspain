@@ -9,6 +9,7 @@ import {
   Settings,
   LogOut,
   Ticket,
+  Upload,
 } from "lucide-react";
 import {
   Sidebar,
@@ -37,6 +38,7 @@ const menuItems = [
   { title: "Hubs", url: "/admin/hubs", icon: Building2 },
   { title: "Eventos", url: "/admin/events", icon: Calendar },
   { title: "Talleres", url: "/admin/workshops", icon: GraduationCap },
+  { title: "Importar", url: "/admin/import", icon: Upload },
   { title: "Reportes", url: "/admin/reports", icon: BarChart3 },
   { title: "Tickets", url: "/admin/tickets", icon: Ticket },
 ];
