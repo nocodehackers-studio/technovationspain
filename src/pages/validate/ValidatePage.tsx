@@ -10,14 +10,14 @@ import { useTicketValidation, type ValidationError } from '@/hooks/useTicketVali
 export default function ValidatePage() {
   const { code } = useParams<{ code?: string }>();
   const navigate = useNavigate();
-  const { user, role, isLoading: authLoading } = useAuth();
+  const { user, role, isLoading: authLoading, isVolunteer } = useAuth();
 
   // Admin and volunteer access: redirect others to home
   useEffect(() => {
-    if (!authLoading && (!user || !['admin', 'volunteer'].includes(role || ''))) {
+    if (!authLoading && (!user || (role !== 'admin' && !isVolunteer))) {
       navigate('/', { replace: true });
     }
-  }, [user, role, authLoading, navigate]);
+  }, [user, role, isVolunteer, authLoading, navigate]);
 
   // Show loading while checking auth
   if (authLoading) {
@@ -25,7 +25,7 @@ export default function ValidatePage() {
   }
 
   // Don't render anything while redirecting unauthorized users
-  if (!user || !['admin', 'volunteer'].includes(role || '')) {
+  if (!user || (role !== 'admin' && !isVolunteer)) {
     return null;
   }
 

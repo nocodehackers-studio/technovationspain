@@ -56,7 +56,6 @@ export default function AdminReports() {
         participant: 0,
         mentor: 0,
         judge: 0,
-        volunteer: 0,
         admin: 0,
       };
       roles?.forEach((r) => {
@@ -353,7 +352,6 @@ export default function AdminReports() {
           phone,
           team_name,
           team_id_tg,
-          tg_email,
           registration_status,
           checked_in_at,
           image_consent,
@@ -397,7 +395,6 @@ export default function AdminReports() {
           Teléfono: r.phone || "",
           Equipo: r.team_name || "",
           "TG Team ID": r.team_id_tg || "",
-          "TG Email": r.tg_email || "",
           "Tipo Entrada": r.ticket_type?.name || "",
           Estado: r.registration_status || "",
           "Check-in": r.checked_in_at ? format(new Date(r.checked_in_at), "dd/MM/yyyy HH:mm") : "",
@@ -417,7 +414,6 @@ export default function AdminReports() {
             Teléfono: "",
             Equipo: r.team_name || "",
             "TG Team ID": "",
-            "TG Email": "",
             "Tipo Entrada": `Acompañante (${c.relationship || ""})`,
             Estado: "",
             "Check-in": "",
@@ -445,7 +441,7 @@ export default function AdminReports() {
     try {
       const { data: profiles } = await supabase
         .from("profiles")
-        .select("id, first_name, last_name, email, verification_status, hub_id, created_at, tg_id, tg_email, date_of_birth, phone, dni")
+        .select("id, first_name, last_name, email, verification_status, hub_id, created_at, tg_id, date_of_birth, phone, dni, is_volunteer")
         .limit(10000);
 
       const { data: roles } = await supabase
@@ -489,7 +485,6 @@ export default function AdminReports() {
           Hub: p.hub_id ? (hubMap[p.hub_id] || "") : "",
           Equipo: teamMap[p.id] || "",
           "TG ID": p.tg_id || "",
-          "TG Email": p.tg_email || "",
           DNI: p.dni || "",
           Teléfono: p.phone || "",
           "Fecha nacimiento": p.date_of_birth || "",
@@ -499,6 +494,7 @@ export default function AdminReports() {
           Empresa: pAny.company_name || "",
           "Nombre padre/madre": pAny.parent_name || "",
           "Email padre/madre": p.parent_email || "",
+          Voluntario: p.is_volunteer ? "Sí" : "No",
           "Tipo perfil": pAny.profile_type || "",
           "Fecha registro": p.created_at ? format(new Date(p.created_at), "dd/MM/yyyy HH:mm") : "",
         };

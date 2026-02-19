@@ -2,18 +2,19 @@ import { Link } from 'react-router-dom';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useQuery } from '@tanstack/react-query';
-import { 
-  User, 
-  Calendar, 
-  Ticket, 
-  Users, 
-  MapPin, 
-  ArrowRight, 
-  CheckCircle2, 
-  Clock, 
+import {
+  User,
+  Calendar,
+  Ticket,
+  Users,
+  MapPin,
+  ArrowRight,
+  CheckCircle2,
+  Clock,
   LogOut,
   Building2,
-  MessageCircle
+  MessageCircle,
+  Heart
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
@@ -27,7 +28,7 @@ import { isMinor } from '@/lib/age-utils';
 
 
 export default function ParticipantDashboard() {
-  const { user, profile, role, signOut, isVerified } = useAuth();
+  const { user, profile, role, signOut, isVerified, isVolunteer } = useAuth();
 
   // Fetch user's hub name for display (read-only)
   const { data: userHub } = useQuery({
@@ -160,7 +161,6 @@ export default function ParticipantDashboard() {
       participant: { label: 'Participante', variant: 'default' },
       mentor: { label: 'Mentor/a', variant: 'secondary' },
       judge: { label: 'Juez/a', variant: 'secondary' },
-      volunteer: { label: 'Voluntario/a', variant: 'outline' },
       admin: { label: 'Admin', variant: 'secondary' },
     };
     const config = roleConfig[role || 'participant'];
@@ -520,6 +520,28 @@ export default function ParticipantDashboard() {
           </div>
         </div>
       </main>
+
+      {/* Volunteer Portal Link */}
+      {isVolunteer && (
+        <div className="max-w-6xl mx-auto px-4 pb-8">
+          <Card className="border-accent/20 bg-gradient-to-r from-accent/5 to-transparent">
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Heart className="h-5 w-5 text-accent" />
+                  <div>
+                    <p className="font-medium">Portal de Voluntariado</p>
+                    <p className="text-sm text-muted-foreground">Gestiona tus eventos como voluntario/a</p>
+                  </div>
+                </div>
+                <Button variant="outline" asChild>
+                  <Link to="/voluntario">Ir al portal</Link>
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* Fixed Support Button */}
       <a

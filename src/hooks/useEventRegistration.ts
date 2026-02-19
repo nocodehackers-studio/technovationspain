@@ -30,7 +30,6 @@ interface RegistrationFormData {
   team_name?: string;
   team_id?: string;
   team_id_tg?: string;
-  tg_email?: string;
   is_companion?: boolean;
   companion_of_registration_id?: string;
   image_consent: boolean;
@@ -209,7 +208,6 @@ export function useEventRegistration(eventId: string) {
           team_id: resolvedTeamId,
           team_name: resolvedTeamName,
           team_id_tg: formData.team_id_tg || null,
-          tg_email: formData.tg_email || null,
           is_companion: formData.is_companion || false,
           companion_of_registration_id: formData.companion_of_registration_id || null,
           qr_code: qrCode,

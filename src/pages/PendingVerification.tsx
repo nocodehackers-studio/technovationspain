@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Clock, LogOut, Mail, CheckCircle2, AlertCircle } from 'lucide-react';
 import { LoadingPage } from '@/components/ui/loading-spinner';
+import { getDashboardPath } from '@/lib/dashboard-routes';
 
 export default function PendingVerification() {
   const navigate = useNavigate();
@@ -11,15 +12,7 @@ export default function PendingVerification() {
 
   // Redirect if already verified - use role-based redirect
   if (!isLoading && isVerified) {
-    if (role === 'admin') {
-      navigate('/admin', { replace: true });
-    } else if (role === 'volunteer') {
-      navigate('/voluntario/dashboard', { replace: true });
-    } else if (role === 'mentor') {
-      navigate('/mentor/dashboard', { replace: true });
-    } else {
-      navigate('/dashboard', { replace: true });
-    }
+    navigate(getDashboardPath(role), { replace: true });
     return null;
   }
 
@@ -41,7 +34,7 @@ export default function PendingVerification() {
           </div>
           <CardTitle className="text-2xl">Verificación pendiente</CardTitle>
           <CardDescription className="text-base">
-              Para garantizar la seguridad de todas las participantes, verificamos que todos los usuarios estén registrados en Technovation Global.
+            Tu cuenta está pendiente de verificación. Danos 24 horas para validar tu cuenta.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -51,7 +44,7 @@ export default function PendingVerification() {
               ¿Por qué necesito verificación?
             </h4>
             <p className="text-sm text-muted-foreground">
-              Para garantizar la seguridad de todos los participantes, verificamos que cada cuenta 
+              Para garantizar la seguridad de todos los participantes, verificamos que cada cuenta
               esté asociada con un registro válido en Technovation Global.
             </p>
           </div>
@@ -62,8 +55,7 @@ export default function PendingVerification() {
               ¿Qué debo hacer?
             </h4>
             <ul className="text-sm text-muted-foreground space-y-2">
-              <li>• Asegúrate de haber completado tu registro en Technovation Global</li>
-              <li>• Usa el mismo email que usaste aquí para registrarte en Technovation Global</li>
+              <li>• Asegúrate de estar registrado/a en Technovation Global con este mismo email</li>
               <li>• <strong>Este proceso puede durar hasta 24 horas</strong></li>
               <li>• <strong>Recibirás un correo de confirmación cuando tu cuenta esté activa</strong></li>
             </ul>
@@ -76,8 +68,8 @@ export default function PendingVerification() {
             </h4>
             <p className="text-sm text-muted-foreground">
               Si tienes dudas o problemas con tu verificación, contacta con nosotros en{' '}
-              <a 
-                href="mailto:soporte@powertocode.org" 
+              <a
+                href="mailto:soporte@powertocode.org"
                 className="text-primary hover:underline font-medium"
               >
                 soporte@powertocode.org

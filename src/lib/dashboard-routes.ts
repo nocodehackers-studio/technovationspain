@@ -11,8 +11,6 @@ export function getDashboardPath(role: AppRole | null): string {
       return '/admin';
     case 'mentor':
       return '/mentor/dashboard';
-    case 'volunteer':
-      return '/voluntario/dashboard';
     default:
       return '/dashboard';
   }

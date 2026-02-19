@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
+import { hasMissingFields } from '@/lib/profile-fields';
 import { LoadingPage } from '@/components/ui/loading-spinner';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -8,17 +9,13 @@ import { AlertCircle } from 'lucide-react';
 
 export default function AuthCallback() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
   const [error, setError] = useState<string | null>(null);
-
-  // Capture role from URL params (passed from registration flow)
-  const roleFromUrl = searchParams.get('role');
 
   useEffect(() => {
     const handleCallback = async () => {
       try {
         const { data, error } = await supabase.auth.getSession();
-        
+
         if (error) {
           console.error('Auth callback error:', error);
           setError(error.message);
@@ -26,48 +23,37 @@ export default function AuthCallback() {
         }
 
         if (data.session) {
-          // Check if user has completed onboarding
-          const { data: profile, error: profileError } = await supabase
+          // Fetch profile with all fields needed for routing decisions
+          const { data: profile } = await supabase
             .from('profiles')
-            .select('first_name, last_name, date_of_birth, onboarding_completed')
+            .select('*, terms_accepted_at, verification_status')
             .eq('id', data.session.user.id)
             .maybeSingle();
 
-          // Profile doesn't exist or onboarding not completed
-          const needsOnboarding = !profile || 
-            !profile.onboarding_completed || 
-            !profile.first_name || 
-            !profile.last_name || 
-            !profile.date_of_birth;
-
-          if (needsOnboarding) {
-            // Preserve role param when redirecting to onboarding
-            const onboardingUrl = roleFromUrl 
-              ? `/onboarding?role=${roleFromUrl}` 
-              : '/onboarding';
-            navigate(onboardingUrl, { replace: true });
-            return;
-          }
-
-          // Check user role for proper redirect - prioritize admin
           const { data: rolesData } = await supabase
             .from('user_roles')
             .select('role')
             .eq('user_id', data.session.user.id);
 
-          type AppRole = 'admin' | 'mentor' | 'judge' | 'volunteer' | 'participant';
-          const rolePriority: AppRole[] = ['admin', 'mentor', 'judge', 'volunteer', 'participant'];
+          const isVerified = profile?.verification_status === 'verified';
+
+          // Priority: admin → !verified → !consent → missing fields → role dashboard
+          type AppRole = 'admin' | 'chapter_ambassador' | 'mentor' | 'judge' | 'participant';
+          const rolePriority: AppRole[] = ['admin', 'chapter_ambassador', 'mentor', 'judge', 'participant'];
           const userRoles = (rolesData?.map(r => r.role) || []) as AppRole[];
           const highestRole = rolePriority.find(r => userRoles.includes(r));
 
           if (highestRole === 'admin') {
             navigate('/admin', { replace: true });
-          } else if (highestRole === 'volunteer') {
-            navigate('/voluntario/dashboard', { replace: true });
-          } else if (highestRole === 'mentor') {
+          } else if (!isVerified) {
+            navigate('/pending-verification', { replace: true });
+          } else if (!profile?.terms_accepted_at) {
+            navigate('/onboarding', { replace: true });
+          } else if (profile && hasMissingFields(profile as Record<string, unknown>)) {
+            navigate('/onboarding', { replace: true });
+          } else if (highestRole === 'mentor' || highestRole === 'chapter_ambassador') {
             navigate('/mentor/dashboard', { replace: true });
           } else {
-            // Redirect to dashboard for participants and judges
             navigate('/dashboard', { replace: true });
           }
         } else {

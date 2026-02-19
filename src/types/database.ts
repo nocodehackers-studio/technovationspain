@@ -1,7 +1,7 @@
 // Custom types for Technovation España
 // These extend the auto-generated Supabase types
 
-export type AppRole = 'participant' | 'mentor' | 'judge' | 'volunteer' | 'chapter_ambassador' | 'admin';
+export type AppRole = 'participant' | 'mentor' | 'judge' | 'chapter_ambassador' | 'admin';
 
 export type VerificationStatus = 'pending' | 'verified' | 'rejected' | 'manual_review';
 
@@ -15,8 +15,8 @@ export interface Profile {
   id: string;
   email: string;
   parent_email?: string | null;
-  tg_email?: string | null;
   tg_id?: string | null;
+  is_volunteer?: boolean;
   verification_status: VerificationStatus;
   first_name?: string | null;
   last_name?: string | null;
@@ -25,7 +25,14 @@ export interface Profile {
   date_of_birth?: string | null;
   postal_code?: string | null;
   hub_id?: string | null;
+  city?: string | null;
+  state?: string | null;
+  school_name?: string | null;
+  company_name?: string | null;
+  parent_name?: string | null;
   onboarding_completed: boolean;
+  terms_accepted_at?: string | null;
+  privacy_accepted_at?: string | null;
   custom_fields?: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
