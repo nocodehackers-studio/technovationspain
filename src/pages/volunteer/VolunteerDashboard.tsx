@@ -14,7 +14,7 @@ const LOGO_TECHNOVATION = "https://orvkqnbshkxzyhqpjsdw.supabase.co/storage/v1/o
 
 export default function VolunteerDashboard() {
   const navigate = useNavigate();
-  const { user, profile, signOut, role } = useAuth();
+  const { user, profile, signOut, role, isVolunteer } = useAuth();
   const { mySignups, availableEvents, signedUpEventIds, isLoading, signUp, cancelSignup, isSigningUp, isCanceling } = useVolunteerEvents(user?.id);
 
   const handleSignOut = async () => {
@@ -26,8 +26,8 @@ export default function VolunteerDashboard() {
     ? `${profile.first_name[0]}${profile.last_name[0]}`
     : profile?.email?.slice(0, 2).toUpperCase() || 'V';
 
-  // Check if user has QR validator capabilities (volunteer role allows access to /validate)
-  const canValidateQR = role === 'volunteer' || role === 'admin';
+  // Check if user has QR validator capabilities
+  const canValidateQR = isVolunteer || role === 'admin';
 
   // Filter events that user hasn't signed up for yet
   const eventsToShow = availableEvents?.filter(e => !signedUpEventIds.includes(e.id)) || [];

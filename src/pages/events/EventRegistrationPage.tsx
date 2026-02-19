@@ -75,9 +75,6 @@ const createRegistrationSchema = (requiredFields: string[]) => z.object({
   team_name: requiredFields.includes('team_name')
     ? z.string().min(1, 'El nombre del equipo es obligatorio')
     : z.string().optional(),
-  tg_email: requiredFields.includes('tg_email')
-    ? z.string().email('Introduce un email válido')
-    : z.string().email('Introduce un email válido').optional().or(z.literal('')),
   image_consent: z.boolean().refine(val => val === true, 'Debes autorizar la captación de imágenes'),
   data_consent: z.boolean().refine(val => val === true, 'Debes aceptar la política de privacidad'),
 });
@@ -108,9 +105,6 @@ const createStep2Schema = (requiredFields: string[]) => z.object({
   team_name: requiredFields.includes('team_name')
     ? z.string().min(1, 'El nombre del equipo es obligatorio')
     : z.string().optional(),
-  tg_email: requiredFields.includes('tg_email')
-    ? z.string().email('Introduce un email válido')
-    : z.string().email('Introduce un email válido').optional().or(z.literal('')),
 });
 
 // Default schema for form initialization
@@ -165,7 +159,6 @@ export default function EventRegistrationPage() {
       dni: profile?.dni || '',
       phone: profile?.phone || '',
       team_name: '',
-      tg_email: profile?.tg_email || '',
       image_consent: false,
       data_consent: false,
     },
@@ -179,7 +172,6 @@ export default function EventRegistrationPage() {
       form.setValue('last_name', profile.last_name || '');
       form.setValue('email', profile.email || '');
       form.setValue('phone', profile.phone || '');
-      form.setValue('tg_email', profile.tg_email || '');
       if (profile.dni) {
         form.setValue('dni', profile.dni);
       }
@@ -341,7 +333,6 @@ const selectedTicketId = form.watch('ticket_type_id');
       if (requiredFields.includes('dni')) fieldsToValidate.push('dni');
       if (requiredFields.includes('phone')) fieldsToValidate.push('phone');
       if (requiresTeam || requiredFields.includes('team_name')) fieldsToValidate.push('team_name');
-      if (requiresTeam || requiredFields.includes('tg_email')) fieldsToValidate.push('tg_email');
       
       // Use step 2 schema that doesn't include consent fields
       const step2Schema = createStep2Schema(requiredFields);
@@ -391,7 +382,6 @@ const selectedTicketId = form.watch('ticket_type_id');
         phone: values.phone,
         team_name: values.team_name || undefined,
         team_id: userTeam?.id,
-        tg_email: values.tg_email || undefined,
         image_consent: values.image_consent,
         data_consent: values.data_consent,
         companions: companions.length > 0 ? companions : undefined,
@@ -697,26 +687,6 @@ const selectedTicketId = form.watch('ticket_type_id');
                           )}
                         />
                         
-                        <FormField
-                          control={form.control}
-                          name="tg_email"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Email registrado en Technovation *</FormLabel>
-                              <FormControl>
-                                <Input 
-                                  type="email"
-                                  placeholder="tu@email.com" 
-                                  {...field} 
-                                />
-                              </FormControl>
-                              <FormDescription>
-                                Usaremos este email para validar tu acceso al evento
-                              </FormDescription>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
                       </div>
                     </>
                   )}

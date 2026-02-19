@@ -25,10 +25,6 @@ const roleConfig: Record<AppRole, { label: string; className: string }> = {
     label: "Juez",
     className: "bg-accent/10 text-accent border-accent/20",
   },
-  volunteer: {
-    label: "Voluntario",
-    className: "bg-success/10 text-success border-success/20",
-  },
   chapter_ambassador: {
     label: "Embajador",
     className: "bg-warning/10 text-warning border-warning/20",
@@ -63,7 +59,7 @@ export function RoleBadge({ role, size = "md" }: RoleBadgeProps) {
 }
 
 // Display order for roles (primary roles first, then additional roles)
-const roleDisplayOrder: AppRole[] = ['participant', 'mentor', 'judge', 'chapter_ambassador', 'volunteer', 'admin'];
+const roleDisplayOrder: AppRole[] = ['participant', 'mentor', 'judge', 'chapter_ambassador', 'admin'];
 
 export function RoleBadges({ roles, size = "md" }: RoleBadgesProps) {
   // Sort roles by display order

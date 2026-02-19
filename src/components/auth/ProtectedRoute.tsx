@@ -33,14 +33,14 @@ export function ProtectedRoute({
     return <Navigate to="/" state={{ from: location }} replace />;
   }
 
+  // Check verification status if required (BEFORE onboarding — unverified users must not reach onboarding)
+  if (requireVerified && !isVerified) {
+    return <Navigate to="/pending-verification" replace />;
+  }
+
   // Check if onboarding is needed
   if (needsOnboarding && location.pathname !== '/onboarding') {
     return <Navigate to="/onboarding" replace />;
-  }
-
-  // Check verification status if required
-  if (requireVerified && !isVerified) {
-    return <Navigate to="/pending-verification" replace />;
   }
 
   // Check role requirements

@@ -51,7 +51,6 @@ const REGISTRATION_FIELDS = [
   { value: "dni", label: "DNI/NIE" },
   { value: "phone", label: "Teléfono" },
   { value: "team_name", label: "Nombre del equipo" },
-  { value: "tg_email", label: "Email de Technovation" },
 ];
 
 interface TicketTypeManagerProps {
@@ -63,7 +62,6 @@ const AVAILABLE_ROLES = [
   { value: "participant", label: "Participante" },
   { value: "mentor", label: "Mentor" },
   { value: "judge", label: "Juez" },
-  { value: "volunteer", label: "Voluntario" },
 ];
 
 export function TicketTypeManager({ eventId, eventMaxCapacity }: TicketTypeManagerProps) {
