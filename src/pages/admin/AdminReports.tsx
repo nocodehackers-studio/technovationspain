@@ -215,7 +215,7 @@ export default function AdminReports() {
     const toastId = toast.loading(`Exportación en curso...`);
 
     const { data, error } = await supabase
-      .from(tableName as "profiles" | "user_roles" | "authorized_users" | "teams" | "events" | "event_registrations" | "companions" | "hubs" | "audit_logs")
+      .from(tableName as "profiles" | "user_roles" | "teams" | "events" | "event_registrations" | "companions" | "hubs" | "audit_logs")
       .select("*")
       .limit(10000);
 
@@ -246,13 +246,6 @@ export default function AdminReports() {
 
       if (error) throw error;
 
-      // Fetch whitelist members (pending = no matched_profile_id)
-      const { data: whitelistMembers } = await supabase
-        .from("authorized_users")
-        .select("first_name, last_name, email, phone, team_name, profile_type, matched_profile_id")
-        .not("team_name", "is", null)
-        .limit(10000);
-
       const flatData: Record<string, string>[] = [];
 
       // Add registered members
@@ -265,23 +258,7 @@ export default function AdminReports() {
           Apellido: tm.profile?.last_name || "",
           Email: tm.profile?.email || "",
           Teléfono: tm.profile?.phone || "",
-          Estado: "Registrado",
           "Fecha ingreso": tm.joined_at || "",
-        });
-      });
-
-      // Add pending whitelist members (not matched to any profile)
-      whitelistMembers?.filter(w => !w.matched_profile_id).forEach((w) => {
-        flatData.push({
-          Equipo: w.team_name || "",
-          Categoría: "",
-          Tipo: w.profile_type === "student" ? "Estudiante" : w.profile_type === "mentor" ? "Mentor" : w.profile_type || "",
-          Nombre: w.first_name || "",
-          Apellido: w.last_name || "",
-          Email: w.email || "",
-          Teléfono: w.phone || "",
-          Estado: "Pendiente",
-          "Fecha ingreso": "",
         });
       });
 
@@ -320,13 +297,6 @@ export default function AdminReports() {
         .in("team_id", teamIds)
         .limit(10000);
 
-      // Fetch whitelist members grouped by team_name
-      const { data: whitelistMembers } = await supabase
-        .from("authorized_users")
-        .select("first_name, last_name, email, team_name, profile_type, matched_profile_id")
-        .not("team_name", "is", null)
-        .limit(10000);
-
       const membersByTeam: Record<string, typeof members> = {};
       members?.forEach((m) => {
         if (m.team_id) {
@@ -335,36 +305,20 @@ export default function AdminReports() {
         }
       });
 
-      // Group whitelist by team_name
-      const whitelistByTeam: Record<string, typeof whitelistMembers> = {};
-      whitelistMembers?.forEach((w) => {
-        const tn = w.team_name || "";
-        if (!whitelistByTeam[tn]) whitelistByTeam[tn] = [];
-        whitelistByTeam[tn]!.push(w);
-      });
-
       const flatData = teams?.map((t) => {
         const teamMembers = membersByTeam[t.id] || [];
         const regStudents = teamMembers.filter((m) => m.member_type === "participant");
         const regMentors = teamMembers.filter((m) => m.member_type === "mentor");
-
-        const wl = whitelistByTeam[t.name] || [];
-        const pendingStudents = wl.filter(w => !w.matched_profile_id && w.profile_type === "student");
-        const pendingMentors = wl.filter(w => !w.matched_profile_id && w.profile_type === "mentor");
 
         return {
           Equipo: t.name,
           Hub: t.hub?.name || "",
           Categoría: t.category || "",
           "TG Team ID": t.tg_team_id || "",
-          "Nº Estudiantes registradas": regStudents.length,
-          "Nº Estudiantes pendientes": pendingStudents.length,
-          "Nº Mentores registrados": regMentors.length,
-          "Nº Mentores pendientes": pendingMentors.length,
-          "Estudiantes registradas": regStudents.map((s) => `${s.profile?.first_name || ""} ${s.profile?.last_name || ""} (${s.profile?.email || ""})`).join("; "),
-          "Estudiantes pendientes": pendingStudents.map((s) => `${s.first_name || ""} ${s.last_name || ""} (${s.email || ""})`).join("; "),
-          "Mentores registrados": regMentors.map((m) => `${m.profile?.first_name || ""} ${m.profile?.last_name || ""} (${m.profile?.email || ""})`).join("; "),
-          "Mentores pendientes": pendingMentors.map((m) => `${m.first_name || ""} ${m.last_name || ""} (${m.email || ""})`).join("; "),
+          "Nº Estudiantes": regStudents.length,
+          "Nº Mentores": regMentors.length,
+          "Estudiantes": regStudents.map((s) => `${s.profile?.first_name || ""} ${s.profile?.last_name || ""} (${s.profile?.email || ""})`).join("; "),
+          "Mentores": regMentors.map((m) => `${m.profile?.first_name || ""} ${m.profile?.last_name || ""} (${m.profile?.email || ""})`).join("; "),
           Notas: t.notes || "",
         };
       }) || [];
@@ -484,7 +438,7 @@ export default function AdminReports() {
     }
   };
 
-  // Cross-referenced export: profiles + authorized_users + roles + teams
+  // Cross-referenced export: profiles + roles + teams
   const exportUsersCrossReferenced = async () => {
     const toastId = toast.loading("Exportación en curso...");
 
@@ -509,11 +463,6 @@ export default function AdminReports() {
         .select("id, name")
         .limit(10000);
 
-      const { data: authorizedUsers } = await supabase
-        .from("authorized_users")
-        .select("matched_profile_id, email, city, state, school_name, company_name, age, parent_name, parent_email, parental_consent, media_consent, team_name, profile_type, imported_at, tg_id")
-        .limit(10000);
-
       // Build lookup maps
       const roleMap: Record<string, string[]> = {};
       roles?.forEach(r => {
@@ -529,15 +478,8 @@ export default function AdminReports() {
       const hubMap: Record<string, string> = {};
       hubs?.forEach(h => { hubMap[h.id] = h.name; });
 
-      const auByProfile: Record<string, typeof authorizedUsers extends (infer T)[] | null ? T : never> = {};
-      const auByEmail: Record<string, typeof authorizedUsers extends (infer T)[] | null ? T : never> = {};
-      authorizedUsers?.forEach(au => {
-        if (au.matched_profile_id) auByProfile[au.matched_profile_id] = au;
-        auByEmail[au.email.toLowerCase()] = au;
-      });
-
       const csvRows = profiles?.map(p => {
-        const au = auByProfile[p.id] || auByEmail[p.email.toLowerCase()];
+        const pAny = p as any;
         return {
           Nombre: p.first_name || "",
           Apellido: p.last_name || "",
@@ -545,24 +487,20 @@ export default function AdminReports() {
           Rol: (roleMap[p.id] || []).join(", "),
           "Estado verificación": p.verification_status || "",
           Hub: p.hub_id ? (hubMap[p.hub_id] || "") : "",
-          Equipo: teamMap[p.id] || au?.team_name || "",
-          "TG ID": p.tg_id || au?.tg_id || "",
+          Equipo: teamMap[p.id] || "",
+          "TG ID": p.tg_id || "",
           "TG Email": p.tg_email || "",
           DNI: p.dni || "",
           Teléfono: p.phone || "",
           "Fecha nacimiento": p.date_of_birth || "",
-          Ciudad: au?.city || "",
-          "Comunidad Autónoma": au?.state || "",
-          Colegio: au?.school_name || "",
-          Empresa: au?.company_name || "",
-          "Edad (CSV)": au?.age ?? "",
-          "Nombre padre/madre": au?.parent_name || "",
-          "Email padre/madre": au?.parent_email || "",
-          "Consentimiento parental": au?.parental_consent || "",
-          "Consentimiento media": au?.media_consent || "",
-          "Tipo perfil (CSV)": au?.profile_type || "",
-          "Fecha registro plataforma": p.created_at ? format(new Date(p.created_at), "dd/MM/yyyy HH:mm") : "",
-          "Fecha importación CSV": au?.imported_at ? format(new Date(au.imported_at), "dd/MM/yyyy HH:mm") : "",
+          Ciudad: pAny.city || "",
+          "Comunidad Autónoma": pAny.state || "",
+          Colegio: pAny.school_name || "",
+          Empresa: pAny.company_name || "",
+          "Nombre padre/madre": pAny.parent_name || "",
+          "Email padre/madre": p.parent_email || "",
+          "Tipo perfil": pAny.profile_type || "",
+          "Fecha registro": p.created_at ? format(new Date(p.created_at), "dd/MM/yyyy HH:mm") : "",
         };
       }) || [];
 
@@ -845,13 +783,6 @@ export default function AdminReports() {
                     >
                       <Download className="mr-2 h-4 w-4" />
                       Roles de Usuario
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => exportTable("authorized_users", "usuarios_autorizados")}
-                    >
-                      <Download className="mr-2 h-4 w-4" />
-                      Usuarios Autorizados
                     </Button>
                   </div>
                 </div>

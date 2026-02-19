@@ -5,13 +5,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { DataTable } from "@/components/admin/DataTable";
 import { ConfirmDialog } from "@/components/admin/ConfirmDialog";
-import { TeamCSVImport } from "@/components/admin/TeamCSVImport";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Textarea } from "@/components/ui/textarea";
-import { Separator } from "@/components/ui/separator";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -30,9 +28,8 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { MoreHorizontal, Edit, Trash2, Users, Upload, Mail, UserCircle, MapPin, CheckCircle2, Building2, GraduationCap, Clock, HelpCircle } from "lucide-react";
+import { MoreHorizontal, Edit, Trash2, Users, Mail, UserCircle, MapPin, CheckCircle2, Building2, GraduationCap } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Progress } from "@/components/ui/progress";
 import { Team, TeamCategory } from "@/types/database";
 import {
   Select,
@@ -58,22 +55,17 @@ interface MemberDetail {
   name: string;
   email?: string;
   type: 'student' | 'mentor';
-  registered: boolean;
 }
 
 interface TeamWithStats extends Team {
   team_members: { count: number }[];
   hub: { id: string; name: string } | null;
-  whitelist_count: number;
-  registered_count: number;
   participant_count: number;
   mentor_count: number;
   members_detail: MemberDetail[];
   city?: string;
   notes?: string | null;
 }
-
-type CompletionFilter = "all" | "complete" | "incomplete" | "not_activated" | "empty";
 
 interface MentorOption {
   id: string;
@@ -87,13 +79,11 @@ export default function AdminTeams() {
   const [selectedTeam, setSelectedTeam] = useState<TeamWithStats | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [membersDialogOpen, setMembersDialogOpen] = useState(false);
-  
+
   // Filters
   const [hubFilter, setHubFilter] = useState<string>("all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
-  const [completionFilter, setCompletionFilter] = useState<CompletionFilter>("all");
   
   // Edit form state
   const [editHubId, setEditHubId] = useState<string>("");
@@ -101,148 +91,71 @@ export default function AdminTeams() {
   const [editMentorId, setEditMentorId] = useState<string>("");
   const [currentMentorId, setCurrentMentorId] = useState<string | null>(null);
 
-  // Fetch teams with member counts, hub info, whitelist stats, city, and member details
+  // Fetch teams with member counts, hub info, and member details from profiles
   const { data: teams, isLoading } = useQuery({
     queryKey: ["admin-teams"],
     queryFn: async () => {
-      // First get teams with basic info
+      // Get teams with basic info
       const { data: teamsData, error } = await supabase
         .from("teams")
         .select("*, team_members(count), hub:hubs(id, name)")
         .order("created_at", { ascending: false });
 
       if (error) throw error;
-      
-      // Get whitelist stats, city, and member names for all teams
-      const { data: whitelistData } = await supabase
-        .from("authorized_users")
-        .select("team_name, matched_profile_id, city, first_name, last_name, email, profile_type");
-      
-      // Get registered team members with profile info
+
+      // Get team members with profile info (including city from profiles)
       const { data: registeredMembers } = await supabase
         .from("team_members")
-        .select("team_id, member_type, user:profiles!team_members_user_id_fkey(id, email, first_name, last_name)");
-      
-      // Build registered members map by team_id
-      const registeredMap = new Map<string, { name: string; email: string; type: 'student' | 'mentor' }[]>();
+        .select("team_id, member_type, user:profiles!team_members_user_id_fkey(id, email, first_name, last_name, city)");
+
+      // Build members map by team_id
+      const membersMap = new Map<string, { name: string; email: string; type: 'student' | 'mentor'; city: string | null }[]>();
       registeredMembers?.forEach(m => {
         if (!m.team_id || !m.user) return;
-        const list = registeredMap.get(m.team_id) || [];
-        const user = m.user as { id: string; email: string; first_name: string | null; last_name: string | null };
+        const list = membersMap.get(m.team_id) || [];
+        const user = m.user as { id: string; email: string; first_name: string | null; last_name: string | null; city: string | null };
         list.push({
-          name: user.first_name && user.last_name 
-            ? `${user.first_name} ${user.last_name}` 
+          name: user.first_name && user.last_name
+            ? `${user.first_name} ${user.last_name}`
             : user.email,
           email: user.email,
           type: m.member_type === 'mentor' ? 'mentor' : 'student',
+          city: user.city || null,
         });
-        registeredMap.set(m.team_id, list);
+        membersMap.set(m.team_id, list);
       });
-      
-      // Calculate stats per team
-      const statsMap = new Map<string, { 
-        whitelist_count: number; 
-        registered_count: number;
-        participant_count: number;
-        mentor_count: number;
-        cities: Map<string, number>;
-        whitelist_members: { name: string; email: string; type: 'student' | 'mentor'; registered: boolean }[];
-      }>();
-      
-      whitelistData?.forEach(record => {
-        if (record.team_name) {
-          const key = record.team_name.toLowerCase();
-          const current = statsMap.get(key) || { 
-            whitelist_count: 0, 
-            registered_count: 0,
-            participant_count: 0,
-            mentor_count: 0,
-            cities: new Map(),
-            whitelist_members: [],
-          };
-          current.whitelist_count++;
-          const isRegistered = !!record.matched_profile_id;
-          if (isRegistered) current.registered_count++;
-          
-          const isStudent = record.profile_type === 'student';
-          if (isStudent) {
-            if (isRegistered) current.participant_count++;
-          } else {
-            if (isRegistered) current.mentor_count++;
-          }
-          
-          const name = record.first_name && record.last_name 
-            ? `${record.first_name} ${record.last_name}` 
-            : record.email;
-          current.whitelist_members.push({
-            name,
-            email: record.email,
-            type: isStudent ? 'student' : 'mentor',
-            registered: isRegistered,
-          });
-          
-          if (record.city) {
-            current.cities.set(record.city, (current.cities.get(record.city) || 0) + 1);
-          }
-          statsMap.set(key, current);
-        }
-      });
-      
-      // Get most common city for each team
-      const getCityFromStats = (stats: { cities: Map<string, number> } | undefined): string => {
-        if (!stats || stats.cities.size === 0) return "";
+
+      // Get most common city from members
+      const getCityFromMembers = (members: { city: string | null }[]): string => {
+        const cities = new Map<string, number>();
+        members.forEach(m => {
+          if (m.city) cities.set(m.city, (cities.get(m.city) || 0) + 1);
+        });
         let maxCity = "";
         let maxCount = 0;
-        stats.cities.forEach((count, city) => {
-          if (count > maxCount) {
-            maxCount = count;
-            maxCity = city;
-          }
+        cities.forEach((count, city) => {
+          if (count > maxCount) { maxCount = count; maxCity = city; }
         });
         return maxCity;
       };
-      
-      // Merge stats with teams
+
       return teamsData?.map(team => {
-        const stats = statsMap.get(team.name.toLowerCase());
-        const registered = registeredMap.get(team.id) || [];
-        
-        // Build members_detail: use whitelist if available, otherwise use registered members
-        let members_detail: MemberDetail[] = [];
-        if (stats && stats.whitelist_members.length > 0) {
-          members_detail = stats.whitelist_members;
-        } else if (registered.length > 0) {
-          members_detail = registered.map(r => ({ ...r, registered: true }));
-        }
-        
-        // Count from registered members (actual team_members table)
-        const participantCount = registered.filter(r => r.type === 'student').length;
-        const mentorCount = registered.filter(r => r.type === 'mentor').length;
-        
+        const members = membersMap.get(team.id) || [];
+        const participantCount = members.filter(r => r.type === 'student').length;
+        const mentorCount = members.filter(r => r.type === 'mentor').length;
+
         return {
           ...team,
-          whitelist_count: stats?.whitelist_count || 0,
-          registered_count: stats?.registered_count || 0,
           participant_count: participantCount,
           mentor_count: mentorCount,
-          members_detail,
-          city: getCityFromStats(stats),
+          members_detail: members.map(m => ({ ...m })),
+          city: getCityFromMembers(members),
         };
       }) as TeamWithStats[];
     },
   });
 
-  // Function to filter by completion status
-  const filterByCompletionStatus = (team: TeamWithStats, status: CompletionFilter): boolean => {
-    if (status === "all") return true;
-    if (status === "complete") return team.registered_count === team.whitelist_count && team.whitelist_count > 0;
-    if (status === "incomplete") return team.registered_count > 0 && team.registered_count < team.whitelist_count;
-    if (status === "not_activated") return team.whitelist_count > 0 && team.registered_count === 0;
-    if (status === "empty") return team.whitelist_count === 0;
-    return true;
-  };
-
-  // Filtered teams based on all filters
+  // Filtered teams based on filters
   const filteredTeams = useMemo(() => {
     return teams?.filter((team) => {
       if (hubFilter !== "all") {
@@ -250,10 +163,9 @@ export default function AdminTeams() {
         if (hubFilter !== "none" && team.hub_id !== hubFilter) return false;
       }
       if (categoryFilter !== "all" && team.category !== categoryFilter) return false;
-      if (!filterByCompletionStatus(team, completionFilter)) return false;
       return true;
     }) || [];
-  }, [teams, hubFilter, categoryFilter, completionFilter]);
+  }, [teams, hubFilter, categoryFilter]);
 
   // Function to open team members dialog
   const openTeamMembers = (team: TeamWithStats) => {
@@ -459,18 +371,13 @@ export default function AdminTeams() {
       header: "Miembros",
       cell: ({ row }) => {
         const team = row.original;
-        const whitelistCount = team.whitelist_count || 0;
-        const registeredCount = team.registered_count || 0;
         const participantCount = team.participant_count || 0;
         const mentorCount = team.mentor_count || 0;
-        const percentage = whitelistCount > 0 ? Math.round((registeredCount / whitelistCount) * 100) : 0;
-        const isComplete = whitelistCount > 0 && registeredCount === whitelistCount;
-        
+
         const students = team.members_detail.filter(m => m.type === 'student');
         const mentorsInTeam = team.members_detail.filter(m => m.type === 'mentor');
-        
-        // If no whitelist and no members
-        if (whitelistCount === 0 && participantCount === 0 && mentorCount === 0) {
+
+        if (participantCount === 0 && mentorCount === 0) {
           return (
             <div className="flex items-center gap-2 text-muted-foreground">
               <Users className="h-4 w-4" />
@@ -478,31 +385,20 @@ export default function AdminTeams() {
             </div>
           );
         }
-        
+
         return (
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <div className="flex flex-col gap-1.5 min-w-[120px]">
-                  <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-1">
-                      <GraduationCap className="h-3.5 w-3.5 text-primary" />
-                      <span className="text-sm font-medium">{participantCount}</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Users className="h-3.5 w-3.5 text-muted-foreground" />
-                      <span className="text-sm font-medium">{mentorCount}</span>
-                    </div>
-                    {isComplete && (
-                      <CheckCircle2 className="h-3.5 w-3.5 text-secondary" />
-                    )}
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-1">
+                    <GraduationCap className="h-3.5 w-3.5 text-primary" />
+                    <span className="text-sm font-medium">{participantCount}</span>
                   </div>
-                  {whitelistCount > 0 && (
-                    <div className="flex items-center gap-2">
-                      <Progress value={percentage} className="h-1.5 flex-1" />
-                      <span className="text-xs text-muted-foreground">{registeredCount}/{whitelistCount}</span>
-                    </div>
-                  )}
+                  <div className="flex items-center gap-1">
+                    <Users className="h-3.5 w-3.5 text-muted-foreground" />
+                    <span className="text-sm font-medium">{mentorCount}</span>
+                  </div>
                 </div>
               </TooltipTrigger>
               <TooltipContent side="bottom" className="max-w-[280px]">
@@ -515,11 +411,7 @@ export default function AdminTeams() {
                       <p className="text-xs font-medium text-muted-foreground mb-1">Estudiantes:</p>
                       {students.map((s, i) => (
                         <p key={i} className="text-xs flex items-center gap-1">
-                          {s.registered ? (
-                            <CheckCircle2 className="h-3 w-3 text-secondary shrink-0" />
-                          ) : (
-                            <Clock className="h-3 w-3 text-warning shrink-0" />
-                          )}
+                          <CheckCircle2 className="h-3 w-3 text-secondary shrink-0" />
                           {s.name}
                         </p>
                       ))}
@@ -530,11 +422,7 @@ export default function AdminTeams() {
                       <p className="text-xs font-medium text-muted-foreground mb-1">Mentores:</p>
                       {mentorsInTeam.map((m, i) => (
                         <p key={i} className="text-xs flex items-center gap-1">
-                          {m.registered ? (
-                            <CheckCircle2 className="h-3 w-3 text-secondary shrink-0" />
-                          ) : (
-                            <Clock className="h-3 w-3 text-warning shrink-0" />
-                          )}
+                          <CheckCircle2 className="h-3 w-3 text-secondary shrink-0" />
                           {m.name}
                         </p>
                       ))}
@@ -621,8 +509,7 @@ export default function AdminTeams() {
   // Members dialog helpers
   const dialogStudents = selectedTeam?.members_detail.filter(m => m.type === 'student') || [];
   const dialogMentors = selectedTeam?.members_detail.filter(m => m.type === 'mentor') || [];
-  const dialogRegistered = selectedTeam?.members_detail.filter(m => m.registered) || [];
-  const dialogPending = selectedTeam?.members_detail.filter(m => !m.registered) || [];
+  const dialogRegistered = selectedTeam?.members_detail || [];
 
   return (
     <AdminLayout title="Gestión de Equipos">
@@ -634,11 +521,7 @@ export default function AdminTeams() {
               Equipos importados desde Technovation Global
             </p>
           </div>
-          <Button variant="outline" onClick={() => setImportDialogOpen(true)}>
-            <Upload className="h-4 w-4 sm:mr-2" />
-            <span className="hidden sm:inline">Importar CSV</span>
-            <span className="sm:hidden">CSV</span>
-          </Button>
+          {/* Import button — Spec 3 will add the new import system */}
         </div>
 
         <DataTable
@@ -678,39 +561,6 @@ export default function AdminTeams() {
                 </SelectContent>
               </Select>
 
-              {/* Completion status filter */}
-              <Select value={completionFilter} onValueChange={(v) => setCompletionFilter(v as CompletionFilter)}>
-                <SelectTrigger className="w-[160px]">
-                  <SelectValue placeholder="Estado" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos</SelectItem>
-                  <SelectItem value="complete">✅ Completos</SelectItem>
-                  <SelectItem value="incomplete">🔄 En progreso</SelectItem>
-                  <SelectItem value="not_activated">⏳ Sin activar</SelectItem>
-                  <SelectItem value="empty">❌ Sin whitelist</SelectItem>
-                </SelectContent>
-              </Select>
-
-              {/* Legend icon */}
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground">
-                      <HelpCircle className="h-4 w-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" className="max-w-xs p-3">
-                    <p className="font-semibold mb-2 text-sm">Estados de equipo</p>
-                    <ul className="space-y-1.5 text-xs">
-                      <li>✅ <strong>Completo</strong> — Todos los miembros del whitelist se han registrado en la plataforma.</li>
-                      <li>🔄 <strong>En progreso</strong> — Al menos 1 miembro registrado, pero faltan otros por registrarse.</li>
-                      <li>⏳ <strong>Sin activar</strong> — El equipo existe en el whitelist pero ningún miembro se ha registrado aún.</li>
-                      <li>❌ <strong>Sin whitelist</strong> — No hay datos importados de Technovation Global para este equipo.</li>
-                    </ul>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
             </div>
           }
         />
@@ -826,17 +676,7 @@ export default function AdminTeams() {
         loading={deleteTeamMutation.isPending}
       />
 
-      {/* CSV Import Dialog */}
-      <TeamCSVImport
-        open={importDialogOpen}
-        onOpenChange={setImportDialogOpen}
-        onImportComplete={() => {
-          queryClient.invalidateQueries({ queryKey: ["admin-teams"] });
-          toast.success("Importación completada");
-        }}
-      />
-
-      {/* Enhanced Team Members Dialog */}
+      {/* Team Members Dialog */}
       <Dialog open={membersDialogOpen} onOpenChange={setMembersDialogOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
@@ -909,42 +749,6 @@ export default function AdminTeams() {
                   </div>
                 )}
 
-                {/* Pending members */}
-                {dialogPending.length > 0 && (
-                  <div>
-                    {dialogRegistered.length > 0 && <Separator className="my-3" />}
-                    <h4 className="text-sm font-medium text-muted-foreground mb-2 flex items-center gap-1.5">
-                      <Clock className="h-4 w-4 text-warning" />
-                      Pendientes de registro ({dialogPending.length})
-                    </h4>
-                    <div className="space-y-2">
-                      {dialogPending.map((member, i) => (
-                        <div
-                          key={i}
-                          className="flex items-center gap-3 p-3 rounded-lg border border-dashed bg-muted/30"
-                        >
-                          <Avatar className="h-9 w-9">
-                            <AvatarFallback className="bg-warning/10 text-warning text-sm">
-                              {member.name[0]?.toUpperCase() || "?"}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div className="flex-1 min-w-0">
-                            <p className="font-medium text-sm truncate text-muted-foreground">{member.name}</p>
-                            {member.email && (
-                              <p className="text-xs text-muted-foreground flex items-center gap-1 truncate">
-                                <Mail className="h-3 w-3" />
-                                {member.email}
-                              </p>
-                            )}
-                          </div>
-                          <Badge variant="outline" className="bg-warning/10 text-warning border-warning/20">
-                            Pendiente
-                          </Badge>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
               </div>
             )}
           </ScrollArea>

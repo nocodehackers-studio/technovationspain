@@ -17,12 +17,10 @@ interface UnregisteredUser {
   email: string;
   first_name: string | null;
   last_name: string | null;
-  profile_type: string;
-  team_name: string | null;
+  profile_type: string | null;
   city: string | null;
-  state: string | null;
   company_name: string | null;
-  imported_at: string;
+  created_at: string;
   tg_id: string | null;
 }
 
@@ -33,13 +31,14 @@ export function UnregisteredUsersTable() {
     queryKey: ["admin-unregistered-users"],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("authorized_users")
-        .select("id, email, first_name, last_name, profile_type, team_name, city, state, company_name, imported_at, tg_id")
-        .is("matched_profile_id", null)
-        .order("imported_at", { ascending: false });
+        .from("profiles")
+        .select("id, email, first_name, last_name, profile_type, city, company_name, created_at, tg_id")
+        .eq("onboarding_completed", false)
+        .eq("verification_status", "verified")
+        .order("created_at", { ascending: false });
 
       if (error) throw error;
-      return (data || []) as UnregisteredUser[];
+      return (data || []) as unknown as UnregisteredUser[];
     },
   });
 
@@ -66,7 +65,7 @@ export function UnregisteredUsersTable() {
     {
       id: "name",
       accessorFn: (row) =>
-        `${row.first_name || ""} ${row.last_name || ""} ${row.email || ""} ${row.team_name || ""} ${row.city || ""} ${row.state || ""} ${row.company_name || ""}`.toLowerCase(),
+        `${row.first_name || ""} ${row.last_name || ""} ${row.email || ""} ${row.city || ""} ${row.company_name || ""}`.toLowerCase(),
       header: "Nombre",
       cell: ({ row }) => (
         <div className="flex flex-col">
@@ -96,21 +95,6 @@ export function UnregisteredUsersTable() {
       },
       cell: ({ row }) => (
         <ProfileTypeBadge type={row.original.profile_type as ProfileType} />
-      ),
-    },
-    {
-      accessorKey: "team_name",
-      header: "Equipo",
-      filterFn: (row, id, value) => {
-        const v = row.getValue(id) as string | null;
-        if (Array.isArray(value)) {
-          if (value.includes("__empty__") && !v) return true;
-          return value.includes(v as string);
-        }
-        return v === value;
-      },
-      cell: ({ row }) => (
-        <span className="text-sm">{row.original.team_name || "—"}</span>
       ),
     },
     {
@@ -144,26 +128,11 @@ export function UnregisteredUsersTable() {
       ),
     },
     {
-      accessorKey: "state",
-      header: "Comunidad",
-      filterFn: (row, id, value) => {
-        const v = row.getValue(id) as string | null;
-        if (Array.isArray(value)) {
-          if (value.includes("__empty__") && !v) return true;
-          return value.includes(v as string);
-        }
-        return v === value;
-      },
-      cell: ({ row }) => (
-        <span className="text-sm">{row.original.state || "—"}</span>
-      ),
-    },
-    {
-      accessorKey: "imported_at",
-      header: "Importado",
+      accessorKey: "created_at",
+      header: "Creado",
       cell: ({ row }) => (
         <span className="text-sm text-muted-foreground">
-          {format(new Date(row.original.imported_at), "dd MMM yyyy", { locale: es })}
+          {format(new Date(row.original.created_at), "dd MMM yyyy", { locale: es })}
         </span>
       ),
     },
@@ -213,29 +182,17 @@ export function UnregisteredUsersTable() {
       { value: "chapter_ambassador", label: "Embajador" },
     ];
 
-    const teamOpts: FilterableColumn["options"] = [
-      { value: "__empty__", label: "Sin equipo" },
-    ];
     const cityOpts: FilterableColumn["options"] = [
       { value: "__empty__", label: "Sin ciudad" },
     ];
     const chapterOpts: FilterableColumn["options"] = [
       { value: "__empty__", label: "Sin chapter" },
     ];
-    const stateOpts: FilterableColumn["options"] = [
-      { value: "__empty__", label: "Sin comunidad" },
-    ];
 
-    const teamSet = new Set<string>();
     const citySet = new Set<string>();
     const chapterSet = new Set<string>();
-    const stateSet = new Set<string>();
 
     data.forEach((u) => {
-      if (u.team_name && !teamSet.has(u.team_name)) {
-        teamSet.add(u.team_name);
-        teamOpts.push({ value: u.team_name, label: u.team_name });
-      }
       if (u.city && !citySet.has(u.city)) {
         citySet.add(u.city);
         cityOpts.push({ value: u.city, label: u.city });
@@ -243,10 +200,6 @@ export function UnregisteredUsersTable() {
       if (u.company_name && !chapterSet.has(u.company_name)) {
         chapterSet.add(u.company_name);
         chapterOpts.push({ value: u.company_name, label: u.company_name });
-      }
-      if (u.state && !stateSet.has(u.state)) {
-        stateSet.add(u.state);
-        stateOpts.push({ value: u.state, label: u.state });
       }
     });
 
@@ -258,10 +211,8 @@ export function UnregisteredUsersTable() {
 
     return [
       { key: "profile_type", label: "Tipo", options: typeOptions },
-      { key: "team_name", label: "Equipo", options: sortOpts(teamOpts) },
       { key: "company_name", label: "Chapter", options: sortOpts(chapterOpts) },
       { key: "city", label: "Ciudad", options: sortOpts(cityOpts) },
-      { key: "state", label: "Comunidad", options: sortOpts(stateOpts) },
     ];
   }, [unregisteredUsers]);
 
