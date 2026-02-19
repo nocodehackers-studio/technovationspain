@@ -251,26 +251,8 @@ export default function Onboarding() {
       // Volunteers are auto-verified (no Technovation Global check needed)
       const isVolunteer = formData.role === 'volunteer';
       
-      // Check if tg_email is in authorized whitelist - use safe views to protect PII
-      let isInWhitelist = false;
-      let authorizedData: { id: string; tg_id: string | null; matched_profile_id: string | null } | null = null;
-      
-      if (formData.role === 'participant' && formData.tg_email?.trim()) {
-        // Use safe view - only returns id, email, tg_id, matched_profile_id
-        // Cast needed as views aren't in generated types
-        const { data: authorized } = await supabase
-          .from('authorized_students_safe')
-          .select('id, tg_id, matched_profile_id')
-          .ilike('email', formData.tg_email.trim())
-          .maybeSingle() as { data: { id: string; tg_id: string | null; matched_profile_id: string | null } | null };
-        
-        if (authorized && (!authorized.matched_profile_id || authorized.matched_profile_id === user.id)) {
-          isInWhitelist = true;
-          authorizedData = authorized;
-        }
-      }
+      // Update profile with verification status
 
-      // Update profile with verification status based on whitelist or volunteer role
       const profileUpdate: any = {
         first_name: formData.first_name.trim(),
         last_name: formData.last_name.trim(),
@@ -287,12 +269,6 @@ export default function Onboarding() {
       // Volunteers are auto-verified
       if (isVolunteer) {
         profileUpdate.verification_status = 'verified';
-      }
-
-      // If in whitelist (participant), auto-verify and copy TG data
-      if (isInWhitelist && authorizedData) {
-        profileUpdate.verification_status = 'verified';
-        profileUpdate.tg_id = authorizedData.tg_id;
       }
 
       const { error: profileError } = await supabase
@@ -318,16 +294,6 @@ export default function Onboarding() {
         }
       }
 
-      // If in whitelist (participant), update authorized_students
-      if (isInWhitelist && authorizedData) {
-        if (!authorizedData.matched_profile_id) {
-          await supabase
-            .from('authorized_students')
-            .update({ matched_profile_id: user.id })
-            .eq('id', authorizedData.id);
-        }
-      }
-
       // Verify actual profile status from database after update
       const { data: updatedProfile } = await supabase
         .from('profiles')
@@ -350,7 +316,7 @@ export default function Onboarding() {
       // Small delay to ensure React processes the new auth state
       await new Promise(resolve => setTimeout(resolve, 150));
 
-      if (wasVerified || isInWhitelist || isVolunteer) {
+      if (wasVerified || isVolunteer) {
         toast({
           title: '¡Bienvenida!',
           description: 'Tu cuenta ha sido verificada correctamente.',

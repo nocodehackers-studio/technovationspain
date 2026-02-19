@@ -40,8 +40,6 @@ import AdminWorkshopCapacity from "./pages/admin/AdminWorkshopCapacity";
 import AdminWorkshopPreferences from "./pages/admin/AdminWorkshopPreferences";
 import AdminWorkshopAssignment from "./pages/admin/AdminWorkshopAssignment";
 import AdminWorkshopSchedule from "./pages/admin/AdminWorkshopSchedule";
-import AdminImportUnified from "./pages/admin/AdminImportUnified";
-import AdminImportTeams from "./pages/admin/AdminImportTeams";
 import AdminReports from "./pages/admin/AdminReports";
 import AdminSettings from "./pages/admin/AdminSettings";
 import AdminTickets from "./pages/admin/AdminTickets";
@@ -168,16 +166,6 @@ const App = () => (
             <Route path="/admin/events/:eventId/workshops/schedule" element={
               <ProtectedRoute requiredRoles={["admin"]}>
                 <AdminWorkshopSchedule />
-              </ProtectedRoute>
-            } />
-            <Route path="/admin/import-csv" element={
-              <ProtectedRoute requiredRoles={["admin"]}>
-                <AdminImportUnified />
-              </ProtectedRoute>
-            } />
-            <Route path="/admin/import-teams" element={
-              <ProtectedRoute requiredRoles={["admin"]}>
-                <AdminImportTeams />
               </ProtectedRoute>
             } />
             <Route path="/admin/reports" element={
