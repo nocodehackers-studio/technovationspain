@@ -10,7 +10,7 @@ const BREVO_SENDER_NAME =
 
 const ALLOWED_ORIGINS = [
   "https://app.powertocode.org",
-  "http://localhost:5173",
+  "https://powertocode.vercel.app",
 ];
 
 const BATCH_SIZE = 25;
@@ -37,10 +37,10 @@ const REQUIRED_TEAMS_HEADERS = ["Team ID"];
 // ─── CORS ───────────────────────────────────────────────────────────
 function getCorsHeaders(req: Request) {
   const origin = req.headers.get("origin") || "";
+  const isAllowed =
+    ALLOWED_ORIGINS.includes(origin) || origin.startsWith("http://localhost:");
   return {
-    "Access-Control-Allow-Origin": ALLOWED_ORIGINS.includes(origin)
-      ? origin
-      : ALLOWED_ORIGINS[0],
+    "Access-Control-Allow-Origin": isAllowed ? origin : ALLOWED_ORIGINS[0],
     "Access-Control-Allow-Headers":
       "authorization, x-client-info, apikey, content-type",
   };
@@ -220,7 +220,49 @@ Deno.serve(async (req: Request): Promise<Response> => {
     });
   }
 
-  // ─── PROCESSING ─────────────────────────────────────────────────
+  // ─── CLAIM IMPORT (atomic — only if still 'pending') ─────────
+  const { data: claimed, error: claimError } = await supabase
+    .from("csv_imports")
+    .update({ status: "processing" })
+    .eq("id", importId)
+    .eq("status", "pending")
+    .select("id, file_name, status, storage_paths, admin_email, import_type")
+    .single();
+
+  if (claimError || !claimed) {
+    console.error("Could not claim import (already processing or not found):", importId);
+    return new Response(
+      JSON.stringify({ error: "Import already processing or not found" }),
+      {
+        status: 409,
+        headers: { "Content-Type": "application/json", ...corsHeaders },
+      }
+    );
+  }
+
+  const imp = claimed as unknown as ImportRecord;
+
+  // ─── RETURN 202 IMMEDIATELY — process in background ─────────
+  const backgroundWork = processImportInBackground(supabase, imp, importId);
+
+  // @ts-ignore — EdgeRuntime is a Supabase Edge Runtime global
+  EdgeRuntime.waitUntil(backgroundWork);
+
+  return new Response(
+    JSON.stringify({ success: true, importId, status: "processing" }),
+    {
+      status: 202,
+      headers: { "Content-Type": "application/json", ...corsHeaders },
+    }
+  );
+});
+
+// ─── BACKGROUND IMPORT PROCESSING ────────────────────────────────
+async function processImportInBackground(
+  supabase: ReturnType<typeof createClient>,
+  imp: ImportRecord,
+  importId: string
+): Promise<void> {
   const counters: Counters = {
     records_processed: 0,
     records_new: 0,
@@ -232,30 +274,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   };
 
   try {
-    // ─── 1b. Load Import Record (with atomic claim) ─────────────
-    // FIX F2: Atomic status transition — only claim if still 'pending'
-    const { data: claimed, error: claimError } = await supabase
-      .from("csv_imports")
-      .update({ status: "processing" })
-      .eq("id", importId)
-      .eq("status", "pending")
-      .select("id, file_name, status, storage_paths, admin_email, import_type")
-      .single();
-
-    if (claimError || !claimed) {
-      console.error("Could not claim import (already processing or not found):", importId);
-      return new Response(
-        JSON.stringify({ error: "Import already processing or not found" }),
-        {
-          status: 409,
-          headers: { "Content-Type": "application/json", ...corsHeaders },
-        }
-      );
-    }
-
-    const imp = claimed as unknown as ImportRecord;
-
-    // ─── 1c. Download & Parse CSV Files ─────────────────────────
+    // ─── Download & Parse CSV Files ───────────────────────────
     const storagePaths = imp.storage_paths || {};
     let usersRows: Record<string, string>[] = [];
     let teamsRows: Record<string, string>[] = [];
@@ -275,7 +294,6 @@ Deno.serve(async (req: Request): Promise<Response> => {
         columns: undefined,
       }) as unknown as Record<string, string>[];
 
-      // FIX F16: Validate required headers with exact match
       if (usersRows.length > 0) {
         validateHeaders(Object.keys(usersRows[0]), REQUIRED_USERS_HEADERS, "Users");
       }
@@ -296,7 +314,6 @@ Deno.serve(async (req: Request): Promise<Response> => {
         columns: undefined,
       }) as unknown as Record<string, string>[];
 
-      // FIX F16: Validate teams CSV headers too
       if (teamsRows.length > 0) {
         validateHeaders(Object.keys(teamsRows[0]), REQUIRED_TEAMS_HEADERS, "Teams");
       }
@@ -306,22 +323,22 @@ Deno.serve(async (req: Request): Promise<Response> => {
       `Parsed ${usersRows.length} user rows, ${teamsRows.length} team rows`
     );
 
-    // ─── 1d. Process Users CSV ──────────────────────────────────
+    // ─── Process Users CSV ────────────────────────────────────
     if (usersRows.length > 0) {
       await processUsers(supabase, usersRows, importId, counters);
     }
 
-    // ─── 1e. Process Teams CSV ──────────────────────────────────
+    // ─── Process Teams CSV ────────────────────────────────────
     if (teamsRows.length > 0) {
       await processTeams(supabase, teamsRows, importId, counters);
     }
 
-    // ─── 1f. Send Notification Email ────────────────────────────
+    // ─── Send Notification Email ──────────────────────────────
     if (imp.admin_email && BREVO_API_KEY) {
       await sendNotificationEmail(imp.admin_email, counters);
     }
 
-    // ─── 1g. Cleanup ────────────────────────────────────────────
+    // ─── Cleanup ──────────────────────────────────────────────
     const pathsToDelete: string[] = [];
     if (storagePaths.users_csv) pathsToDelete.push(storagePaths.users_csv);
     if (storagePaths.teams_csv) pathsToDelete.push(storagePaths.teams_csv);
@@ -355,11 +372,6 @@ Deno.serve(async (req: Request): Promise<Response> => {
       duplicates: counters.duplicates,
       errors: counters.errors.length,
     });
-
-    return new Response(JSON.stringify({ success: true, importId }), {
-      status: 200,
-      headers: { "Content-Type": "application/json", ...corsHeaders },
-    });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : "Unknown error";
     console.error("Import failed:", msg);
@@ -379,13 +391,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
         ] as unknown as Record<string, unknown>,
       })
       .eq("id", importId);
-
-    return new Response(JSON.stringify({ error: msg }), {
-      status: 500,
-      headers: { "Content-Type": "application/json", ...corsHeaders },
-    });
   }
-});
+}
 
 // ─── PROCESS USERS ──────────────────────────────────────────────────
 async function processUsers(
@@ -789,6 +796,8 @@ async function processTeams(
     const category = trimField(row["Division"] || row["division"]);
     const city = trimField(row["City"] || row["city"]);
     const state = trimField(row["State"] || row["state"]);
+
+    counters.records_processed++;
 
     const existing = teamByTgId.get(tgTeamId);
 
