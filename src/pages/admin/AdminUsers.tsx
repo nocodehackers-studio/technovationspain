@@ -34,14 +34,13 @@ import { toast } from "sonner";
 import { Plus, MoreVertical, Trash2, Users, UserPlus } from "lucide-react";
 import { Profile, AppRole, TableCustomColumn } from "@/types/database";
 
-type UserWithRoles = Profile & { 
+type UserWithRoles = Profile & {
   roles: AppRole[];
   team_name?: string | null;
   school_name?: string | null;
   hub_name?: string | null;
   city?: string | null;
   state?: string | null;
-  is_in_whitelist?: boolean;
 };
 
 // Slugify column label to create a key
@@ -98,40 +97,26 @@ export default function AdminUsers() {
 
       if (teamError) throw teamError;
 
-      // Fetch authorized_users for school_name and whitelist check
-      const { data: authorizedUsers, error: authUsersError } = await supabase
-        .from("authorized_users")
-        .select("email, school_name, company_name, city, state");
-
-      if (authUsersError) throw authUsersError;
-
-      // Create a set of whitelisted emails for quick lookup
-      const whitelistEmails = new Set(
-        (authorizedUsers || []).map((au) => au.email?.toLowerCase())
-      );
-
       // Merge profiles with all related data
+      // Note: city, state, school_name, company_name are now directly on profiles after migration
       const usersWithRoles: UserWithRoles[] = (profiles || []).map((profile) => {
         // Get ALL roles for this user
         const userRoles = roles
           ?.filter((r) => r.user_id === profile.id)
           .map((r) => r.role as AppRole) || [];
-        
+
         const teamMember = teamMembers?.find((tm) => tm.user_id === profile.id);
-        const authorizedUser = authorizedUsers?.find(
-          (au) => au.email?.toLowerCase() === profile.email?.toLowerCase()
-        );
-        
+        const profileAny = profile as any;
+
         return {
           ...profile,
           custom_fields: (profile.custom_fields as Record<string, unknown>) || {},
           roles: userRoles,
           team_name: (teamMember?.team as { name: string } | null)?.name || null,
-          school_name: authorizedUser?.school_name || authorizedUser?.company_name || null,
+          school_name: profileAny.school_name || profileAny.company_name || null,
           hub_name: (profile.hub as { name: string } | null)?.name || null,
-          city: authorizedUser?.city || null,
-          state: authorizedUser?.state || null,
-          is_in_whitelist: whitelistEmails.has(profile.email?.toLowerCase()),
+          city: profileAny.city || null,
+          state: profileAny.state || null,
         };
       });
 
@@ -139,14 +124,15 @@ export default function AdminUsers() {
     },
   });
 
-  // Fetch unregistered count for tab badge
+  // Fetch unregistered count for tab badge (pre-created profiles not yet onboarded)
   const { data: unregisteredCount } = useQuery({
     queryKey: ["admin-unregistered-users-count"],
     queryFn: async () => {
       const { count, error } = await supabase
-        .from("authorized_users")
+        .from("profiles")
         .select("*", { count: "exact", head: true })
-        .is("matched_profile_id", null);
+        .eq("onboarding_completed", false)
+        .eq("verification_status", "verified");
 
       if (error) throw error;
       return count || 0;
@@ -582,7 +568,6 @@ export default function AdminUsers() {
           { value: "mentor", label: "Mentor" },
           { value: "judge", label: "Juez" },
           { value: "chapter_ambassador", label: "Embajador" },
-          { value: "volunteer", label: "Voluntario" },
           { value: "admin", label: "Admin" },
         ],
       },

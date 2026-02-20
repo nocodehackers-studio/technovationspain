@@ -110,7 +110,6 @@ export function UserEditSheet({
         phone?: string;
         postal_code?: string;
         tg_id?: string;
-        tg_email?: string;
         verification_status?: VerificationStatus;
       };
     }) => {
@@ -230,7 +229,6 @@ export function UserEditSheet({
         phone: formData.get("phone") as string,
         postal_code: formData.get("postal_code") as string,
         tg_id: formData.get("tg_id") as string,
-        tg_email: formData.get("tg_email") as string,
       },
     });
 
@@ -403,14 +401,6 @@ export function UserEditSheet({
                   name="tg_id"
                   defaultValue={user.tg_id || ""}
                   className="font-mono"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="tg_email">Email TG</Label>
-                <Input
-                  id="tg_email"
-                  name="tg_email"
-                  defaultValue={user.tg_email || ""}
                 />
               </div>
             </div>

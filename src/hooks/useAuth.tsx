@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, ReactNode } from 'react
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { Profile, AppRole } from '@/types/database';
+import { hasMissingFields } from '@/lib/profile-fields';
 
 interface AuthContextType {
   user: User | null;
@@ -10,6 +11,7 @@ interface AuthContextType {
   role: AppRole | null;
   isLoading: boolean;
   isVerified: boolean;
+  isVolunteer: boolean;
   needsOnboarding: boolean;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
@@ -52,8 +54,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .eq('user_id', userId);
 
       if (!roleError && rolesData && rolesData.length > 0) {
-        // Prioritize admin > chapter_ambassador > mentor > judge > volunteer > participant
-        const rolePriority: AppRole[] = ['admin', 'chapter_ambassador', 'mentor', 'judge', 'volunteer', 'participant'];
+        // Prioritize admin > chapter_ambassador > mentor > judge > participant
+        const rolePriority: AppRole[] = ['admin', 'chapter_ambassador', 'mentor', 'judge', 'participant'];
         const userRoles = rolesData.map(r => r.role as AppRole);
         const highestRole = rolePriority.find(r => userRoles.includes(r)) || userRoles[0];
         setRole(highestRole);
@@ -78,9 +80,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         console.log('Auth event:', event);
 
         if (event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') {
-          // Token refreshed or initial session — only update session silently
-          // if the access_token actually changed, preventing unnecessary re-renders.
-          // INITIAL_SESSION is also handled by getSession() below.
           setSession((prev) => {
             if (prev?.access_token === session?.access_token) return prev;
             return session;
@@ -89,12 +88,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         if (event === 'SIGNED_IN') {
-          // Supabase fires SIGNED_IN both on real login AND on tab visibility
-          // recovery (see _recoverAndRefresh in GoTrueClient). We only want to
-          // refetch the profile on a genuine new login — not on tab switch.
           setUser((prevUser) => {
             if (prevUser?.id === session?.user?.id) {
-              // Same user — tab recovery, not a new login. Skip silently.
               console.log('Auth event: SIGNED_IN ignored (tab recovery, same user)');
               setSession((prev) => {
                 if (prev?.access_token === session?.access_token) return prev;
@@ -102,7 +97,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               });
               return prevUser;
             }
-            // Different user or first login — proceed with full setup
             console.log('Auth event: SIGNED_IN processed (new login)');
             setSession(session);
             if (session?.user) {
@@ -129,7 +123,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setUser(session?.user ?? null);
-      
+
       if (session?.user) {
         fetchProfile(session.user.id).finally(() => {
           setIsAuthLoading(false);
@@ -151,7 +145,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const isVerified = profile?.verification_status === 'verified';
-  const needsOnboarding = profile ? !profile.onboarding_completed : false;
+  const isVolunteer = (profile as any)?.is_volunteer ?? false;
+  const needsOnboarding = profile
+    ? !profile.terms_accepted_at || hasMissingFields(profile as unknown as Record<string, unknown>)
+    : false;
 
   return (
     <AuthContext.Provider
@@ -162,6 +159,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         role,
         isLoading,
         isVerified,
+        isVolunteer,
         needsOnboarding,
         signOut,
         refreshProfile,

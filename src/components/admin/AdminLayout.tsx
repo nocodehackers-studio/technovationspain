@@ -16,7 +16,7 @@ const routeLabels: Record<string, string> = {
   "/admin/hubs": "Hubs",
   "/admin/events": "Eventos",
   "/admin/workshops": "Talleres",
-  "/admin/import-csv": "Importar CSV",
+  "/admin/import": "Importar",
   "/admin/reports": "Reportes",
   "/admin/settings": "Configuración",
 };

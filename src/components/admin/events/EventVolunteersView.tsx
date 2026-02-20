@@ -22,35 +22,31 @@ export function EventVolunteersView({ eventId }: EventVolunteersViewProps) {
   const queryClient = useQueryClient();
   const [volunteerToRemove, setVolunteerToRemove] = useState<string | null>(null);
 
-  // Check if volunteer already has QR validator role
-  const checkHasQRValidatorRole = async (userId: string): Promise<boolean> => {
+  // Check if volunteer already has is_volunteer flag
+  const checkHasVolunteerFlag = async (userId: string): Promise<boolean> => {
     const { data } = await supabase
-      .from('user_roles')
-      .select('id')
-      .eq('user_id', userId)
-      .eq('role', 'volunteer');
-    
-    return (data?.length || 0) > 0;
+      .from('profiles')
+      .select('is_volunteer')
+      .eq('id', userId)
+      .single();
+
+    return (data as any)?.is_volunteer ?? false;
   };
 
-  // Assign QR validator role mutation
+  // Assign volunteer/QR validator flag mutation
   const assignQRRoleMutation = useMutation({
     mutationFn: async (userId: string) => {
-      // The volunteer role already has access to /validate, we just need to ensure they have it
-      // First check if they already have it
-      const hasRole = await checkHasQRValidatorRole(userId);
-      if (hasRole) {
+      const hasFlag = await checkHasVolunteerFlag(userId);
+      if (hasFlag) {
         throw new Error('Este voluntario ya tiene el rol de validador QR');
       }
 
-      // Insert the volunteer role (they should already have it, but ensure it)
       const { error } = await supabase
-        .from('user_roles')
-        .insert({ user_id: userId, role: 'volunteer' as any });
+        .from('profiles')
+        .update({ is_volunteer: true } as any)
+        .eq('id', userId);
 
-      if (error && !error.message.includes('duplicate')) {
-        throw error;
-      }
+      if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['event-volunteers', eventId] });
@@ -163,7 +159,7 @@ export function EventVolunteersView({ eventId }: EventVolunteersViewProps) {
               <UserCheck className="h-12 w-12 mx-auto mb-4 opacity-50" />
               <p>No hay voluntarios inscritos en este evento.</p>
               <p className="text-sm mt-1">
-                Los voluntarios pueden apuntarse desde su portal en /voluntario/dashboard
+                Los voluntarios pueden apuntarse desde su portal en /voluntario
               </p>
             </div>
           )}
