@@ -41,11 +41,17 @@ import { CompanionFields, CompanionData } from '@/components/events/CompanionFie
 
 // Spanish phone validation (9 digits, starting with 6, 7, or 9)
 const validateSpanishPhone = (value: string): boolean => {
-  if (!value) return true; // Optional field
+  if (!value) return false;
   const cleanValue = value.replace(/\s|-|\+34/g, '');
-  // 9 digits starting with 6, 7 or 9
   const phoneRegex = /^[679][0-9]{8}$/;
   return phoneRegex.test(cleanValue);
+};
+
+// Sanitize phone value from profile (treat "-", null, etc. as empty)
+const sanitizePhone = (value: string | null | undefined): string => {
+  if (!value) return '';
+  const cleaned = value.replace(/[^\d]/g, '');
+  return cleaned.length >= 9 ? cleaned.slice(0, 9) : '';
 };
 
 // Create dynamic schema based on required fields
@@ -63,14 +69,9 @@ const createRegistrationSchema = (requiredFields: string[]) => z.object({
         (val) => !val || validateSpanishDNI(val),
         'Formato inválido. Usa 8 números + letra (DNI) o X/Y/Z + 7 números + letra (NIE)'
       ),
-  phone: requiredFields.includes('phone')
-    ? z.string().min(1, 'El teléfono es obligatorio').refine(
+  phone: z.string().min(1, 'El teléfono es obligatorio').refine(
         validateSpanishPhone,
-        'Formato inválido. Introduce 9 dígitos (ej: 612345678)'
-      )
-    : z.string().optional().refine(
-        (val) => !val || validateSpanishPhone(val),
-        'Formato inválido. Introduce 9 dígitos (ej: 612345678)'
+        'Formato inválido. Introduce 9 dígitos empezando por 6, 7 o 9 (ej: 612345678)'
       ),
   team_name: requiredFields.includes('team_name')
     ? z.string().min(1, 'El nombre del equipo es obligatorio')
@@ -93,14 +94,9 @@ const createStep2Schema = (requiredFields: string[]) => z.object({
         (val) => !val || validateSpanishDNI(val),
         'Formato inválido. Usa 8 números + letra (DNI) o X/Y/Z + 7 números + letra (NIE)'
       ),
-  phone: requiredFields.includes('phone')
-    ? z.string().min(1, 'El teléfono es obligatorio').refine(
+  phone: z.string().min(1, 'El teléfono es obligatorio').refine(
         validateSpanishPhone,
-        'Formato inválido. Introduce 9 dígitos (ej: 612345678)'
-      )
-    : z.string().optional().refine(
-        (val) => !val || validateSpanishPhone(val),
-        'Formato inválido. Introduce 9 dígitos (ej: 612345678)'
+        'Formato inválido. Introduce 9 dígitos empezando por 6, 7 o 9 (ej: 612345678)'
       ),
   team_name: requiredFields.includes('team_name')
     ? z.string().min(1, 'El nombre del equipo es obligatorio')
@@ -157,7 +153,7 @@ export default function EventRegistrationPage() {
       last_name: profile?.last_name || '',
       email: profile?.email || '',
       dni: profile?.dni || '',
-      phone: profile?.phone || '',
+      phone: sanitizePhone(profile?.phone),
       team_name: '',
       image_consent: false,
       data_consent: false,
@@ -171,6 +167,8 @@ export default function EventRegistrationPage() {
       form.setValue('first_name', profile.first_name || '');
       form.setValue('last_name', profile.last_name || '');
       form.setValue('email', profile.email || '');
+      form.setValue('phone', sanitizePhone(profile.phone));
+      form.setValue('tg_email', profile.tg_email || '');
       form.setValue('phone', profile.phone || '');
       if (profile.dni) {
         form.setValue('dni', profile.dni);
@@ -327,11 +325,10 @@ const selectedTicketId = form.watch('ticket_type_id');
         setStep(2);
       }
     } else if (step === 2) {
-      const fieldsToValidate: (keyof RegistrationFormValues)[] = ['first_name', 'last_name', 'email'];
-      
+      const fieldsToValidate: (keyof RegistrationFormValues)[] = ['first_name', 'last_name', 'email', 'phone'];
+
       // Add required fields based on ticket configuration
       if (requiredFields.includes('dni')) fieldsToValidate.push('dni');
-      if (requiredFields.includes('phone')) fieldsToValidate.push('phone');
       if (requiresTeam || requiredFields.includes('team_name')) fieldsToValidate.push('team_name');
       
       // Use step 2 schema that doesn't include consent fields
@@ -639,7 +636,7 @@ const selectedTicketId = form.watch('ticket_type_id');
                       name="phone"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Teléfono{requiredFields.includes('phone') ? ' *' : ''}</FormLabel>
+                          <FormLabel>Teléfono *</FormLabel>
                           <FormControl>
                             <Input 
                               placeholder="612345678" 
