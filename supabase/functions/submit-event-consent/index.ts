@@ -5,6 +5,7 @@ const PUBLIC_SITE_URL = Deno.env.get("PUBLIC_SITE_URL")?.replace(/\/+$/, "");
 const ALLOWED_ORIGINS = [
   PUBLIC_SITE_URL,
   "http://localhost:5173",
+  "http://localhost:8080",
 ].filter(Boolean) as string[];
 
 if (!PUBLIC_SITE_URL) {
