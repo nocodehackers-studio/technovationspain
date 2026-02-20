@@ -1,13 +1,15 @@
 // Fields that are ALWAYS required from the user (never from CSV)
 export const REQUIRED_PROFILE_FIELDS = [
   'first_name', 'last_name', 'date_of_birth',
-  'dni', 'hub_id', 'postal_code'
+  'dni', 'postal_code'
 ] as const;
 
 // Fields that can come from CSV — hidden if populated, shown if empty
+// NOTE: school_name, company_name are CSV-only (never shown in onboarding)
+// NOTE: parent_name, parent_email are handled by age logic in Onboarding component
+// NOTE: hub_id is optional — hub selector only renders when hubs are available
 const CSV_OPTIONAL_FIELDS = [
-  'phone', 'city', 'state', 'school_name',
-  'company_name', 'parent_name', 'parent_email'
+  'phone', 'city', 'state', 'hub_id'
 ] as const;
 
 export type RequiredField = typeof REQUIRED_PROFILE_FIELDS[number];
