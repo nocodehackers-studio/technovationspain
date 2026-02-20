@@ -55,7 +55,21 @@ function normalizeEmail(email: string): string {
 }
 
 function trimField(val: string | undefined | null): string {
-  return (val ?? "").trim();
+  const trimmed = (val ?? "").trim();
+  // Treat standalone dashes as empty
+  if (trimmed === "-" || trimmed === "--" || trimmed === "—") return "";
+  return trimmed;
+}
+
+/** Remove null entries so CSV blanks don't overwrite existing local data */
+function stripNulls(
+  obj: Record<string, string | null>
+): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const [key, val] of Object.entries(obj)) {
+    if (val !== null) result[key] = val;
+  }
+  return result;
 }
 
 function isValidEmail(email: string): boolean {
@@ -348,7 +362,7 @@ async function processBatch(
       const email = normalizeEmail(row["Email"] || row["email"] || "");
       if (!email) continue;
       if (!isValidEmail(email)) {
-        counters.errors.push({ error: "Invalid email format (details omitted)" });
+        counters.errors.push({ email, error: `Invalid email format: ${email}` });
         continue;
       }
       if (emailToRow.has(email)) dupCount++;
@@ -547,7 +561,7 @@ async function processUserBatch(
               userId = existingProfile.id;
             } else {
               counters.errors.push({
-                error: "Auth user exists without profile (details omitted)",
+                error: `Auth user exists without profile: ${email}`,
               });
               continue;
             }
@@ -572,13 +586,13 @@ async function processUserBatch(
             }
             if (!retried) {
               counters.errors.push({
-                error: "Rate limit creating user (details omitted)",
+                error: `Rate limit creating user: ${email}`,
               });
               continue;
             }
           } else {
             counters.errors.push({
-              error: "Create user failed (details omitted)",
+              error: `Create user failed for ${email}: ${createError.message}`,
             });
             continue;
           }
@@ -603,16 +617,36 @@ async function processUserBatch(
 
         if (!profileReady) {
           counters.errors.push({
-            error: "Profile not created by trigger (details omitted)",
+            error: `Profile not created by trigger for: ${email}`,
           });
           continue;
         }
 
         // Update profile with CSV data + set verified
-        await supabase
+        const { error: profileUpdateError } = await supabase
           .from("profiles")
           .update({ ...csvData, verification_status: "verified" })
           .eq("id", userId);
+
+        if (profileUpdateError) {
+          console.error(`Profile update failed for ${email}, falling back to verified-only:`, profileUpdateError.message);
+          // Fallback: at least set verified so onboarding collects missing fields
+          const { error: fallbackError } = await supabase
+            .from("profiles")
+            .update({ verification_status: "verified" })
+            .eq("id", userId);
+          if (fallbackError) {
+            counters.errors.push({
+              email,
+              error: `Profile update completely failed for ${email}: ${profileUpdateError.message}`,
+            });
+          } else {
+            counters.errors.push({
+              email,
+              error: `Profile data skipped for ${email} (constraint: ${profileUpdateError.message}), user verified — onboarding will collect missing fields`,
+            });
+          }
+        }
 
         if (mappedRole) {
           const { error: roleError } = await supabase
@@ -623,7 +657,7 @@ async function processUserBatch(
             );
           if (roleError) {
             counters.errors.push({
-              error: "Role upsert failed for new user (details omitted)",
+              error: `Role upsert failed for new user ${email}: ${roleError.message}`,
             });
           }
         }
@@ -631,10 +665,30 @@ async function processUserBatch(
         counters.records_new++;
       } else if (existing.verification_status === "pending") {
         // ─── ACTIVATE pending user ───────────────────────────
-        await supabase
+        const { error: activateError } = await supabase
           .from("profiles")
-          .update({ ...csvData, verification_status: "verified" })
+          .update({ ...stripNulls(csvData), verification_status: "verified" })
           .eq("id", existing.id);
+
+        if (activateError) {
+          console.error(`Profile activate failed for ${email}, falling back to verified-only:`, activateError.message);
+          const { error: fallbackError } = await supabase
+            .from("profiles")
+            .update({ verification_status: "verified" })
+            .eq("id", existing.id);
+          if (fallbackError) {
+            counters.errors.push({
+              email,
+              error: `Profile activate completely failed for ${email}: ${activateError.message}`,
+            });
+            continue;
+          } else {
+            counters.errors.push({
+              email,
+              error: `Profile data skipped for ${email} (constraint: ${activateError.message}), user verified — onboarding will collect missing fields`,
+            });
+          }
+        }
 
         if (mappedRole) {
           const { error: roleError } = await supabase
@@ -645,7 +699,7 @@ async function processUserBatch(
             );
           if (roleError) {
             counters.errors.push({
-              error: "Role upsert failed for activated user (details omitted)",
+              error: `Role upsert failed for activated user ${email}: ${roleError.message}`,
             });
           }
         }
@@ -654,8 +708,18 @@ async function processUserBatch(
       } else if (
         hasChanges(existing, csvData, mappedRole, roleByUserId.get(existing.id))
       ) {
-        // ─── UPDATE existing user ────────────────────────────
-        await supabase.from("profiles").update(csvData).eq("id", existing.id);
+        // ─── UPDATE existing user (only non-null CSV fields, preserves local data) ─
+        const fieldsToUpdate = stripNulls(csvData);
+        const { error: updateError } = await supabase.from("profiles").update(fieldsToUpdate).eq("id", existing.id);
+
+        if (updateError) {
+          console.error(`Profile update failed for ${email}:`, updateError.message);
+          counters.errors.push({
+            email,
+            error: `Profile data skipped for ${email} (constraint: ${updateError.message}) — existing data preserved`,
+          });
+          // User is already verified, skip but don't abort
+        }
 
         if (mappedRole) {
           const { error: roleError } = await supabase
@@ -666,7 +730,7 @@ async function processUserBatch(
             );
           if (roleError) {
             counters.errors.push({
-              error: "Role upsert failed for updated user (details omitted)",
+              error: `Role upsert failed for updated user ${email}: ${roleError.message}`,
             });
           }
         }
@@ -813,8 +877,9 @@ async function processTeamBatch(
       const profile = profileByEmail.get(email);
       if (!profile) {
         counters.errors.push({
+          email,
           tg_team_id: tgTeamId,
-          error: "Unlinked email (student, details omitted)",
+          error: `Student email not found or not verified: ${email}`,
         });
         continue;
       }
@@ -827,8 +892,9 @@ async function processTeamBatch(
       });
       if (linkErr && !linkErr.message?.includes("duplicate")) {
         counters.errors.push({
+          email,
           tg_team_id: tgTeamId,
-          error: "Link student failed (details omitted)",
+          error: `Link student failed for ${email}: ${linkErr.message}`,
         });
       }
     }
@@ -837,8 +903,9 @@ async function processTeamBatch(
       const profile = profileByEmail.get(email);
       if (!profile) {
         counters.errors.push({
+          email,
           tg_team_id: tgTeamId,
-          error: "Unlinked email (mentor, details omitted)",
+          error: `Mentor email not found or not verified: ${email}`,
         });
         continue;
       }
@@ -851,8 +918,9 @@ async function processTeamBatch(
       });
       if (linkErr && !linkErr.message?.includes("duplicate")) {
         counters.errors.push({
+          email,
           tg_team_id: tgTeamId,
-          error: "Link mentor failed (details omitted)",
+          error: `Link mentor failed for ${email}: ${linkErr.message}`,
         });
       }
     }
@@ -962,18 +1030,20 @@ async function finalize(
 function extractProfileFields(
   row: Record<string, string>
 ): Record<string, string | null> {
+  const parentEmail = trimField(row["Parent guardian email"] || row["parent_email"]) || null;
+  const phone = trimField(row["Phone number"] || row["phone"]) || null;
+
   return {
     first_name: trimField(row["First name"] || row["first_name"]) || null,
     last_name: trimField(row["Last name"] || row["last_name"]) || null,
-    phone: trimField(row["Phone number"] || row["phone"]) || null,
+    phone: phone && /^[+0-9\s\-()]+$/.test(phone) && phone.length <= 20 ? phone : null,
     tg_id:
       trimField(
         row["Participant ID"] || row["Mentor ID"] || row["tg_id"]
       ) || null,
     parent_name:
       trimField(row["Parent guardian name"] || row["parent_name"]) || null,
-    parent_email:
-      trimField(row["Parent guardian email"] || row["parent_email"]) || null,
+    parent_email: parentEmail && isValidEmail(parentEmail) ? parentEmail : null,
     school_name: trimField(row["School name"] || row["school_name"]) || null,
     company_name:
       trimField(row["Company name"] || row["company_name"]) || null,
