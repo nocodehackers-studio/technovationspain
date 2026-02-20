@@ -95,22 +95,75 @@ export function useWorkshopAssignment(eventId: string) {
         throw new Error('Faltan talleres o turnos configurados');
       }
 
-      // 1. Obtener equipos registrados con sus preferencias
+      // 1. Obtener registros activos del evento (con y sin team_id)
       const { data: registrations, error: regError } = await supabase
         .from('event_registrations')
         .select(`
           team_id,
+          user_id,
           participant_count,
           created_at,
           team:teams(id, name)
         `)
         .eq('event_id', eventId)
-        .not('team_id', 'is', null)
+        .eq('is_companion', false)
+        .neq('registration_status', 'cancelled')
         .order('created_at');
 
       if (regError) throw regError;
 
-      // Agrupar por equipo (FIFO por primera inscripción)
+      // 2. Recopilar team_ids directos del registro
+      const directTeamIds = new Set(
+        registrations?.map(r => r.team_id).filter((id): id is string => !!id) || []
+      );
+
+      // 3. Para usuarios sin team_id en el registro, buscar equipo vía team_members
+      const userIdsWithoutTeam = (registrations || [])
+        .filter(r => !r.team_id && r.user_id)
+        .map(r => r.user_id)
+        .filter((id): id is string => !!id);
+
+      const membershipTeamIds = new Set<string>();
+      if (userIdsWithoutTeam.length > 0) {
+        const { data: memberships } = await supabase
+          .from('team_members')
+          .select('team_id')
+          .in('user_id', userIdsWithoutTeam)
+          .not('team_id', 'is', null);
+
+        memberships?.forEach(m => {
+          if (m.team_id) membershipTeamIds.add(m.team_id);
+        });
+      }
+
+      // 4. Unir todos los team_ids encontrados
+      const allTeamIds = [...new Set([...directTeamIds, ...membershipTeamIds])];
+
+      // 5. Obtener info de equipos descubiertos vía membership (no en registros directos)
+      const teamsFromMembership = allTeamIds.filter(id => !directTeamIds.has(id));
+      let extraTeams: { id: string; name: string }[] = [];
+      if (teamsFromMembership.length > 0) {
+        const { data: teamData } = await supabase
+          .from('teams')
+          .select('id, name')
+          .in('id', teamsFromMembership);
+        extraTeams = teamData || [];
+      }
+
+      // 6. Contar participantes desde team_members para todos los equipos
+      const participantsByTeam = new Map<string, number>();
+      if (allTeamIds.length > 0) {
+        const { data: memberCounts } = await supabase
+          .from('team_members')
+          .select('team_id')
+          .in('team_id', allTeamIds);
+
+        memberCounts?.forEach(m => {
+          if (m.team_id) participantsByTeam.set(m.team_id, (participantsByTeam.get(m.team_id) || 0) + 1);
+        });
+      }
+
+      // 7. Construir teamsMap desde registros directos
       const teamsMap = new Map<string, TeamForAssignment>();
       registrations?.forEach(reg => {
         if (reg.team_id && reg.team) {
@@ -119,15 +172,30 @@ export function useWorkshopAssignment(eventId: string) {
             teamsMap.set(reg.team_id, {
               id: reg.team_id,
               name: (reg.team as any).name,
-              participantCount: reg.participant_count || 1,
+              participantCount: participantsByTeam.get(reg.team_id) || reg.participant_count || 1,
               registrationDate: reg.created_at,
               preferences: [],
             });
-          } else {
-            existing.participantCount += reg.participant_count || 1;
           }
         }
       });
+
+      // 8. Añadir equipos descubiertos vía team_members (fallback)
+      for (const team of extraTeams) {
+        if (!teamsMap.has(team.id)) {
+          const earliestReg = registrations?.find(r =>
+            userIdsWithoutTeam.includes(r.user_id!)
+          )?.created_at || new Date().toISOString();
+
+          teamsMap.set(team.id, {
+            id: team.id,
+            name: team.name,
+            participantCount: participantsByTeam.get(team.id) || 1,
+            registrationDate: earliestReg,
+            preferences: [],
+          });
+        }
+      }
 
       // 2. Obtener preferencias
       const { data: allPreferences, error: prefError } = await supabase
