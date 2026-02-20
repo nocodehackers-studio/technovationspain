@@ -130,6 +130,7 @@ export default function AdminImportBatch() {
   const startImport = async () => {
     if (isSubmitting) return;
     setIsSubmitting(true);
+    let createdImportId: string | null = null;
 
     try {
       // Safety check: no active imports
@@ -178,6 +179,7 @@ export default function AdminImportBatch() {
       }
 
       const importId = importRecord.id;
+      createdImportId = importId;
 
       // Upload files to storage
       const sanitizeFileName = (name: string) =>
@@ -232,6 +234,14 @@ export default function AdminImportBatch() {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Error desconocido";
       toast.error(msg);
+      // Clean up orphaned csv_imports record if it was created
+      if (createdImportId) {
+        await supabase
+          .from("csv_imports")
+          .update({ status: "failed" } as Record<string, unknown>)
+          .eq("id", createdImportId)
+          .eq("status", "pending");
+      }
       setIsSubmitting(false);
     }
   };
@@ -548,7 +558,11 @@ function ImportProgressStep({
   onReset: () => void;
 }) {
   const [importStatus, setImportStatus] = useState<ImportStatus | null>(null);
+  const [isStalled, setIsStalled] = useState(false);
+  const [isResuming, setIsResuming] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastRecordsProcessed = useRef<number | null>(null);
+  const lastChangeTime = useRef<number | null>(null);
 
   useEffect(() => {
     const poll = async () => {
@@ -560,6 +574,23 @@ function ImportProgressStep({
 
       if (data) {
         setImportStatus(data as unknown as ImportStatus);
+
+        // Stall detection: track progress while processing
+        if (data.status === "processing") {
+          if (lastChangeTime.current === null) {
+            // First poll with processing status — start tracking
+            lastRecordsProcessed.current = data.records_processed;
+            lastChangeTime.current = Date.now();
+          } else if (data.records_processed !== lastRecordsProcessed.current) {
+            // Progress detected — reset tracking
+            lastRecordsProcessed.current = data.records_processed;
+            lastChangeTime.current = Date.now();
+            setIsStalled(false);
+          } else if (Date.now() - lastChangeTime.current > 60_000) {
+            // No progress for 60s — stalled
+            setIsStalled(true);
+          }
+        }
 
         // Stop polling once terminal
         if (data.status === "completed" || data.status === "failed") {
@@ -574,6 +605,22 @@ function ImportProgressStep({
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, [importId]);
+
+  const handleResume = async () => {
+    setIsResuming(true);
+    try {
+      await supabase.functions.invoke("process-csv-import", {
+        body: { importId },
+      });
+      toast.success("Reanudando importación...");
+      lastChangeTime.current = Date.now();
+      setIsStalled(false);
+    } catch {
+      toast.error("Error al reanudar. Intenta de nuevo.");
+    } finally {
+      setIsResuming(false);
+    }
+  };
 
   const isTerminal = importStatus?.status === "completed" || importStatus?.status === "failed";
   const isFailed = importStatus?.status === "failed";
@@ -617,6 +664,19 @@ function ImportProgressStep({
             <span>{isTerminal ? "100" : pct}%</span>
           </div>
         </div>
+
+        {/* Stall detection + resume button */}
+        {isStalled && !isTerminal && (
+          <div className="text-center space-y-2">
+            <p className="text-sm text-amber-600">
+              La importación parece haberse detenido. Puedes reanudarla.
+            </p>
+            <Button variant="outline" onClick={handleResume} disabled={isResuming}>
+              {isResuming ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Reanudar Importación
+            </Button>
+          </div>
+        )}
 
         {/* Summary (visible once completed or failed) */}
         {isTerminal && importStatus && (
