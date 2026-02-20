@@ -10,18 +10,15 @@ const BREVO_SENDER_NAME =
 
 const ALLOWED_ORIGINS = [
   "https://app.powertocode.org",
-  "http://localhost:5173",
+  "https://powertocode.vercel.app",
 ];
 
 const BATCH_SIZE = 25;
 const DEFAULT_DELAY_MS = 100;
-const SLOW_DELAY_MS = 500;
-const SLOW_THRESHOLD_MS = 300;
 const MAX_RETRIES = 3;
 const PROFILE_POLL_DELAY_MS = 200;
 const PROFILE_POLL_RETRIES = 3;
 
-// CSV Profile type → app_role mapping
 const ROLE_MAP: Record<string, string> = {
   student: "participant",
   participant: "participant",
@@ -30,17 +27,19 @@ const ROLE_MAP: Record<string, string> = {
   chapter_ambassador: "chapter_ambassador",
 };
 
-// Required CSV headers
 const REQUIRED_USERS_HEADERS = ["Email"];
 const REQUIRED_TEAMS_HEADERS = ["Team ID"];
+
+const IMPORT_SELECT_FIELDS =
+  "id, file_name, status, storage_paths, admin_email, import_type, records_processed, records_new, records_updated, records_activated, total_records, errors";
 
 // ─── CORS ───────────────────────────────────────────────────────────
 function getCorsHeaders(req: Request) {
   const origin = req.headers.get("origin") || "";
+  const isAllowed =
+    ALLOWED_ORIGINS.includes(origin) || origin.startsWith("http://localhost:");
   return {
-    "Access-Control-Allow-Origin": ALLOWED_ORIGINS.includes(origin)
-      ? origin
-      : ALLOWED_ORIGINS[0],
+    "Access-Control-Allow-Origin": isAllowed ? origin : ALLOWED_ORIGINS[0],
     "Access-Control-Allow-Headers":
       "authorization, x-client-info, apikey, content-type",
   };
@@ -56,10 +55,23 @@ function normalizeEmail(email: string): string {
 }
 
 function trimField(val: string | undefined | null): string {
-  return (val ?? "").trim();
+  const trimmed = (val ?? "").trim();
+  // Treat standalone dashes as empty
+  if (trimmed === "-" || trimmed === "--" || trimmed === "—") return "";
+  return trimmed;
 }
 
-/** Basic email format check — must have exactly one @, something before and after */
+/** Remove null entries so CSV blanks don't overwrite existing local data */
+function stripNulls(
+  obj: Record<string, string | null>
+): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const [key, val] of Object.entries(obj)) {
+    if (val !== null) result[key] = val;
+  }
+  return result;
+}
+
 function isValidEmail(email: string): boolean {
   const parts = email.split("@");
   return (
@@ -70,7 +82,6 @@ function isValidEmail(email: string): boolean {
   );
 }
 
-/** Escape HTML entities to prevent XSS in email content */
 function escapeHtml(str: string): string {
   return str
     .replace(/&/g, "&amp;")
@@ -79,10 +90,6 @@ function escapeHtml(str: string): string {
     .replace(/"/g, "&quot;");
 }
 
-/**
- * Map CSV "Profile type" to our app_role.
- * Returns null for unknown types or "admin" (never assigned from CSV).
- */
 function mapRole(csvProfileType: string): string | null {
   const key = csvProfileType.toLowerCase().trim().replace(/\s+/g, "_");
   const mapped = ROLE_MAP[key];
@@ -90,9 +97,6 @@ function mapRole(csvProfileType: string): string | null {
   return mapped;
 }
 
-/**
- * Validate that CSV headers contain all required columns (case-insensitive exact match).
- */
 function validateHeaders(
   headers: string[],
   required: string[],
@@ -116,6 +120,12 @@ interface ImportRecord {
   storage_paths: { users_csv?: string; teams_csv?: string } | null;
   admin_email: string | null;
   import_type: string | null;
+  records_processed: number;
+  records_new: number;
+  records_updated: number;
+  records_activated: number;
+  total_records: number;
+  errors: Array<{ email?: string; tg_team_id?: string; error: string }> | null;
 }
 
 interface ExistingProfile {
@@ -149,7 +159,6 @@ interface Counters {
 Deno.serve(async (req: Request): Promise<Response> => {
   const corsHeaders = getCorsHeaders(req);
 
-  // CORS preflight
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders });
   }
@@ -161,7 +170,6 @@ Deno.serve(async (req: Request): Promise<Response> => {
     });
   }
 
-  // ─── 1a. Authentication & Setup ─────────────────────────────────
   const authHeader = req.headers.get("Authorization");
   if (!authHeader) {
     return new Response(JSON.stringify({ error: "No token provided" }), {
@@ -173,39 +181,6 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
   const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-
-  // Verify caller JWT via anon client
-  const token = authHeader.replace("Bearer ", "");
-  const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey);
-  const {
-    data: { user },
-    error: authError,
-  } = await supabaseAuth.auth.getUser(token);
-
-  if (authError || !user) {
-    return new Response(JSON.stringify({ error: "Invalid authentication" }), {
-      status: 401,
-      headers: { "Content-Type": "application/json", ...corsHeaders },
-    });
-  }
-
-  // Service role client for privileged operations
-  const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-  // Verify caller has admin role
-  const { data: roleData } = await supabase
-    .from("user_roles")
-    .select("role")
-    .eq("user_id", user.id)
-    .eq("role", "admin")
-    .maybeSingle();
-
-  if (!roleData) {
-    return new Response(JSON.stringify({ error: "Forbidden — admin only" }), {
-      status: 403,
-      headers: { "Content-Type": "application/json", ...corsHeaders },
-    });
-  }
 
   // Parse body
   let importId: string;
@@ -220,42 +195,128 @@ Deno.serve(async (req: Request): Promise<Response> => {
     });
   }
 
-  // ─── PROCESSING ─────────────────────────────────────────────────
-  const counters: Counters = {
-    records_processed: 0,
-    records_new: 0,
-    records_updated: 0,
-    records_activated: 0,
-    skipped: 0,
-    duplicates: 0,
-    errors: [],
-  };
+  const token = authHeader.replace("Bearer ", "");
+  const isChainCall = token === supabaseServiceKey;
 
-  try {
-    // ─── 1b. Load Import Record (with atomic claim) ─────────────
-    // FIX F2: Atomic status transition — only claim if still 'pending'
-    const { data: claimed, error: claimError } = await supabase
+  // Service role client for all DB operations
+  const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+  let imp: ImportRecord;
+
+  if (isChainCall) {
+    // ─── CHAIN CALL: skip JWT, validate import is processing ───
+    const { data } = await supabase
+      .from("csv_imports")
+      .select(IMPORT_SELECT_FIELDS)
+      .eq("id", importId)
+      .single();
+
+    if (!data || data.status !== "processing") {
+      return new Response(JSON.stringify({ error: "Import not active" }), {
+        status: 409,
+        headers: { "Content-Type": "application/json", ...corsHeaders },
+      });
+    }
+
+    imp = data as unknown as ImportRecord;
+  } else {
+    // ─── CLIENT CALL: verify JWT + admin role ───
+    const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey);
+    const {
+      data: { user },
+      error: authError,
+    } = await supabaseAuth.auth.getUser(token);
+
+    if (authError || !user) {
+      return new Response(JSON.stringify({ error: "Invalid authentication" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json", ...corsHeaders },
+      });
+    }
+
+    const { data: roleData } = await supabase
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", user.id)
+      .eq("role", "admin")
+      .maybeSingle();
+
+    if (!roleData) {
+      return new Response(JSON.stringify({ error: "Forbidden — admin only" }), {
+        status: 403,
+        headers: { "Content-Type": "application/json", ...corsHeaders },
+      });
+    }
+
+    // Attempt atomic claim: pending → processing
+    const { data: claimed } = await supabase
       .from("csv_imports")
       .update({ status: "processing" })
       .eq("id", importId)
       .eq("status", "pending")
-      .select("id, file_name, status, storage_paths, admin_email, import_type")
+      .select(IMPORT_SELECT_FIELDS)
       .single();
 
-    if (claimError || !claimed) {
-      console.error("Could not claim import (already processing or not found):", importId);
-      return new Response(
-        JSON.stringify({ error: "Import already processing or not found" }),
-        {
-          status: 409,
-          headers: { "Content-Type": "application/json", ...corsHeaders },
-        }
-      );
+    if (claimed) {
+      imp = claimed as unknown as ImportRecord;
+    } else {
+      // Resume case: import already in processing status
+      const { data: existing } = await supabase
+        .from("csv_imports")
+        .select(IMPORT_SELECT_FIELDS)
+        .eq("id", importId)
+        .eq("status", "processing")
+        .single();
+
+      if (!existing) {
+        return new Response(
+          JSON.stringify({ error: "Import not found or already completed" }),
+          {
+            status: 409,
+            headers: { "Content-Type": "application/json", ...corsHeaders },
+          }
+        );
+      }
+
+      imp = existing as unknown as ImportRecord;
     }
+  }
 
-    const imp = claimed as unknown as ImportRecord;
+  // ─── PROCESS BATCH ─────────────────────────────────────────────
+  return await processBatch(
+    supabase,
+    imp,
+    importId,
+    supabaseUrl,
+    supabaseServiceKey,
+    corsHeaders
+  );
+});
 
-    // ─── 1c. Download & Parse CSV Files ─────────────────────────
+// ─── BATCH PROCESSING ───────────────────────────────────────────────
+async function processBatch(
+  supabase: ReturnType<typeof createClient>,
+  imp: ImportRecord,
+  importId: string,
+  supabaseUrl: string,
+  supabaseServiceKey: string,
+  corsHeaders: Record<string, string>
+): Promise<Response> {
+  const currentOffset = imp.records_processed || 0;
+
+  // Initialize counters from DB state
+  const counters: Counters = {
+    records_processed: currentOffset,
+    records_new: imp.records_new || 0,
+    records_updated: imp.records_updated || 0,
+    records_activated: imp.records_activated || 0,
+    skipped: 0,
+    duplicates: 0,
+    errors: Array.isArray(imp.errors) ? [...(imp.errors as unknown as Counters["errors"])] : [],
+  };
+
+  try {
+    // ─── Download & Parse CSVs ───────────────────────────────
     const storagePaths = imp.storage_paths || {};
     let usersRows: Record<string, string>[] = [];
     let teamsRows: Record<string, string>[] = [];
@@ -264,18 +325,14 @@ Deno.serve(async (req: Request): Promise<Response> => {
       const { data: fileData, error: dlError } = await supabase.storage
         .from("csv-imports")
         .download(storagePaths.users_csv);
-
       if (dlError || !fileData) {
         throw new Error(`Failed to download users CSV: ${dlError?.message}`);
       }
-
       const csvText = await fileData.text();
       usersRows = parse(csvText, {
         skipFirstRow: true,
         columns: undefined,
       }) as unknown as Record<string, string>[];
-
-      // FIX F16: Validate required headers with exact match
       if (usersRows.length > 0) {
         validateHeaders(Object.keys(usersRows[0]), REQUIRED_USERS_HEADERS, "Users");
       }
@@ -285,56 +342,83 @@ Deno.serve(async (req: Request): Promise<Response> => {
       const { data: fileData, error: dlError } = await supabase.storage
         .from("csv-imports")
         .download(storagePaths.teams_csv);
-
       if (dlError || !fileData) {
         throw new Error(`Failed to download teams CSV: ${dlError?.message}`);
       }
-
       const csvText = await fileData.text();
       teamsRows = parse(csvText, {
         skipFirstRow: true,
         columns: undefined,
       }) as unknown as Record<string, string>[];
-
-      // FIX F16: Validate teams CSV headers too
       if (teamsRows.length > 0) {
         validateHeaders(Object.keys(teamsRows[0]), REQUIRED_TEAMS_HEADERS, "Teams");
       }
     }
 
+    // ─── Dedup users by email (Map preserves insertion order) ─
+    const emailToRow = new Map<string, Record<string, string>>();
+    let dupCount = 0;
+    for (const row of usersRows) {
+      const email = normalizeEmail(row["Email"] || row["email"] || "");
+      if (!email) continue;
+      if (!isValidEmail(email)) {
+        counters.errors.push({ email, error: `Invalid email format: ${email}` });
+        continue;
+      }
+      if (emailToRow.has(email)) dupCount++;
+      emailToRow.set(email, row);
+    }
+    const emailList = Array.from(emailToRow.keys());
+    const userRowCount = emailList.length;
+
+    if (dupCount > 0 && currentOffset === 0) {
+      counters.errors.push({
+        error: `${dupCount} duplicate email(s) found in CSV — last row used for each`,
+      });
+      counters.duplicates = dupCount;
+    }
+
+    // ─── Dedup teams by tg_team_id ───────────────────────────
+    const teamMap = new Map<string, { tgTeamId: string; row: Record<string, string> }>();
+    for (const row of teamsRows) {
+      const tgTeamId = trimField(row["Team ID"] || row["team_id"]);
+      if (!tgTeamId) continue;
+      teamMap.set(tgTeamId, { tgTeamId, row });
+    }
+    const teamList = Array.from(teamMap.values());
+    const teamRowCount = teamList.length;
+
+    // ─── Correct total_records on first invocation ───────────
+    if (currentOffset === 0) {
+      await supabase
+        .from("csv_imports")
+        .update({ total_records: userRowCount + teamRowCount })
+        .eq("id", importId);
+    }
+
     console.log(
-      `Parsed ${usersRows.length} user rows, ${teamsRows.length} team rows`
+      `Batch: offset=${currentOffset}, userRows=${userRowCount}, teamRows=${teamRowCount}`
     );
 
-    // ─── 1d. Process Users CSV ──────────────────────────────────
-    if (usersRows.length > 0) {
-      await processUsers(supabase, usersRows, importId, counters);
+    // ─── Route to correct phase ──────────────────────────────
+    if (currentOffset < userRowCount) {
+      await processUserBatch(
+        supabase, emailList, emailToRow, currentOffset, BATCH_SIZE, counters
+      );
+    } else if (currentOffset < userRowCount + teamRowCount) {
+      const teamOffset = currentOffset - userRowCount;
+      await processTeamBatch(
+        supabase, teamList, teamOffset, BATCH_SIZE, userRowCount, counters
+      );
+    } else {
+      // All rows examined → finalize
+      return await finalize(supabase, importId, counters, corsHeaders);
     }
 
-    // ─── 1e. Process Teams CSV ──────────────────────────────────
-    if (teamsRows.length > 0) {
-      await processTeams(supabase, teamsRows, importId, counters);
-    }
-
-    // ─── 1f. Send Notification Email ────────────────────────────
-    if (imp.admin_email && BREVO_API_KEY) {
-      await sendNotificationEmail(imp.admin_email, counters);
-    }
-
-    // ─── 1g. Cleanup ────────────────────────────────────────────
-    const pathsToDelete: string[] = [];
-    if (storagePaths.users_csv) pathsToDelete.push(storagePaths.users_csv);
-    if (storagePaths.teams_csv) pathsToDelete.push(storagePaths.teams_csv);
-
-    if (pathsToDelete.length > 0) {
-      await supabase.storage.from("csv-imports").remove(pathsToDelete);
-    }
-
-    // Update final status
-    await supabase
+    // ─── CAS checkpoint ─────────────────────────────────────
+    const { data: checkpointResult } = await supabase
       .from("csv_imports")
       .update({
-        status: "completed",
         records_processed: counters.records_processed,
         records_new: counters.records_new,
         records_updated: counters.records_updated,
@@ -344,27 +428,43 @@ Deno.serve(async (req: Request): Promise<Response> => {
             ? (counters.errors as unknown as Record<string, unknown>)
             : null,
       })
-      .eq("id", importId);
+      .eq("id", importId)
+      .eq("records_processed", currentOffset) // CAS guard
+      .select("id");
 
-    console.log("Import completed:", {
-      processed: counters.records_processed,
-      new: counters.records_new,
-      updated: counters.records_updated,
-      activated: counters.records_activated,
-      skipped: counters.skipped,
-      duplicates: counters.duplicates,
-      errors: counters.errors.length,
-    });
+    if (!checkpointResult || checkpointResult.length === 0) {
+      console.log("CAS conflict — another invocation handled this batch. Exiting.");
+      return new Response(JSON.stringify({ status: "deduped" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json", ...corsHeaders },
+      });
+    }
 
-    return new Response(JSON.stringify({ success: true, importId }), {
-      status: 200,
-      headers: { "Content-Type": "application/json", ...corsHeaders },
-    });
+    // ─── Self-invoke (fire-and-forget) ───────────────────────
+    const functionUrl = `${supabaseUrl}/functions/v1/process-csv-import`;
+    fetch(functionUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${supabaseServiceKey}`,
+      },
+      body: JSON.stringify({ importId }),
+    }).catch((err) => console.error("Self-invoke failed:", err.message));
+
+    return new Response(
+      JSON.stringify({
+        status: "batch_complete",
+        records_processed: counters.records_processed,
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json", ...corsHeaders },
+      }
+    );
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : "Unknown error";
-    console.error("Import failed:", msg);
+    console.error("Batch processing failed:", msg);
 
-    // Mark as failed but preserve files for retry
     await supabase
       .from("csv_imports")
       .update({
@@ -385,133 +485,59 @@ Deno.serve(async (req: Request): Promise<Response> => {
       headers: { "Content-Type": "application/json", ...corsHeaders },
     });
   }
-});
+}
 
-// ─── PROCESS USERS ──────────────────────────────────────────────────
-async function processUsers(
+// ─── PROCESS USER BATCH ─────────────────────────────────────────────
+async function processUserBatch(
   supabase: ReturnType<typeof createClient>,
-  rows: Record<string, string>[],
-  importId: string,
+  emailList: string[],
+  emailToRow: Map<string, Record<string, string>>,
+  offset: number,
+  batchSize: number,
   counters: Counters
-) {
-  // FIX F8: Detect duplicate emails and report them
-  const emailMap = new Map<string, Record<string, string>>();
-  const seenEmails = new Set<string>();
+): Promise<void> {
+  const batchEmails = emailList.slice(offset, offset + batchSize);
 
-  for (const row of rows) {
-    const email = normalizeEmail(row["Email"] || row["email"] || "");
-    if (!email) continue;
-
-    // FIX F11: Validate email format before processing
-    if (!isValidEmail(email)) {
-      counters.errors.push({ error: `Invalid email format (details omitted)` });
-      continue;
-    }
-
-    if (seenEmails.has(email)) {
-      counters.duplicates++;
-      // Last-row-wins but we track the duplicate count
-    }
-    seenEmails.add(email);
-    emailMap.set(email, row);
-  }
-
-  if (counters.duplicates > 0) {
-    counters.errors.push({
-      error: `${counters.duplicates} duplicate email(s) found in CSV — last row used for each`,
-    });
-  }
-
-  const emails = Array.from(emailMap.keys());
-  if (emails.length === 0) return;
-
-  // Batch-fetch existing profiles
+  // Mini-diff: fetch existing profiles for this batch only
   const { data: existingProfiles } = await supabase
     .from("profiles")
     .select(
       "id, email, first_name, last_name, phone, tg_id, city, state, school_name, company_name, parent_name, parent_email, profile_type, verification_status"
     )
-    .in("email", emails);
+    .in("email", batchEmails);
 
   const profileByEmail = new Map<string, ExistingProfile>();
   for (const p of (existingProfiles || []) as unknown as ExistingProfile[]) {
     profileByEmail.set(normalizeEmail(p.email), p);
   }
 
-  // FIX F7: Fetch existing roles for existing profiles to enable proper skip detection
-  const existingProfileIds = Array.from(profileByEmail.values()).map(
-    (p) => p.id
-  );
+  // Fetch existing roles for found profiles
+  const profileIds = Array.from(profileByEmail.values()).map((p) => p.id);
   const roleByUserId = new Map<string, string>();
-  if (existingProfileIds.length > 0) {
+  if (profileIds.length > 0) {
     const { data: existingRoles } = await supabase
       .from("user_roles")
       .select("user_id, role")
-      .in("user_id", existingProfileIds);
+      .in("user_id", profileIds);
     for (const r of existingRoles || []) {
       roleByUserId.set(r.user_id, r.role);
     }
   }
 
-  // Categorize
-  const toCreate: Array<{ email: string; row: Record<string, string> }> = [];
-  const toUpdate: Array<{
-    profile: ExistingProfile;
-    row: Record<string, string>;
-  }> = [];
-  const toActivate: Array<{
-    profile: ExistingProfile;
-    row: Record<string, string>;
-  }> = [];
-
-  for (const [email, row] of emailMap) {
-    const existing = profileByEmail.get(email);
-    if (!existing) {
-      toCreate.push({ email, row });
-      continue;
-    }
-
+  // Process each email in batch
+  for (const email of batchEmails) {
+    const row = emailToRow.get(email)!;
     const csvData = extractProfileFields(row);
-    const mappedRole = mapRole(
-      row["Profile type"] || row["profile_type"] || ""
-    );
+    const mappedRole = mapRole(row["Profile type"] || row["profile_type"] || "");
+    const existing = profileByEmail.get(email);
 
-    if (existing.verification_status === "pending") {
-      toActivate.push({ profile: existing, row });
-    } else if (
-      hasChanges(existing, csvData, mappedRole, roleByUserId.get(existing.id))
-    ) {
-      toUpdate.push({ profile: existing, row });
-    } else {
-      counters.skipped++;
-    }
-  }
+    counters.records_processed++;
 
-  console.log(
-    `Users: ${toCreate.length} new, ${toUpdate.length} update, ${toActivate.length} activate, ${counters.skipped} skip`
-  );
-
-  // ─── Step 2: Create new users (throttled) ─────────────────────
-  // FIX F1: Removed pre-fetched listUsers(). Instead, handle "user already exists"
-  // error from createUser gracefully to avoid the 1000-user pagination cap.
-  let batchDelay = DEFAULT_DELAY_MS;
-
-  for (let i = 0; i < toCreate.length; i += BATCH_SIZE) {
-    const batch = toCreate.slice(i, i + BATCH_SIZE);
-    const batchStart = Date.now();
-
-    for (const { email, row } of batch) {
-      const mappedRole = mapRole(
-        row["Profile type"] || row["profile_type"] || ""
-      );
-
-      // FIX F6: Always increment records_processed, even on error
-      counters.records_processed++;
-
-      try {
+    try {
+      if (!existing) {
+        // ─── CREATE new user ─────────────────────────────────
         let userId: string | undefined;
 
-        // Create auth user — email_confirm: true means no email sent
         const { data: newUser, error: createError } =
           await supabase.auth.admin.createUser({
             email,
@@ -520,25 +546,22 @@ async function processUsers(
           });
 
         if (createError) {
-          // FIX F1: Handle "user already exists" by looking up existing user
           if (
             createError.message?.includes("already been registered") ||
             createError.message?.includes("already exists")
           ) {
-            // User exists in auth but wasn't in profiles — look up their ID
-            const { data: authList } = await supabase.auth.admin.listUsers({
-              perPage: 1,
-              page: 1,
-            });
-            // Search by email in a targeted way
-            const existingAuth = authList?.users?.find(
-              (u) => u.email && normalizeEmail(u.email) === email
-            );
-            if (existingAuth) {
-              userId = existingAuth.id;
+            // FIX F1: Profile lookup instead of broken listUsers
+            const { data: existingProfile } = await supabase
+              .from("profiles")
+              .select("id")
+              .eq("email", email)
+              .maybeSingle();
+
+            if (existingProfile) {
+              userId = existingProfile.id;
             } else {
               counters.errors.push({
-                error: `Auth user exists but could not resolve ID (details omitted)`,
+                error: `Auth user exists without profile: ${email}`,
               });
               continue;
             }
@@ -563,13 +586,13 @@ async function processUsers(
             }
             if (!retried) {
               counters.errors.push({
-                error: `Rate limit creating user (details omitted)`,
+                error: `Rate limit creating user: ${email}`,
               });
               continue;
             }
           } else {
             counters.errors.push({
-              error: `Create user failed (details omitted)`,
+              error: `Create user failed for ${email}: ${createError.message}`,
             });
             continue;
           }
@@ -585,7 +608,6 @@ async function processUsers(
             .select("id")
             .eq("id", userId)
             .maybeSingle();
-
           if (check) {
             profileReady = true;
             break;
@@ -595,23 +617,37 @@ async function processUsers(
 
         if (!profileReady) {
           counters.errors.push({
-            error: `Profile not created by trigger (details omitted)`,
+            error: `Profile not created by trigger for: ${email}`,
           });
           continue;
         }
 
         // Update profile with CSV data + set verified
-        const profileData = extractProfileFields(row);
-        await supabase
+        const { error: profileUpdateError } = await supabase
           .from("profiles")
-          .update({
-            ...profileData,
-            verification_status: "verified",
-          })
+          .update({ ...csvData, verification_status: "verified" })
           .eq("id", userId);
 
-        // FIX F14: Removed dead _noop RPC call
-        // Upsert role
+        if (profileUpdateError) {
+          console.error(`Profile update failed for ${email}, falling back to verified-only:`, profileUpdateError.message);
+          // Fallback: at least set verified so onboarding collects missing fields
+          const { error: fallbackError } = await supabase
+            .from("profiles")
+            .update({ verification_status: "verified" })
+            .eq("id", userId);
+          if (fallbackError) {
+            counters.errors.push({
+              email,
+              error: `Profile update completely failed for ${email}: ${profileUpdateError.message}`,
+            });
+          } else {
+            counters.errors.push({
+              email,
+              error: `Profile data skipped for ${email} (constraint: ${profileUpdateError.message}), user verified — onboarding will collect missing fields`,
+            });
+          }
+        }
+
         if (mappedRole) {
           const { error: roleError } = await supabase
             .from("user_roles")
@@ -619,152 +655,115 @@ async function processUsers(
               { user_id: userId, role: mappedRole },
               { onConflict: "user_id" }
             );
-
           if (roleError) {
             counters.errors.push({
-              error: `Role upsert failed for new user (details omitted)`,
+              error: `Role upsert failed for new user ${email}: ${roleError.message}`,
             });
           }
         }
 
         counters.records_new++;
-      } catch (err: unknown) {
-        const errMsg = err instanceof Error ? err.message : "Unknown";
-        counters.errors.push({ error: `User creation error: ${errMsg}` });
-      }
-    }
+      } else if (existing.verification_status === "pending") {
+        // ─── ACTIVATE pending user ───────────────────────────
+        const { error: activateError } = await supabase
+          .from("profiles")
+          .update({ ...stripNulls(csvData), verification_status: "verified" })
+          .eq("id", existing.id);
 
-    // Checkpoint after each batch
-    await supabase
-      .from("csv_imports")
-      .update({ records_processed: counters.records_processed })
-      .eq("id", importId);
-
-    // Adaptive delay
-    const batchDuration = Date.now() - batchStart;
-    const avgPerRecord = batchDuration / batch.length;
-    batchDelay =
-      avgPerRecord > SLOW_THRESHOLD_MS ? SLOW_DELAY_MS : DEFAULT_DELAY_MS;
-
-    if (i + BATCH_SIZE < toCreate.length) {
-      await sleep(batchDelay);
-    }
-  }
-
-  // ─── Step 3: Update existing users ────────────────────────────
-  for (const { profile, row } of toUpdate) {
-    // FIX F6: Always increment records_processed
-    counters.records_processed++;
-
-    try {
-      const csvData = extractProfileFields(row);
-      const mappedRole = mapRole(
-        row["Profile type"] || row["profile_type"] || ""
-      );
-
-      // Update only CSV-sourced fields
-      await supabase.from("profiles").update(csvData).eq("id", profile.id);
-
-      // FIX F4: Handle role upsert errors in update path
-      if (mappedRole) {
-        const { error: roleError } = await supabase
-          .from("user_roles")
-          .upsert(
-            { user_id: profile.id, role: mappedRole },
-            { onConflict: "user_id" }
-          );
-
-        if (roleError) {
-          counters.errors.push({
-            error: `Role upsert failed for updated user (details omitted)`,
-          });
+        if (activateError) {
+          console.error(`Profile activate failed for ${email}, falling back to verified-only:`, activateError.message);
+          const { error: fallbackError } = await supabase
+            .from("profiles")
+            .update({ verification_status: "verified" })
+            .eq("id", existing.id);
+          if (fallbackError) {
+            counters.errors.push({
+              email,
+              error: `Profile activate completely failed for ${email}: ${activateError.message}`,
+            });
+            continue;
+          } else {
+            counters.errors.push({
+              email,
+              error: `Profile data skipped for ${email} (constraint: ${activateError.message}), user verified — onboarding will collect missing fields`,
+            });
+          }
         }
-      }
 
-      counters.records_updated++;
+        if (mappedRole) {
+          const { error: roleError } = await supabase
+            .from("user_roles")
+            .upsert(
+              { user_id: existing.id, role: mappedRole },
+              { onConflict: "user_id" }
+            );
+          if (roleError) {
+            counters.errors.push({
+              error: `Role upsert failed for activated user ${email}: ${roleError.message}`,
+            });
+          }
+        }
+
+        counters.records_activated++;
+      } else if (
+        hasChanges(existing, csvData, mappedRole, roleByUserId.get(existing.id))
+      ) {
+        // ─── UPDATE existing user (only non-null CSV fields, preserves local data) ─
+        const fieldsToUpdate = stripNulls(csvData);
+        const { error: updateError } = await supabase.from("profiles").update(fieldsToUpdate).eq("id", existing.id);
+
+        if (updateError) {
+          console.error(`Profile update failed for ${email}:`, updateError.message);
+          counters.errors.push({
+            email,
+            error: `Profile data skipped for ${email} (constraint: ${updateError.message}) — existing data preserved`,
+          });
+          // User is already verified, skip but don't abort
+        }
+
+        if (mappedRole) {
+          const { error: roleError } = await supabase
+            .from("user_roles")
+            .upsert(
+              { user_id: existing.id, role: mappedRole },
+              { onConflict: "user_id" }
+            );
+          if (roleError) {
+            counters.errors.push({
+              error: `Role upsert failed for updated user ${email}: ${roleError.message}`,
+            });
+          }
+        }
+
+        counters.records_updated++;
+      } else {
+        // ─── SKIP — no changes needed ────────────────────────
+        counters.skipped++;
+      }
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : "Unknown";
-      counters.errors.push({ error: `Update error: ${errMsg}` });
+      counters.errors.push({ error: `User processing error: ${errMsg}` });
     }
   }
-
-  // ─── Step 4: Activate pending users ───────────────────────────
-  for (const { profile, row } of toActivate) {
-    // FIX F6: Always increment records_processed
-    counters.records_processed++;
-
-    try {
-      const csvData = extractProfileFields(row);
-      const mappedRole = mapRole(
-        row["Profile type"] || row["profile_type"] || ""
-      );
-
-      await supabase
-        .from("profiles")
-        .update({
-          ...csvData,
-          verification_status: "verified",
-        })
-        .eq("id", profile.id);
-
-      // FIX F4: Handle role upsert errors in activate path
-      if (mappedRole) {
-        const { error: roleError } = await supabase
-          .from("user_roles")
-          .upsert(
-            { user_id: profile.id, role: mappedRole },
-            { onConflict: "user_id" }
-          );
-
-        if (roleError) {
-          counters.errors.push({
-            error: `Role upsert failed for activated user (details omitted)`,
-          });
-        }
-      }
-
-      counters.records_activated++;
-    } catch (err: unknown) {
-      const errMsg = err instanceof Error ? err.message : "Unknown";
-      counters.errors.push({ error: `Activate error: ${errMsg}` });
-    }
-  }
-
-  // Final checkpoint
-  await supabase
-    .from("csv_imports")
-    .update({
-      records_processed: counters.records_processed,
-      records_new: counters.records_new,
-      records_updated: counters.records_updated,
-      records_activated: counters.records_activated,
-    })
-    .eq("id", importId);
 }
 
-// ─── PROCESS TEAMS ──────────────────────────────────────────────────
-async function processTeams(
+// ─── PROCESS TEAM BATCH ─────────────────────────────────────────────
+async function processTeamBatch(
   supabase: ReturnType<typeof createClient>,
-  rows: Record<string, string>[],
-  importId: string,
+  teamList: Array<{ tgTeamId: string; row: Record<string, string> }>,
+  teamOffset: number,
+  batchSize: number,
+  userRowCount: number,
   counters: Counters
-) {
-  // Step 1: Diff teams
-  const teamIdMap = new Map<string, Record<string, string>>();
-  for (const row of rows) {
-    const tgTeamId = trimField(row["Team ID"] || row["team_id"]);
-    if (!tgTeamId) continue;
-    teamIdMap.set(tgTeamId, row);
-  }
+): Promise<void> {
+  const batchTeams = teamList.slice(teamOffset, teamOffset + batchSize);
+  const batchTeamIds = batchTeams.map((t) => t.tgTeamId);
 
-  const tgTeamIds = Array.from(teamIdMap.keys());
-  if (tgTeamIds.length === 0) return;
-
-  // Fetch existing teams
+  // Diff: fetch existing teams for this batch
   const { data: existingTeams } = await supabase
     .from("teams")
     .select("id, tg_team_id, name, category, city, state")
-    .in("tg_team_id", tgTeamIds);
+    .in("tg_team_id", batchTeamIds);
 
   const teamByTgId = new Map<
     string,
@@ -781,10 +780,10 @@ async function processTeams(
     if (t.tg_team_id) teamByTgId.set(t.tg_team_id, t);
   }
 
-  // Step 2: Create/update teams — capture tg_team_id → internal id map
+  // Create/update teams + collect internal IDs
   const tgToInternalId = new Map<string, string>();
 
-  for (const [tgTeamId, row] of teamIdMap) {
+  for (const { tgTeamId, row } of batchTeams) {
     const teamName = trimField(row["Name"] || row["name"]);
     const category = trimField(row["Division"] || row["division"]);
     const city = trimField(row["City"] || row["city"]);
@@ -812,7 +811,6 @@ async function processTeams(
         });
         continue;
       }
-
       tgToInternalId.set(tgTeamId, newTeam.id);
     } else {
       const changes: Record<string, string | null> = {};
@@ -825,25 +823,38 @@ async function processTeams(
       if (Object.keys(changes).length > 0) {
         await supabase.from("teams").update(changes).eq("id", existing.id);
       }
-
       tgToInternalId.set(tgTeamId, existing.id);
     }
   }
 
-  // Step 3: Link team members
-  // FIX F5: Add explicit limit to avoid Supabase default 1000-row cap
-  const { data: allProfiles } = await supabase
-    .from("profiles")
-    .select("id, email, verification_status")
-    .eq("verification_status", "verified")
-    .limit(10000);
-
-  const profileByEmail = new Map<string, { id: string; email: string }>();
-  for (const p of allProfiles || []) {
-    if (p.email) profileByEmail.set(normalizeEmail(p.email), p);
+  // Link team members — collect all member emails from batch
+  const allMemberEmails = new Set<string>();
+  for (const { row } of batchTeams) {
+    const studentEmails = parseEmailList(
+      row["Student emails"] || row["student_emails"] || ""
+    );
+    const mentorEmails = parseEmailList(
+      row["Mentor emails"] || row["mentor_emails"] || ""
+    );
+    for (const e of [...studentEmails, ...mentorEmails]) {
+      allMemberEmails.add(e);
+    }
   }
 
-  for (const [tgTeamId, row] of teamIdMap) {
+  // Fetch verified profiles for member emails in this batch
+  const profileByEmail = new Map<string, { id: string; email: string }>();
+  if (allMemberEmails.size > 0) {
+    const { data: profiles } = await supabase
+      .from("profiles")
+      .select("id, email")
+      .eq("verification_status", "verified")
+      .in("email", Array.from(allMemberEmails));
+    for (const p of profiles || []) {
+      if (p.email) profileByEmail.set(normalizeEmail(p.email), p);
+    }
+  }
+
+  for (const { tgTeamId, row } of batchTeams) {
     const teamId = tgToInternalId.get(tgTeamId);
     if (!teamId) continue;
 
@@ -856,20 +867,19 @@ async function processTeams(
 
     const { data: existingMembers } = await supabase
       .from("team_members")
-      .select("user_id, member_type")
+      .select("user_id")
       .eq("team_id", teamId);
-
     const existingMemberIds = new Set(
       (existingMembers || []).map((m) => m.user_id)
     );
 
-    // Link students
     for (const email of studentEmails) {
       const profile = profileByEmail.get(email);
       if (!profile) {
         counters.errors.push({
+          email,
           tg_team_id: tgTeamId,
-          error: `Unlinked email (student, details omitted)`,
+          error: `Student email not found or not verified: ${email}`,
         });
         continue;
       }
@@ -880,22 +890,22 @@ async function processTeams(
         user_id: profile.id,
         member_type: "participant",
       });
-
       if (linkErr && !linkErr.message?.includes("duplicate")) {
         counters.errors.push({
+          email,
           tg_team_id: tgTeamId,
-          error: `Link student failed (details omitted)`,
+          error: `Link student failed for ${email}: ${linkErr.message}`,
         });
       }
     }
 
-    // Link mentors
     for (const email of mentorEmails) {
       const profile = profileByEmail.get(email);
       if (!profile) {
         counters.errors.push({
+          email,
           tg_team_id: tgTeamId,
-          error: `Unlinked email (mentor, details omitted)`,
+          error: `Mentor email not found or not verified: ${email}`,
         });
         continue;
       }
@@ -906,39 +916,134 @@ async function processTeams(
         user_id: profile.id,
         member_type: "mentor",
       });
-
       if (linkErr && !linkErr.message?.includes("duplicate")) {
         counters.errors.push({
+          email,
           tg_team_id: tgTeamId,
-          error: `Link mentor failed (details omitted)`,
+          error: `Link mentor failed for ${email}: ${linkErr.message}`,
         });
       }
     }
   }
 
-  // Checkpoint
-  await supabase
+  // Set final records_processed for this batch
+  counters.records_processed = userRowCount + teamOffset + batchTeams.length;
+}
+
+// ─── FINALIZE ───────────────────────────────────────────────────────
+async function finalize(
+  supabase: ReturnType<typeof createClient>,
+  importId: string,
+  counters: Counters,
+  corsHeaders: Record<string, string>
+): Promise<Response> {
+  // Atomic finalization — only one invocation succeeds
+  const { data: finalized } = await supabase
     .from("csv_imports")
-    .update({ records_processed: counters.records_processed })
-    .eq("id", importId);
+    .update({
+      status: "completed",
+      records_processed: counters.records_processed,
+      records_new: counters.records_new,
+      records_updated: counters.records_updated,
+      records_activated: counters.records_activated,
+      errors:
+        counters.errors.length > 0
+          ? (counters.errors as unknown as Record<string, unknown>)
+          : null,
+    })
+    .eq("id", importId)
+    .eq("status", "processing") // atomic guard
+    .select("id, admin_email, storage_paths");
+
+  if (!finalized || finalized.length === 0) {
+    console.log("Another invocation already finalized. Exiting.");
+    return new Response(JSON.stringify({ status: "already_finalized" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json", ...corsHeaders },
+    });
+  }
+
+  const adminEmail = (finalized[0] as unknown as { admin_email: string | null })
+    .admin_email;
+  const storagePaths = (
+    finalized[0] as unknown as {
+      storage_paths: { users_csv?: string; teams_csv?: string } | null;
+    }
+  ).storage_paths;
+
+  // Best-effort: send notification email
+  if (adminEmail && BREVO_API_KEY) {
+    try {
+      const emailCounters: Counters = {
+        ...counters,
+        skipped:
+          counters.records_processed -
+          counters.records_new -
+          counters.records_updated -
+          counters.records_activated,
+      };
+      await sendNotificationEmail(adminEmail, emailCounters);
+    } catch (err) {
+      console.error(
+        "Notification email failed:",
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
+
+  // Best-effort: delete CSV files from Storage
+  const pathsToDelete: string[] = [];
+  if (storagePaths?.users_csv) pathsToDelete.push(storagePaths.users_csv);
+  if (storagePaths?.teams_csv) pathsToDelete.push(storagePaths.teams_csv);
+  if (pathsToDelete.length > 0) {
+    try {
+      await supabase.storage.from("csv-imports").remove(pathsToDelete);
+    } catch (err) {
+      console.error(
+        "Storage cleanup failed:",
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
+
+  console.log("Import completed:", {
+    processed: counters.records_processed,
+    new: counters.records_new,
+    updated: counters.records_updated,
+    activated: counters.records_activated,
+    errors: counters.errors.length,
+  });
+
+  return new Response(
+    JSON.stringify({
+      status: "completed",
+      records_processed: counters.records_processed,
+    }),
+    {
+      status: 200,
+      headers: { "Content-Type": "application/json", ...corsHeaders },
+    }
+  );
 }
 
 // ─── EXTRACT PROFILE FIELDS ─────────────────────────────────────────
 function extractProfileFields(
   row: Record<string, string>
 ): Record<string, string | null> {
+  const parentEmail = trimField(row["Parent guardian email"] || row["parent_email"]) || null;
+  const phone = trimField(row["Phone number"] || row["phone"]) || null;
+
   return {
     first_name: trimField(row["First name"] || row["first_name"]) || null,
     last_name: trimField(row["Last name"] || row["last_name"]) || null,
-    phone: trimField(row["Phone number"] || row["phone"]) || null,
+    phone: phone && /^[+0-9\s\-()]+$/.test(phone) && phone.length <= 20 ? phone : null,
     tg_id:
       trimField(
         row["Participant ID"] || row["Mentor ID"] || row["tg_id"]
       ) || null,
     parent_name:
       trimField(row["Parent guardian name"] || row["parent_name"]) || null,
-    parent_email:
-      trimField(row["Parent guardian email"] || row["parent_email"]) || null,
+    parent_email: parentEmail && isValidEmail(parentEmail) ? parentEmail : null,
     school_name: trimField(row["School name"] || row["school_name"]) || null,
     company_name:
       trimField(row["Company name"] || row["company_name"]) || null,
@@ -950,14 +1055,12 @@ function extractProfileFields(
 }
 
 // ─── HAS CHANGES ────────────────────────────────────────────────────
-// FIX F7: Compare actual current role instead of always returning true
 function hasChanges(
   existing: ExistingProfile,
   csvData: Record<string, string | null>,
   mappedRole: string | null,
   currentRole: string | undefined
 ): boolean {
-  // Check profile field changes
   for (const [key, val] of Object.entries(csvData)) {
     if (val === null) continue;
     const existingVal = (existing as unknown as Record<string, string | null>)[
@@ -965,7 +1068,6 @@ function hasChanges(
     ];
     if ((existingVal || "") !== val) return true;
   }
-  // Check role change
   if (mappedRole && mappedRole !== currentRole) return true;
   return false;
 }
@@ -995,7 +1097,6 @@ async function sendNotificationEmail(
         ? "Importación completada — No se detectaron cambios"
         : `Importación completada — ${counters.records_new} nuevos, ${counters.records_updated} actualizados`;
 
-    // FIX F3: Escape HTML entities in error messages to prevent XSS
     const body = `
       <h2>Resultados de la importación</h2>
       <ul>

@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import Papa from "papaparse";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -11,8 +11,9 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
-import { Upload, FileText, ArrowLeft, Loader2, CheckCircle2 } from "lucide-react";
+import { Upload, FileText, ArrowLeft, Loader2, CheckCircle2, XCircle, Mail } from "lucide-react";
 
 // ─── Types ──────────────────────────────────────────────────────────
 interface CsvPreview {
@@ -37,6 +38,29 @@ export default function AdminImportBatch() {
   const [usersPreview, setUsersPreview] = useState<CsvPreview | null>(null);
   const [teamsPreview, setTeamsPreview] = useState<CsvPreview | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [checkingImport, setCheckingImport] = useState(true);
+  const [activeImportId, setActiveImportId] = useState<string | null>(null);
+
+  // ─── Check for active import on mount ─────────────────────
+  useEffect(() => {
+    const checkActiveImport = async () => {
+      try {
+        const { data } = await supabase
+          .from("csv_imports")
+          .select("id")
+          .in("status", ["pending", "processing"])
+          .limit(1);
+
+        if (data && data.length > 0) {
+          setActiveImportId(data[0].id);
+          setStep("done");
+        }
+      } finally {
+        setCheckingImport(false);
+      }
+    };
+    checkActiveImport();
+  }, []);
 
   // ─── File Validation ────────────────────────────────────────────
   const validateFile = (file: File): string | null => {
@@ -106,9 +130,10 @@ export default function AdminImportBatch() {
   const startImport = async () => {
     if (isSubmitting) return;
     setIsSubmitting(true);
+    let createdImportId: string | null = null;
 
     try {
-      // Check for existing pending/processing imports
+      // Safety check: no active imports
       const { data: activeImports } = await supabase
         .from("csv_imports")
         .select("id, status")
@@ -130,6 +155,8 @@ export default function AdminImportBatch() {
         .filter(Boolean)
         .join("+");
 
+      const totalRecords = (usersPreview?.totalRows ?? 0) + (teamsPreview?.totalRows ?? 0);
+
       const { data: importRecord, error: insertErr } = await supabase
         .from("csv_imports")
         .insert({
@@ -140,6 +167,7 @@ export default function AdminImportBatch() {
           status: "pending",
           import_type: importType,
           admin_email: user?.email,
+          total_records: totalRecords,
         } as Record<string, unknown>)
         .select("id")
         .single();
@@ -151,12 +179,16 @@ export default function AdminImportBatch() {
       }
 
       const importId = importRecord.id;
+      createdImportId = importId;
 
       // Upload files to storage
+      const sanitizeFileName = (name: string) =>
+        name.replace(/[^a-zA-Z0-9._-]/g, '_');
+
       const storagePaths: { users_csv?: string; teams_csv?: string } = {};
 
       if (usersFile) {
-        const path = `imports/${importId}/${usersFile.name}`;
+        const path = `imports/${importId}/${sanitizeFileName(usersFile.name)}`;
         const { error: upErr } = await supabase.storage
           .from("csv-imports")
           .upload(path, usersFile);
@@ -165,7 +197,7 @@ export default function AdminImportBatch() {
       }
 
       if (teamsFile) {
-        const path = `imports/${importId}/${teamsFile.name}`;
+        const path = `imports/${importId}/${sanitizeFileName(teamsFile.name)}`;
         const { error: upErr } = await supabase.storage
           .from("csv-imports")
           .upload(path, teamsFile);
@@ -179,7 +211,12 @@ export default function AdminImportBatch() {
         .update({ storage_paths: storagePaths } as Record<string, unknown>)
         .eq("id", importId);
 
-      // Invoke Edge Function — check for invocation-level failures
+      // Show confirmation screen immediately — don't wait for processing
+      setActiveImportId(importId);
+      setStep("done");
+      toast.success("Importación iniciada correctamente");
+
+      // Invoke Edge Function (returns 202 immediately, processes in background)
       const { error: invokeError } = await supabase.functions.invoke(
         "process-csv-import",
         { body: { importId } }
@@ -191,14 +228,20 @@ export default function AdminImportBatch() {
           .from("csv_imports")
           .update({ status: "failed", errors: [{ error: invokeError.message }] } as Record<string, unknown>)
           .eq("id", importId);
-        throw new Error(`Error al invocar la función: ${invokeError.message}`);
+        console.error("Edge function invocation failed:", invokeError.message);
+        toast.error("Error al iniciar el procesamiento. Revisa el estado de la importación.");
       }
-
-      setStep("done");
-      toast.success("Importación iniciada correctamente");
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Error desconocido";
       toast.error(msg);
+      // Clean up orphaned csv_imports record if it was created
+      if (createdImportId) {
+        await supabase
+          .from("csv_imports")
+          .update({ status: "failed" } as Record<string, unknown>)
+          .eq("id", createdImportId)
+          .eq("status", "pending");
+      }
       setIsSubmitting(false);
     }
   };
@@ -214,6 +257,16 @@ export default function AdminImportBatch() {
   };
 
   // ─── Render ─────────────────────────────────────────────────────
+  if (checkingImport) {
+    return (
+      <AdminLayout title="Importar Usuarios y Equipos">
+        <div className="max-w-4xl mx-auto flex justify-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      </AdminLayout>
+    );
+  }
+
   return (
     <AdminLayout title="Importar Usuarios y Equipos">
       <div className="max-w-4xl mx-auto space-y-6">
@@ -236,9 +289,9 @@ export default function AdminImportBatch() {
           />
         )}
 
-        {step === "done" && (
-          <DoneStep
-            adminEmail={user?.email || ""}
+        {step === "done" && activeImportId && (
+          <ImportProgressStep
+            importId={activeImportId}
             onReset={reset}
           />
         )}
@@ -397,7 +450,7 @@ function PreviewStep({
           {isSubmitting ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Iniciando...
+              Subiendo archivos...
             </>
           ) : (
             "Iniciar Importación"
@@ -485,27 +538,177 @@ function PreviewCard({
   );
 }
 
-// ─── Done Step ──────────────────────────────────────────────────────
-function DoneStep({
-  adminEmail,
+// ─── Import Progress Step ────────────────────────────────────────────
+interface ImportStatus {
+  status: string;
+  records_processed: number;
+  total_records: number;
+  records_new: number;
+  records_updated: number;
+  records_activated: number;
+  errors: unknown[] | null;
+  admin_email: string | null;
+}
+
+function ImportProgressStep({
+  importId,
   onReset,
 }: {
-  adminEmail: string;
+  importId: string;
   onReset: () => void;
 }) {
+  const [importStatus, setImportStatus] = useState<ImportStatus | null>(null);
+  const [isStalled, setIsStalled] = useState(false);
+  const [isResuming, setIsResuming] = useState(false);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastRecordsProcessed = useRef<number | null>(null);
+  const lastChangeTime = useRef<number | null>(null);
+
+  useEffect(() => {
+    const poll = async () => {
+      const { data } = await supabase
+        .from("csv_imports")
+        .select("status, records_processed, total_records, records_new, records_updated, records_activated, errors, admin_email")
+        .eq("id", importId)
+        .single();
+
+      if (data) {
+        setImportStatus(data as unknown as ImportStatus);
+
+        // Stall detection: track progress while processing
+        if (data.status === "processing") {
+          if (lastChangeTime.current === null) {
+            // First poll with processing status — start tracking
+            lastRecordsProcessed.current = data.records_processed;
+            lastChangeTime.current = Date.now();
+          } else if (data.records_processed !== lastRecordsProcessed.current) {
+            // Progress detected — reset tracking
+            lastRecordsProcessed.current = data.records_processed;
+            lastChangeTime.current = Date.now();
+            setIsStalled(false);
+          } else if (Date.now() - lastChangeTime.current > 60_000) {
+            // No progress for 60s — stalled
+            setIsStalled(true);
+          }
+        }
+
+        // Stop polling once terminal
+        if (data.status === "completed" || data.status === "failed") {
+          if (intervalRef.current) clearInterval(intervalRef.current);
+        }
+      }
+    };
+
+    poll();
+    intervalRef.current = setInterval(poll, 3000);
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, [importId]);
+
+  const handleResume = async () => {
+    setIsResuming(true);
+    try {
+      await supabase.functions.invoke("process-csv-import", {
+        body: { importId },
+      });
+      toast.success("Reanudando importación...");
+      lastChangeTime.current = Date.now();
+      setIsStalled(false);
+    } catch {
+      toast.error("Error al reanudar. Intenta de nuevo.");
+    } finally {
+      setIsResuming(false);
+    }
+  };
+
+  const isTerminal = importStatus?.status === "completed" || importStatus?.status === "failed";
+  const isFailed = importStatus?.status === "failed";
+  const total = importStatus?.total_records || 0;
+  const processed = importStatus?.records_processed || 0;
+  const pct = total > 0 ? Math.min(Math.round((processed / total) * 100), 100) : 0;
+
   return (
     <Card>
-      <CardContent className="py-12 text-center space-y-4">
-        <CheckCircle2 className="h-12 w-12 mx-auto text-green-500" />
-        <h2 className="text-xl font-semibold">Importación en proceso</h2>
-        <p className="text-muted-foreground max-w-md mx-auto">
-          Tu importación se está procesando. Recibirás un email en{" "}
-          <strong>{adminEmail}</strong> cuando termine. Puedes salir de esta
-          página con seguridad.
-        </p>
-        <Button variant="outline" onClick={onReset} className="mt-4">
-          Nueva Importación
-        </Button>
+      <CardContent className="py-12 space-y-6">
+        <div className="text-center space-y-2">
+          {isFailed ? (
+            <XCircle className="h-12 w-12 mx-auto text-red-500" />
+          ) : isTerminal ? (
+            <CheckCircle2 className="h-12 w-12 mx-auto text-green-500" />
+          ) : (
+            <Loader2 className="h-12 w-12 mx-auto text-primary animate-spin" />
+          )}
+
+          <h2 className="text-xl font-semibold">
+            {isFailed
+              ? "Importación fallida"
+              : isTerminal
+                ? "Importación completada"
+                : "Importación en proceso"}
+          </h2>
+
+          {!isTerminal && importStatus?.admin_email && (
+            <p className="text-sm text-muted-foreground flex items-center justify-center gap-1.5">
+              <Mail className="h-4 w-4" />
+              Iniciada por <strong>{importStatus.admin_email}</strong> — recibirá un email cuando termine.
+            </p>
+          )}
+        </div>
+
+        {/* Progress bar */}
+        <div className="max-w-md mx-auto space-y-2">
+          <Progress value={isTerminal ? 100 : pct} />
+          <div className="flex justify-between text-sm text-muted-foreground">
+            <span>{processed.toLocaleString()} / {total.toLocaleString()} registros</span>
+            <span>{isTerminal ? "100" : pct}%</span>
+          </div>
+        </div>
+
+        {/* Stall detection + resume button */}
+        {isStalled && !isTerminal && (
+          <div className="text-center space-y-2">
+            <p className="text-sm text-amber-600">
+              La importación parece haberse detenido. Puedes reanudarla.
+            </p>
+            <Button variant="outline" onClick={handleResume} disabled={isResuming}>
+              {isResuming ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Reanudar Importación
+            </Button>
+          </div>
+        )}
+
+        {/* Summary (visible once completed or failed) */}
+        {isTerminal && importStatus && (
+          <div className="max-w-md mx-auto space-y-3">
+            <div className="grid grid-cols-3 gap-3 text-center">
+              <div className="rounded-lg bg-green-50 p-3">
+                <p className="text-2xl font-bold text-green-700">{importStatus.records_new}</p>
+                <p className="text-xs text-green-600">Nuevos</p>
+              </div>
+              <div className="rounded-lg bg-blue-50 p-3">
+                <p className="text-2xl font-bold text-blue-700">{importStatus.records_updated}</p>
+                <p className="text-xs text-blue-600">Actualizados</p>
+              </div>
+              <div className="rounded-lg bg-amber-50 p-3">
+                <p className="text-2xl font-bold text-amber-700">{importStatus.records_activated}</p>
+                <p className="text-xs text-amber-600">Activados</p>
+              </div>
+            </div>
+
+            {importStatus.errors && Array.isArray(importStatus.errors) && importStatus.errors.length > 0 && (
+              <p className="text-sm text-red-600 text-center">
+                {importStatus.errors.length} error(es) durante la importación
+              </p>
+            )}
+
+            <div className="text-center">
+              <Button variant="outline" onClick={onReset} className="mt-2">
+                Nueva Importación
+              </Button>
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
