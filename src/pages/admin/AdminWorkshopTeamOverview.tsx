@@ -61,31 +61,41 @@ export default function AdminWorkshopTeamOverview() {
     queryFn: async () => {
       if (!eventId) return [];
 
-      // 1. Get all teams registered for this event (via event_registrations)
+      // 1. Get all registered user_ids for this event (without depending on team_id)
       const { data: registrations, error: regError } = await supabase
         .from('event_registrations')
-        .select('team_id, participant_count')
+        .select('user_id')
         .eq('event_id', eventId)
-        .not('team_id', 'is', null)
-        .neq('registration_status', 'cancelled');
+        .neq('registration_status', 'cancelled')
+        .not('user_id', 'is', null);
 
       if (regError) throw regError;
 
-      // Group by team_id and sum participant_count
-      const teamParticipants = new Map<string, number>();
-      registrations?.forEach(reg => {
-        if (reg.team_id) {
-          teamParticipants.set(
-            reg.team_id,
-            (teamParticipants.get(reg.team_id) || 0) + (reg.participant_count || 1)
-          );
+      const registeredUserIds = [...new Set(registrations?.map(r => r.user_id).filter(Boolean) as string[])];
+      if (registeredUserIds.length === 0) return [];
+
+      // 2. Find which teams these users belong to via team_members
+      const { data: teamMemberships, error: tmError } = await supabase
+        .from('team_members')
+        .select('team_id, user_id')
+        .in('user_id', registeredUserIds)
+        .eq('member_type', 'participant');
+
+      if (tmError) throw tmError;
+
+      // Group by team and count registered participants
+      const teamParticipants = new Map<string, Set<string>>();
+      teamMemberships?.forEach(tm => {
+        if (tm.team_id && tm.user_id) {
+          if (!teamParticipants.has(tm.team_id)) teamParticipants.set(tm.team_id, new Set());
+          teamParticipants.get(tm.team_id)!.add(tm.user_id);
         }
       });
 
       const teamIds = Array.from(teamParticipants.keys());
       if (teamIds.length === 0) return [];
 
-      // 2. Get team details
+      // 3. Get team details
       const { data: teams, error: teamsError } = await supabase
         .from('teams')
         .select('id, name, category')
@@ -93,7 +103,7 @@ export default function AdminWorkshopTeamOverview() {
 
       if (teamsError) throw teamsError;
 
-      // 3. Get all assignments for this event with workshop and time slot info
+      // 4. Get all assignments for this event with workshop and time slot info
       const { data: assignments, error: assignError } = await supabase
         .from('workshop_assignments')
         .select(`
@@ -125,7 +135,7 @@ export default function AdminWorkshopTeamOverview() {
           teamId: team.id,
           teamName: team.name,
           category: team.category,
-          participantCount: teamParticipants.get(team.id) || 0,
+          participantCount: teamParticipants.get(team.id)?.size || 0,
           workshopA: assignmentA ? {
             name: (assignmentA.workshop as any)?.name || '',
             company: (assignmentA.workshop as any)?.company || null,

@@ -169,11 +169,14 @@ export function useEventRegistration(eventId: string) {
       let resolvedTeamName: string | null = formData.team_name || null;
 
       if (!resolvedTeamId && user) {
-        // Check if user belongs to a team via team_members
+        // Check if user belongs to a team via team_members (filter by participant to avoid
+        // conflicts when a user is both mentor and participant in different teams)
         const { data: membership } = await supabase
           .from('team_members')
           .select('team_id, team:teams(id, name)')
           .eq('user_id', user.id)
+          .eq('member_type', 'participant')
+          .limit(1)
           .maybeSingle();
 
         if (membership?.team_id) {

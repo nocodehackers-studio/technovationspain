@@ -7,6 +7,7 @@ interface EligibleTeamForPreferences {
   eventId: string;
   eventName: string;
   hasSubmittedPreferences: boolean;
+  hasWorkshopAssignments: boolean;
   submittedBy?: {
     id: string;
     firstName: string | null;
@@ -158,6 +159,24 @@ export function useWorkshopPreferencesEligibility(userId: string | undefined): W
 
       console.log('[WorkshopEligibility] Step 5c - Submitters map:', submittersMap.size, 'entries');
 
+      // 5d. Check if workshops have been actually assigned
+      const { data: existingAssignments, error: assignError } = await supabase
+        .from('workshop_assignments')
+        .select('team_id, event_id')
+        .in('team_id', teamIds)
+        .in('event_id', eventIds);
+
+      if (assignError) throw assignError;
+
+      const assignmentsSet = new Set<string>();
+      existingAssignments?.forEach(a => {
+        if (a.team_id && a.event_id) {
+          assignmentsSet.add(`${a.team_id}|${a.event_id}`);
+        }
+      });
+
+      console.log('[WorkshopEligibility] Step 5d - Teams with assignments:', assignmentsSet.size);
+
       // Group preferences by team+event
       const preferencesMap = new Map<string, {
         submitted: boolean;
@@ -195,6 +214,7 @@ export function useWorkshopPreferencesEligibility(userId: string | undefined): W
               eventId: eventId,
               eventName: eventsMap.get(eventId) || 'Evento',
               hasSubmittedPreferences: prefInfo?.submitted || false,
+              hasWorkshopAssignments: assignmentsSet.has(key),
               submittedBy: prefInfo?.submittedBy,
             });
           }

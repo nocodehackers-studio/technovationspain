@@ -211,34 +211,54 @@ export function useAllTeamsPreferences(eventId: string) {
   return useQuery({
     queryKey: ['all-teams-preferences', eventId],
     queryFn: async () => {
-      // Obtener equipos con registros al evento
+      // 1. Obtener todos los user_id registrados al evento (sin depender de team_id)
       const { data: registrations, error: regError } = await supabase
         .from('event_registrations')
-        .select(`
-          team_id,
-          team:teams(id, name, category),
-          participant_count
-        `)
+        .select('user_id')
         .eq('event_id', eventId)
-        .not('team_id', 'is', null);
+        .neq('registration_status', 'cancelled')
+        .not('user_id', 'is', null);
 
       if (regError) throw regError;
 
-      // Agrupar por equipo
-      const teamsMap = new Map<string, { id: string; name: string; category: string | null; participantCount: number }>();
-      registrations?.forEach(reg => {
-        if (reg.team_id && reg.team) {
-          const existing = teamsMap.get(reg.team_id);
-          teamsMap.set(reg.team_id, {
-            id: reg.team_id,
-            name: (reg.team as any).name,
-            category: (reg.team as any).category,
-            participantCount: (existing?.participantCount || 0) + (reg.participant_count || 1),
-          });
+      const registeredUserIds = [...new Set(registrations?.map(r => r.user_id).filter(Boolean) as string[])];
+      if (registeredUserIds.length === 0) return [];
+
+      // 2. Buscar a qué equipos pertenecen estos usuarios vía team_members
+      const { data: teamMemberships, error: tmError } = await supabase
+        .from('team_members')
+        .select('team_id, user_id')
+        .in('user_id', registeredUserIds)
+        .eq('member_type', 'participant');
+
+      if (tmError) throw tmError;
+
+      // 3. Agrupar por equipo y contar participantes registrados
+      const teamParticipantsMap = new Map<string, Set<string>>();
+      teamMemberships?.forEach(tm => {
+        if (tm.team_id && tm.user_id) {
+          if (!teamParticipantsMap.has(tm.team_id)) teamParticipantsMap.set(tm.team_id, new Set());
+          teamParticipantsMap.get(tm.team_id)!.add(tm.user_id);
         }
       });
 
-      const teams = Array.from(teamsMap.values());
+      const teamIds = Array.from(teamParticipantsMap.keys());
+      if (teamIds.length === 0) return [];
+
+      // 4. Obtener detalles de equipos
+      const { data: teamsData, error: teamsError } = await supabase
+        .from('teams')
+        .select('id, name, category')
+        .in('id', teamIds);
+
+      if (teamsError) throw teamsError;
+
+      const teams = (teamsData || []).map(t => ({
+        id: t.id,
+        name: t.name,
+        category: t.category,
+        participantCount: teamParticipantsMap.get(t.id)?.size || 0,
+      }));
 
       // Obtener preferencias de todos los equipos
       const { data: allPreferences, error: prefError } = await supabase

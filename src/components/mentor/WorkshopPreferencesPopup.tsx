@@ -17,6 +17,7 @@ interface EligibleTeam {
   eventId: string;
   eventName: string;
   hasSubmittedPreferences: boolean;
+  hasWorkshopAssignments: boolean;
   submittedBy?: {
     id: string;
     firstName: string | null;

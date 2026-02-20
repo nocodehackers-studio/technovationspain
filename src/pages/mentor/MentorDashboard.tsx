@@ -278,6 +278,7 @@ export default function MentorDashboard() {
                       const workshopStatus = teamEligibility.length > 0 ? {
                         hasSubmitted: teamEligibility.some(t => t.hasSubmittedPreferences),
                         hasPending: teamEligibility.some(t => !t.hasSubmittedPreferences),
+                        hasAssignments: teamEligibility.some(t => t.hasWorkshopAssignments),
                         pendingEvent: teamEligibility.find(t => !t.hasSubmittedPreferences),
                       } : null;
                       
@@ -293,16 +294,22 @@ export default function MentorDashboard() {
                                   <div className="flex items-center gap-2 flex-wrap">
                                     <p className="font-medium">{team.name}</p>
                                     {/* Workshop status badges */}
-                                    {workshopStatus?.hasPending && (
-                                      <Badge variant="orange" className="text-[10px] py-0 px-2">
-                                        <Clock className="mr-1 h-3 w-3" />
-                                        Talleres pendientes
-                                      </Badge>
-                                    )}
-                                    {workshopStatus?.hasSubmitted && !workshopStatus?.hasPending && (
+                                    {workshopStatus?.hasAssignments && (
                                       <Badge variant="green" className="text-[10px] py-0 px-2">
                                         <CheckCircle2 className="mr-1 h-3 w-3" />
                                         Talleres asignados
+                                      </Badge>
+                                    )}
+                                    {workshopStatus?.hasSubmitted && !workshopStatus?.hasPending && !workshopStatus?.hasAssignments && (
+                                      <Badge variant="outline" className="text-[10px] py-0 px-2 border-blue-300 text-blue-700 bg-blue-50">
+                                        <CheckCircle2 className="mr-1 h-3 w-3" />
+                                        Preferencias enviadas
+                                      </Badge>
+                                    )}
+                                    {workshopStatus?.hasPending && !workshopStatus?.hasAssignments && (
+                                      <Badge variant="orange" className="text-[10px] py-0 px-2">
+                                        <Clock className="mr-1 h-3 w-3" />
+                                        Preferencias pendientes
                                       </Badge>
                                     )}
                                   </div>
