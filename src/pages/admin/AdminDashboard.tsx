@@ -94,8 +94,7 @@ export default function AdminDashboard() {
         stats.total++;
         stats.byType[key].total++;
 
-        const isRegistered =
-          p.verification_status === "verified" || p.onboarding_completed === true;
+        const isRegistered = p.onboarding_completed === true;
         if (isRegistered) {
           stats.registered++;
           stats.byType[key].registered++;
