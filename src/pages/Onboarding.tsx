@@ -86,8 +86,9 @@ export default function Onboarding() {
   });
 
   // Determine if user is a minor based on DOB (form value or existing profile)
+  // Only evaluate when a DOB actually exists — no DOB means hide parent fields
   const effectiveDob = formData.date_of_birth || (profile as any)?.date_of_birth;
-  const userIsMinor = isMinor(effectiveDob);
+  const userIsMinor = effectiveDob ? isMinor(effectiveDob) : false;
 
   // Show parent fields only for minors with missing parent data
   const showParentName = userIsMinor && !(profile as any)?.parent_name;
@@ -263,10 +264,12 @@ export default function Onboarding() {
       const wasVerified = updatedProfile?.verification_status === 'verified';
 
       if (wasVerified) {
-        // Send welcome email (fire and forget)
-        supabase.functions.invoke("send-welcome-email", {
-          body: { email: user.email, firstName: formData.first_name || (profile as any)?.first_name },
-        }).catch((err) => console.error("Welcome email error:", err));
+        // Send welcome email only on first-time onboarding (consent just given)
+        if (needsConsent) {
+          supabase.functions.invoke("send-welcome-email", {
+            body: { email: user.email, firstName: formData.first_name || (profile as any)?.first_name },
+          }).catch((err) => console.error("Welcome email error:", err));
+        }
 
         toast({ title: '¡Bienvenida!', description: 'Tu cuenta está lista.' });
         navigate(getDashboardPath(role), { replace: true });
