@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ColumnDef } from "@tanstack/react-table";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchAllRows } from "@/lib/supabase-utils";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { AirtableDataTable, FilterableColumn, ExportData } from "@/components/admin/AirtableDataTable";
 import { format } from "date-fns";
@@ -69,50 +70,49 @@ export default function AdminUsers() {
   const { data: users, isLoading } = useQuery({
     queryKey: ["admin-users"],
     queryFn: async () => {
-      // Fetch profiles
-      const { data: profiles, error: profilesError } = await supabase
-        .from("profiles")
-        .select(`
-          *,
-          hub:hubs!profiles_hub_id_fkey(name)
-        `)
-        .order("created_at", { ascending: false });
+      // Fetch profiles (paginated to avoid 1000-row limit)
+      const profiles = await fetchAllRows<Record<string, unknown>>(
+        "profiles",
+        "*, hub:hubs!profiles_hub_id_fkey(name)",
+      );
 
-      if (profilesError) throw profilesError;
+      // Fetch ALL roles for ALL users (paginated)
+      const roles = await fetchAllRows<{ user_id: string; role: string }>(
+        "user_roles",
+        "user_id, role",
+      );
 
-      // Fetch ALL roles for ALL users
-      const { data: roles, error: rolesError } = await supabase
-        .from("user_roles")
-        .select("*");
+      // Fetch team memberships with team names (paginated)
+      const teamMembers = await fetchAllRows<{ user_id: string; team: { name: string } | null }>(
+        "team_members",
+        "user_id, team:teams(name)",
+      );
 
-      if (rolesError) throw rolesError;
+      // Build role lookup map for O(1) access instead of O(n) filter per profile
+      const rolesByUserId = new Map<string, AppRole[]>();
+      for (const r of roles) {
+        const existing = rolesByUserId.get(r.user_id) || [];
+        existing.push(r.role as AppRole);
+        rolesByUserId.set(r.user_id, existing);
+      }
 
-      // Fetch team memberships with team names
-      const { data: teamMembers, error: teamError } = await supabase
-        .from("team_members")
-        .select(`
-          user_id,
-          team:teams(name)
-        `);
-
-      if (teamError) throw teamError;
+      // Build team lookup map
+      const teamByUserId = new Map<string, string>();
+      for (const tm of teamMembers) {
+        if (tm.team?.name) teamByUserId.set(tm.user_id, tm.team.name);
+      }
 
       // Merge profiles with all related data
       // Note: city, state, school_name, company_name are now directly on profiles after migration
-      const usersWithRoles: UserWithRoles[] = (profiles || []).map((profile) => {
-        // Get ALL roles for this user
-        const userRoles = roles
-          ?.filter((r) => r.user_id === profile.id)
-          .map((r) => r.role as AppRole) || [];
-
-        const teamMember = teamMembers?.find((tm) => tm.user_id === profile.id);
+      const usersWithRoles: UserWithRoles[] = profiles.map((profile) => {
+        const userRoles = rolesByUserId.get(profile.id as string) || [];
         const profileAny = profile as any;
 
         return {
           ...profile,
           custom_fields: (profile.custom_fields as Record<string, unknown>) || {},
           roles: userRoles,
-          team_name: (teamMember?.team as { name: string } | null)?.name || null,
+          team_name: teamByUserId.get(profile.id as string) || null,
           school_name: profileAny.school_name || profileAny.company_name || null,
           hub_name: (profile.hub as { name: string } | null)?.name || null,
           city: profileAny.city || null,

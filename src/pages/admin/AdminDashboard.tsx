@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchAllRows } from "@/lib/supabase-utils";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { MetricCard } from "@/components/admin/MetricCard";
 import { WhitelistProgressCard } from "@/components/admin/WhitelistProgressCard";
@@ -39,21 +40,24 @@ export default function AdminDashboard() {
   const { data: whitelistStats, isLoading: isLoadingWhitelist } = useQuery({
     queryKey: ["admin-registration-progress"],
     queryFn: async () => {
-      // 1. Get ALL profiles with type info
-      const { data: allProfiles } = await supabase
-        .from("profiles")
-        .select("id, verification_status, onboarding_completed, profile_type");
+      // 1. Get ALL profiles with type info (paginated to avoid 1000-row limit)
+      const allProfiles = await fetchAllRows<{
+        id: string;
+        verification_status: string | null;
+        onboarding_completed: boolean;
+        profile_type: string | null;
+      }>("profiles", "id, verification_status, onboarding_completed, profile_type");
 
-      // 2. Get user_roles for role assignment (primary source)
-      const { data: allRoles } = await supabase
-        .from("user_roles")
-        .select("user_id, role");
+      // 2. Get ALL user_roles (paginated)
+      const allRoles = await fetchAllRows<{ user_id: string; role: string }>(
+        "user_roles", "user_id, role",
+      );
 
-      if (!allProfiles) return null;
+      if (allProfiles.length === 0) return null;
 
       // 3. Build role map from user_roles (primary source)
       const roleFromTable = new Map<string, string>();
-      allRoles?.forEach(r => {
+      allRoles.forEach(r => {
         const displayType =
           r.role === "participant" ? "student" :
           r.role === "mentor" ? "mentor" :
