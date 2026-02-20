@@ -22,6 +22,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useMentorTeams } from '@/hooks/useMentorTeams';
 import { useWorkshopPreferences } from '@/hooks/useWorkshopPreferences';
+import { useWorkshopPreferencesEligibility } from '@/hooks/useWorkshopPreferencesEligibility';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -158,8 +159,14 @@ export default function WorkshopPreferencesPage() {
   const { eventId } = useParams();
   const navigate = useNavigate();
   const { user, isVerified } = useAuth();
-  const { data: myTeams, isLoading: teamsLoading } = useMentorTeams(user?.id);
-  
+  const { data: allMentorTeams, isLoading: teamsLoading } = useMentorTeams(user?.id);
+  const { eligibleTeams: eligibleForPreferences, isLoading: eligibilityLoading } = useWorkshopPreferencesEligibility(user?.id);
+
+  // Filtrar equipos del mentor que son elegibles para ESTE evento
+  const myTeams = allMentorTeams?.filter(team =>
+    eligibleForPreferences.some(et => et.teamId === team.id && et.eventId === eventId)
+  ) || [];
+
   const [selectedTeamId, setSelectedTeamId] = useState<string>('');
   const [orderedWorkshops, setOrderedWorkshops] = useState<Workshop[]>([]);
   const [hasChanges, setHasChanges] = useState(false);
@@ -295,7 +302,7 @@ export default function WorkshopPreferencesPage() {
     );
   }
 
-  if (eventLoading || teamsLoading) {
+  if (eventLoading || teamsLoading || eligibilityLoading) {
     return (
       <div className="min-h-screen bg-background p-4">
         <div className="max-w-2xl mx-auto space-y-4">

@@ -141,6 +141,8 @@ export function useWorkshopPreferences(eventId: string, teamId?: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['team-workshop-preferences', eventId, teamId] });
       queryClient.invalidateQueries({ queryKey: ['team-preferences-status', eventId, teamId] });
+      queryClient.invalidateQueries({ queryKey: ['workshop-preferences-eligibility'] });
+      queryClient.invalidateQueries({ queryKey: ['all-teams-preferences', eventId] });
       toast.success('¡Preferencias guardadas correctamente!');
     },
     onError: (error) => {
@@ -211,34 +213,69 @@ export function useAllTeamsPreferences(eventId: string) {
   return useQuery({
     queryKey: ['all-teams-preferences', eventId],
     queryFn: async () => {
-      // Obtener equipos con registros al evento
+      // 1. Obtener todos los registros activos del evento
       const { data: registrations, error: regError } = await supabase
         .from('event_registrations')
-        .select(`
-          team_id,
-          team:teams(id, name, category),
-          participant_count
-        `)
+        .select('team_id, user_id')
         .eq('event_id', eventId)
-        .not('team_id', 'is', null);
+        .eq('is_companion', false)
+        .neq('registration_status', 'cancelled');
 
       if (regError) throw regError;
+      if (!registrations || registrations.length === 0) return [];
 
-      // Agrupar por equipo
-      const teamsMap = new Map<string, { id: string; name: string; category: string | null; participantCount: number }>();
-      registrations?.forEach(reg => {
-        if (reg.team_id && reg.team) {
-          const existing = teamsMap.get(reg.team_id);
-          teamsMap.set(reg.team_id, {
-            id: reg.team_id,
-            name: (reg.team as any).name,
-            category: (reg.team as any).category,
-            participantCount: (existing?.participantCount || 0) + (reg.participant_count || 1),
-          });
-        }
+      // 2. Recopilar team_ids directos del registro
+      const directTeamIds = new Set(
+        registrations.map(r => r.team_id).filter((id): id is string => !!id)
+      );
+
+      // 3. Para usuarios sin team_id en el registro, buscar sus equipos via team_members
+      const userIdsWithoutTeam = registrations
+        .filter(r => !r.team_id && r.user_id)
+        .map(r => r.user_id)
+        .filter((id): id is string => !!id);
+
+      let membershipTeamIds = new Set<string>();
+      if (userIdsWithoutTeam.length > 0) {
+        const { data: memberships, error: memError } = await supabase
+          .from('team_members')
+          .select('team_id, user_id')
+          .in('user_id', userIdsWithoutTeam)
+          .not('team_id', 'is', null);
+
+        if (memError) throw memError;
+        memberships?.forEach(m => {
+          if (m.team_id) membershipTeamIds.add(m.team_id);
+        });
+      }
+
+      // 4. Unir todos los team_ids encontrados
+      const allTeamIds = [...new Set([...directTeamIds, ...membershipTeamIds])];
+      if (allTeamIds.length === 0) return [];
+
+      // 5. Obtener info de equipos y miembros en paralelo (consultas separadas)
+      const [teamsResult, membersResult] = await Promise.all([
+        supabase.from('teams').select('id, name, category').in('id', allTeamIds),
+        supabase.from('team_members').select('team_id, user_id').in('team_id', allTeamIds),
+      ]);
+
+      if (teamsResult.error) throw teamsResult.error;
+      if (membersResult.error) throw membersResult.error;
+
+      // 6. Contar participantes por equipo desde team_members
+      const participantCountByTeam = new Map<string, number>();
+      membersResult.data?.forEach(m => {
+        if (!m.team_id) return;
+        participantCountByTeam.set(m.team_id, (participantCountByTeam.get(m.team_id) || 0) + 1);
       });
 
-      const teams = Array.from(teamsMap.values());
+      // 7. Construir array de equipos
+      const teams = (teamsResult.data || []).map(team => ({
+        id: team.id,
+        name: team.name,
+        category: team.category,
+        participantCount: participantCountByTeam.get(team.id) || 1,
+      }));
 
       // Obtener preferencias de todos los equipos
       const { data: allPreferences, error: prefError } = await supabase
