@@ -13,7 +13,19 @@ import {
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
-import { Upload, FileText, ArrowLeft, Loader2, CheckCircle2, XCircle, Mail } from "lucide-react";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { Upload, FileText, ArrowLeft, Loader2, CheckCircle2, XCircle, Mail, History } from "lucide-react";
 
 // ─── Types ──────────────────────────────────────────────────────────
 interface CsvPreview {
@@ -24,10 +36,27 @@ interface CsvPreview {
   breakdown: Record<string, number>;
 }
 
+interface ImportHistoryEntry {
+  id: string;
+  file_name: string;
+  status: string | null;
+  imported_at: string | null;
+  records_new: number | null;
+  records_updated: number | null;
+  records_activated: number | null;
+  errors: unknown[] | null;
+  profiles: {
+    first_name: string | null;
+    last_name: string | null;
+    email: string;
+  } | null;
+}
+
 type Step = "upload" | "preview" | "processing" | "done";
 
 // ─── Constants ──────────────────────────────────────────────────────
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+const HISTORY_PAGE_SIZE = 10;
 
 // ─── Component ──────────────────────────────────────────────────────
 export default function AdminImportBatch() {
@@ -269,32 +298,37 @@ export default function AdminImportBatch() {
 
   return (
     <AdminLayout title="Importar Usuarios y Equipos">
-      <div className="max-w-4xl mx-auto space-y-6">
-        {step === "upload" && (
-          <UploadStep
-            usersFile={usersFile}
-            teamsFile={teamsFile}
-            onSelectFile={handleFileSelect}
-            onContinue={generatePreview}
-          />
-        )}
+      <div className="flex flex-col min-h-full">
+        <div className="max-w-4xl mx-auto w-full space-y-6">
+          {step === "upload" && (
+            <UploadStep
+              usersFile={usersFile}
+              teamsFile={teamsFile}
+              onSelectFile={handleFileSelect}
+              onContinue={generatePreview}
+            />
+          )}
 
-        {step === "preview" && (
-          <PreviewStep
-            usersPreview={usersPreview}
-            teamsPreview={teamsPreview}
-            isSubmitting={isSubmitting}
-            onBack={() => setStep("upload")}
-            onStart={startImport}
-          />
-        )}
+          {step === "preview" && (
+            <PreviewStep
+              usersPreview={usersPreview}
+              teamsPreview={teamsPreview}
+              isSubmitting={isSubmitting}
+              onBack={() => setStep("upload")}
+              onStart={startImport}
+            />
+          )}
 
-        {step === "done" && activeImportId && (
-          <ImportProgressStep
-            importId={activeImportId}
-            onReset={reset}
-          />
-        )}
+          {step === "done" && activeImportId && (
+            <ImportProgressStep
+              importId={activeImportId}
+              onReset={reset}
+            />
+          )}
+        </div>
+        <div className="max-w-4xl mx-auto w-full mt-auto">
+          <ImportHistory step={step} />
+        </div>
       </div>
     </AdminLayout>
   );
@@ -711,6 +745,210 @@ function ImportProgressStep({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+// ─── Import History ──────────────────────────────────────────────────
+function ImportHistory({ step }: { step: Step }) {
+  const [history, setHistory] = useState<ImportHistoryEntry[]>([]);
+  const [totalCount, setTotalCount] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const fetchHistory = useCallback(async (offset: number, reset = false) => {
+    try {
+      setLoading(true);
+      const { data, error, count } = await supabase
+        .from("csv_imports")
+        .select(
+          "id, file_name, status, imported_at, records_new, records_updated, records_activated, errors, profiles:uploaded_by(first_name, last_name, email)",
+          { count: "exact" }
+        )
+        .neq("status", "pending")
+        .order("imported_at", { ascending: false })
+        .range(offset, offset + HISTORY_PAGE_SIZE - 1);
+
+      if (error) {
+        console.error("Failed to fetch import history:", error);
+        return;
+      }
+
+      const entries = data as unknown as ImportHistoryEntry[];
+      setHistory((prev) => (reset ? entries : [...prev, ...entries]));
+      setTotalCount(count);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchHistory(0, true);
+  }, [fetchHistory]);
+
+  // Re-fetch when wizard resets to upload (after completing an import)
+  const prevStepRef = useRef<Step>(step);
+  useEffect(() => {
+    if (step === "upload" && prevStepRef.current !== "upload") {
+      setHistory([]);
+      fetchHistory(0, true);
+    }
+    prevStepRef.current = step;
+  }, [step, fetchHistory]);
+
+  const handleLoadMore = () => {
+    fetchHistory(history.length);
+  };
+
+  // Don't flash accordion before initial fetch completes
+  if (loading && totalCount === null) return null;
+  // No history at all — render nothing
+  if (totalCount === 0) return null;
+
+  const translateStatus = (status: string | null) => {
+    switch (status) {
+      case "completed": return "Completada";
+      case "failed": return "Fallida";
+      case "processing": return "En proceso";
+      default: return status ?? "—";
+    }
+  };
+
+  const formatDate = (dateStr: string | null) => {
+    if (!dateStr) return "—";
+    const d = new Date(dateStr);
+    return (
+      d.toLocaleDateString("es-ES", { day: "2-digit", month: "short", year: "numeric" }) +
+      " " +
+      d.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })
+    );
+  };
+
+  const buildResultText = (entry: ImportHistoryEntry) => {
+    if (entry.status === "processing") return "—";
+    const parts: string[] = [];
+    const n = entry.records_new ?? 0;
+    const u = entry.records_updated ?? 0;
+    const a = entry.records_activated ?? 0;
+    if (n > 0) parts.push(`${n} nuevos`);
+    if (u > 0) parts.push(`${u} act.`);
+    if (a > 0) parts.push(`${a} activ.`);
+    return parts.length > 0 ? parts.join(", ") : "—";
+  };
+
+  const handleCopyErrors = async (errors: unknown[] | null) => {
+    if (!errors) return;
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(errors, null, 2));
+      toast.success("Errores copiados al portapapeles");
+    } catch {
+      toast.error("No se pudo copiar al portapapeles");
+    }
+  };
+
+  const hasMore = totalCount !== null && history.length < totalCount;
+
+  return (
+    <Accordion type="single" collapsible className="mt-8">
+      <AccordionItem value="import-history" className="border rounded-lg px-4">
+        <AccordionTrigger className="text-sm font-medium text-muted-foreground hover:no-underline">
+          <div className="flex items-center gap-2">
+            <History className="h-4 w-4" />
+            Historial de importaciones
+          </div>
+        </AccordionTrigger>
+        <AccordionContent>
+          {loading && history.length === 0 ? (
+            <div className="flex justify-center py-4">
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <TooltipProvider>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="text-left py-2 px-2 text-xs text-muted-foreground font-medium">Archivo</th>
+                      <th className="text-left py-2 px-2 text-xs text-muted-foreground font-medium">Admin</th>
+                      <th className="text-left py-2 px-2 text-xs text-muted-foreground font-medium whitespace-nowrap">Fecha</th>
+                      <th className="text-left py-2 px-2 text-xs text-muted-foreground font-medium whitespace-nowrap">Estado</th>
+                      <th className="text-left py-2 px-2 text-xs text-muted-foreground font-medium">Resultado</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {history.map((entry) => (
+                      <tr key={entry.id} className="border-b last:border-0">
+                        <td className="py-2 px-2">
+                          {entry.file_name.split(", ").map((name, i) => (
+                            <span
+                              key={i}
+                              className="text-xs block max-w-[200px] truncate"
+                              title={name}
+                            >
+                              {name}
+                            </span>
+                          ))}
+                        </td>
+                        <td className="py-2 px-2 text-xs">
+                          {entry.profiles ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="cursor-default">
+                                  {[entry.profiles.first_name, entry.profiles.last_name].filter(Boolean).join(" ") || "—"}
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent>{entry.profiles.email}</TooltipContent>
+                            </Tooltip>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+                        <td className="py-2 px-2 text-xs text-muted-foreground whitespace-nowrap">
+                          {formatDate(entry.imported_at)}
+                        </td>
+                        <td className="py-2 px-2 whitespace-nowrap">
+                          <span className="text-xs text-muted-foreground">
+                            {translateStatus(entry.status)}
+                          </span>
+                        </td>
+                        <td className="py-2 px-2 text-xs text-muted-foreground">
+                          {buildResultText(entry)}
+                          {entry.errors && Array.isArray(entry.errors) && entry.errors.length > 0 && (
+                            <>
+                              {buildResultText(entry) !== "—" && ", "}
+                              <button
+                                className="text-xs text-muted-foreground underline cursor-pointer"
+                                onClick={() => handleCopyErrors(entry.errors)}
+                              >
+                                {entry.errors.length} {entry.errors.length === 1 ? "error" : "errores"}
+                              </button>
+                            </>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {hasMore && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-full mt-2"
+                  onClick={handleLoadMore}
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    "Cargar más"
+                  )}
+                </Button>
+              )}
+            </TooltipProvider>
+          )}
+        </AccordionContent>
+      </AccordionItem>
+    </Accordion>
   );
 }
 
