@@ -35,30 +35,21 @@ export default function AdminDashboard() {
     },
   });
 
-  // Fetch registration progress stats from real profiles + roles
+  // Fetch registration progress stats: only users with relevant roles
   const { data: whitelistStats, isLoading: isLoadingWhitelist } = useQuery({
     queryKey: ["admin-registration-progress"],
     queryFn: async () => {
-      // Get all profiles with their verification status
-      const { data: allProfiles } = await supabase
-        .from("profiles")
-        .select("id, verification_status");
-
-      // Get all user roles to determine type breakdown
+      // 1. Get roles for relevant types only
       const { data: allRoles } = await supabase
         .from("user_roles")
-        .select("user_id, role");
+        .select("user_id, role")
+        .in("role", ["participant", "mentor", "judge"]);
 
-      if (!allProfiles) return null;
+      if (!allRoles || allRoles.length === 0) return null;
 
-      const verifiedIds = new Set(
-        allProfiles.filter(p => p.verification_status === "verified").map(p => p.id)
-      );
-
-      // Build a map of user_id -> role for breakdown
+      // 2. Build role map (unique user → display type)
       const roleMap = new Map<string, string>();
-      allRoles?.forEach(r => {
-        // Map app_role to display type
+      allRoles.forEach(r => {
         const displayType =
           r.role === "participant" ? "student" :
           r.role === "mentor" ? "mentor" :
@@ -66,9 +57,25 @@ export default function AdminDashboard() {
         if (displayType) roleMap.set(r.user_id, displayType);
       });
 
+      const userIds = [...roleMap.keys()];
+
+      // 3. Fetch profiles to check registration status
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("id, verification_status, onboarding_completed")
+        .in("id", userIds);
+
+      // A user is "registered" if verified (CSV import) OR onboarding completed (app)
+      const registeredIds = new Set(
+        (profiles || [])
+          .filter(p => p.verification_status === "verified" || p.onboarding_completed === true)
+          .map(p => p.id)
+      );
+
+      // 4. Build stats
       const stats = {
-        total: allProfiles.length,
-        registered: verifiedIds.size,
+        total: roleMap.size,
+        registered: 0,
         byType: {
           student: { total: 0, registered: 0 },
           mentor: { total: 0, registered: 0 },
@@ -76,14 +83,12 @@ export default function AdminDashboard() {
         },
       };
 
-      // Count by role (only verified users have roles assigned)
       roleMap.forEach((type, userId) => {
-        if (type in stats.byType) {
-          const key = type as keyof typeof stats.byType;
-          stats.byType[key].total++;
-          if (verifiedIds.has(userId)) {
-            stats.byType[key].registered++;
-          }
+        const key = type as keyof typeof stats.byType;
+        stats.byType[key].total++;
+        if (registeredIds.has(userId)) {
+          stats.registered++;
+          stats.byType[key].registered++;
         }
       });
 
