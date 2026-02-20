@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchAllRows } from "@/lib/supabase-utils";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { MetricCard } from "@/components/admin/MetricCard";
 import { WhitelistProgressCard } from "@/components/admin/WhitelistProgressCard";
@@ -35,40 +36,49 @@ export default function AdminDashboard() {
     },
   });
 
-  // Fetch registration progress stats from real profiles + roles
+  // Fetch registration progress stats from profiles + roles
   const { data: whitelistStats, isLoading: isLoadingWhitelist } = useQuery({
     queryKey: ["admin-registration-progress"],
     queryFn: async () => {
-      // Get all profiles with their verification status
-      const { data: allProfiles } = await supabase
-        .from("profiles")
-        .select("id, verification_status");
+      // 1. Get ALL profiles with type info (paginated to avoid 1000-row limit)
+      const allProfiles = await fetchAllRows<{
+        id: string;
+        verification_status: string | null;
+        onboarding_completed: boolean;
+        profile_type: string | null;
+      }>("profiles", "id, verification_status, onboarding_completed, profile_type");
 
-      // Get all user roles to determine type breakdown
-      const { data: allRoles } = await supabase
-        .from("user_roles")
-        .select("user_id, role");
-
-      if (!allProfiles) return null;
-
-      const verifiedIds = new Set(
-        allProfiles.filter(p => p.verification_status === "verified").map(p => p.id)
+      // 2. Get ALL user_roles (paginated)
+      const allRoles = await fetchAllRows<{ user_id: string; role: string }>(
+        "user_roles", "user_id, role",
       );
 
-      // Build a map of user_id -> role for breakdown
-      const roleMap = new Map<string, string>();
-      allRoles?.forEach(r => {
-        // Map app_role to display type
+      if (allProfiles.length === 0) return null;
+
+      // 3. Build role map from user_roles (primary source)
+      const roleFromTable = new Map<string, string>();
+      allRoles.forEach(r => {
         const displayType =
           r.role === "participant" ? "student" :
           r.role === "mentor" ? "mentor" :
           r.role === "judge" ? "judge" : null;
-        if (displayType) roleMap.set(r.user_id, displayType);
+        if (displayType) roleFromTable.set(r.user_id, displayType);
       });
 
+      // 4. Map profile_type values to display types (fallback for users without user_roles)
+      const mapProfileType = (pt: string | null): string | null => {
+        if (!pt) return null;
+        const lower = pt.toLowerCase().trim();
+        if (lower === "student" || lower === "participant") return "student";
+        if (lower === "mentor") return "mentor";
+        if (lower === "judge") return "judge";
+        return null; // admin, chapter_ambassador, etc. excluded
+      };
+
+      // 5. Build combined stats: user_roles takes priority, profile_type as fallback
       const stats = {
-        total: allProfiles.length,
-        registered: verifiedIds.size,
+        total: 0,
+        registered: 0,
         byType: {
           student: { total: 0, registered: 0 },
           mentor: { total: 0, registered: 0 },
@@ -76,18 +86,23 @@ export default function AdminDashboard() {
         },
       };
 
-      // Count by role (only verified users have roles assigned)
-      roleMap.forEach((type, userId) => {
-        if (type in stats.byType) {
-          const key = type as keyof typeof stats.byType;
-          stats.byType[key].total++;
-          if (verifiedIds.has(userId)) {
-            stats.byType[key].registered++;
-          }
-        }
-      });
+      for (const p of allProfiles) {
+        const type = roleFromTable.get(p.id) ?? mapProfileType(p.profile_type);
+        if (!type) continue; // skip admins/unknown/no type
 
-      return stats;
+        const key = type as keyof typeof stats.byType;
+        stats.total++;
+        stats.byType[key].total++;
+
+        const isRegistered =
+          p.verification_status === "verified" || p.onboarding_completed === true;
+        if (isRegistered) {
+          stats.registered++;
+          stats.byType[key].registered++;
+        }
+      }
+
+      return stats.total > 0 ? stats : null;
     },
   });
 
