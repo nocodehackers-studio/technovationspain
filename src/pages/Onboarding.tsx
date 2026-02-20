@@ -10,10 +10,10 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { Sparkles, User, Calendar, Mail, Building2 } from 'lucide-react';
+import { User, Calendar, Mail, Building2, LogOut } from 'lucide-react';
 import { validateSpanishDNI } from '@/lib/validation-utils';
 import { isMinor } from '@/lib/age-utils';
-import { getMissingFields } from '@/lib/profile-fields';
+import { getMissingFields, hasMissingFields, REQUIRED_PROFILE_FIELDS } from '@/lib/profile-fields';
 import { getDashboardPath } from '@/lib/dashboard-routes';
 
 type OnboardingField = string;
@@ -28,15 +28,13 @@ interface FormData {
   phone: string;
   city: string;
   state: string;
-  school_name: string;
-  company_name: string;
   parent_name: string;
   parent_email: string;
 }
 
 export default function Onboarding() {
   const navigate = useNavigate();
-  const { user, profile, role, refreshProfile } = useAuth();
+  const { user, profile, role, refreshProfile, signOut } = useAuth();
   const { toast } = useToast();
 
   const [isLoading, setIsLoading] = useState(false);
@@ -53,6 +51,12 @@ export default function Onboarding() {
   // Whether this is a first-time onboarding (need consent)
   const needsConsent = !profile?.terms_accepted_at;
 
+  // If no required fields missing and consent done, skip onboarding
+  if (profile && !needsConsent && !hasMissingFields(profile as unknown as Record<string, unknown>)) {
+    navigate(getDashboardPath(role), { replace: true });
+    return null;
+  }
+
   // Initialize form with profile data
   const [formData, setFormData] = useState<FormData>({
     first_name: (profile as any)?.first_name || '',
@@ -64,8 +68,6 @@ export default function Onboarding() {
     phone: (profile as any)?.phone || '',
     city: (profile as any)?.city || '',
     state: (profile as any)?.state || '',
-    school_name: (profile as any)?.school_name || '',
-    company_name: (profile as any)?.company_name || '',
     parent_name: (profile as any)?.parent_name || '',
     parent_email: (profile as any)?.parent_email || '',
   });
@@ -83,6 +85,14 @@ export default function Onboarding() {
     },
   });
 
+  // Determine if user is a minor based on DOB (form value or existing profile)
+  const effectiveDob = formData.date_of_birth || (profile as any)?.date_of_birth;
+  const userIsMinor = isMinor(effectiveDob);
+
+  // Show parent fields only for minors with missing parent data
+  const showParentName = userIsMinor && !(profile as any)?.parent_name;
+  const showParentEmail = userIsMinor && !(profile as any)?.parent_email;
+
   const updateField = (field: keyof FormData, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
     setErrors(prev => ({ ...prev, [field]: '' }));
@@ -99,10 +109,13 @@ export default function Onboarding() {
     phone: 'Teléfono',
     city: 'Ciudad',
     state: 'Comunidad Autónoma',
-    school_name: 'Centro educativo',
-    company_name: 'Empresa',
     parent_name: 'Nombre padre/madre/tutor',
     parent_email: 'Email padre/madre/tutor',
+  };
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate('/', { replace: true });
   };
 
   const validate = (): boolean => {
@@ -128,8 +141,16 @@ export default function Onboarding() {
     if (missingFieldSet.has('postal_code') && !formData.postal_code.trim()) {
       newErrors.postal_code = 'El código postal es obligatorio';
     }
-    if (missingFieldSet.has('hub_id') && !formData.hub_id) {
+    if (missingFieldSet.has('hub_id') && !formData.hub_id && hubs && hubs.length > 0) {
       newErrors.hub_id = 'Selecciona un hub regional';
+    }
+
+    // Parent fields validation (minors only)
+    if (showParentName && !formData.parent_name.trim()) {
+      newErrors.parent_name = 'El nombre del padre/madre/tutor es obligatorio';
+    }
+    if (showParentEmail && !formData.parent_email.trim()) {
+      newErrors.parent_email = 'El email del padre/madre/tutor es obligatorio';
     }
 
     // Consent validation (first-time only)
@@ -140,6 +161,26 @@ export default function Onboarding() {
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
+
+  // Real-time check: enable button only when all required fields are filled
+  const isFormComplete = useMemo(() => {
+    // Check required profile fields that are missing
+    for (const field of REQUIRED_PROFILE_FIELDS) {
+      if (missingFieldSet.has(field)) {
+        if (field === 'hub_id') {
+          if (hubs && hubs.length > 0 && !formData.hub_id) return false;
+        } else {
+          if (!(formData as any)[field]?.trim()) return false;
+        }
+      }
+    }
+    // Parent fields required for minors
+    if (showParentName && !formData.parent_name.trim()) return false;
+    if (showParentEmail && !formData.parent_email.trim()) return false;
+    // Consent required for first-time
+    if (needsConsent && (!termsAccepted || !privacyAccepted)) return false;
+    return true;
+  }, [missingFieldSet, formData, hubs, showParentName, showParentEmail, needsConsent, termsAccepted, privacyAccepted]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -173,14 +214,18 @@ export default function Onboarding() {
           profileUpdate[field] = value || null;
         } else if (field === 'dni') {
           profileUpdate[field] = value?.toUpperCase().trim() || null;
-        } else if (field === 'parent_email') {
-          // Only set parent_email for minors
-          const dob = formData.date_of_birth || (profile as any)?.date_of_birth;
-          profileUpdate[field] = isMinor(dob) && value?.trim() ? value.trim() : null;
         } else {
           profileUpdate[field] = value?.trim() || null;
         }
       });
+
+      // Add parent fields for minors
+      if (showParentName) {
+        profileUpdate.parent_name = formData.parent_name.trim() || null;
+      }
+      if (showParentEmail) {
+        profileUpdate.parent_email = formData.parent_email.trim() || null;
+      }
 
       const { error: profileError } = await supabase
         .from('profiles')
@@ -238,7 +283,7 @@ export default function Onboarding() {
   };
 
   // Check if there are any fields to show
-  const hasFieldsToShow = missingFieldSet.size > 0 || needsConsent;
+  const hasFieldsToShow = missingFieldSet.size > 0 || needsConsent || showParentName || showParentEmail;
 
   // Render a field only if it's in the missing set
   const shouldShowField = (field: string) => missingFieldSet.has(field);
@@ -246,15 +291,6 @@ export default function Onboarding() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-secondary via-background to-muted p-4">
       <div className="w-full max-w-lg space-y-6">
-        {/* Header */}
-        <div className="text-center space-y-2">
-          <div className="inline-flex items-center justify-center gap-2">
-            <Sparkles className="h-6 w-6 text-primary" />
-            <span className="text-2xl font-display font-bold">Technovation España</span>
-          </div>
-          <p className="text-muted-foreground">Necesitamos algunos datos tuyos</p>
-        </div>
-
         <Card className="border-none shadow-2xl">
           <CardHeader>
             <CardTitle className="font-display">
@@ -401,34 +437,39 @@ export default function Onboarding() {
                 </div>
               )}
 
-              {/* Parent name & email for minors */}
-              {shouldShowField('parent_name') && (
-                <div className="space-y-2">
-                  <Label htmlFor="parent_name">Nombre padre/madre/tutor</Label>
-                  <Input
-                    id="parent_name"
-                    placeholder="Nombre completo"
-                    value={formData.parent_name}
-                    onChange={(e) => updateField('parent_name', e.target.value)}
-                    maxLength={200}
-                  />
-                </div>
-              )}
-
-              {shouldShowField('parent_email') && (
-                <div className="space-y-2">
-                  <Label htmlFor="parent_email">Email del padre/madre/tutor</Label>
-                  <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      id="parent_email"
-                      type="email"
-                      placeholder="email@ejemplo.com"
-                      value={formData.parent_email}
-                      onChange={(e) => updateField('parent_email', e.target.value)}
-                      className="pl-10"
-                    />
-                  </div>
+              {/* Parent name & email — only for minors (age ≤13) */}
+              {(showParentName || showParentEmail) && (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {showParentName && (
+                    <div className="space-y-2">
+                      <Label htmlFor="parent_name">Nombre padre/madre/tutor *</Label>
+                      <Input
+                        id="parent_name"
+                        placeholder="Nombre completo"
+                        value={formData.parent_name}
+                        onChange={(e) => updateField('parent_name', e.target.value)}
+                        maxLength={200}
+                      />
+                      {errors.parent_name && <p className="text-sm text-destructive">{errors.parent_name}</p>}
+                    </div>
+                  )}
+                  {showParentEmail && (
+                    <div className="space-y-2">
+                      <Label htmlFor="parent_email">Email padre/madre/tutor *</Label>
+                      <div className="relative">
+                        <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          id="parent_email"
+                          type="email"
+                          placeholder="email@ejemplo.com"
+                          value={formData.parent_email}
+                          onChange={(e) => updateField('parent_email', e.target.value)}
+                          className="pl-10"
+                        />
+                      </div>
+                      {errors.parent_email && <p className="text-sm text-destructive">{errors.parent_email}</p>}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -457,30 +498,6 @@ export default function Onboarding() {
                       />
                     </div>
                   )}
-                </div>
-              )}
-
-              {shouldShowField('school_name') && (
-                <div className="space-y-2">
-                  <Label htmlFor="school_name">Centro educativo</Label>
-                  <Input
-                    id="school_name"
-                    placeholder="Nombre del centro"
-                    value={formData.school_name}
-                    onChange={(e) => updateField('school_name', e.target.value)}
-                  />
-                </div>
-              )}
-
-              {shouldShowField('company_name') && (
-                <div className="space-y-2">
-                  <Label htmlFor="company_name">Empresa</Label>
-                  <Input
-                    id="company_name"
-                    placeholder="Nombre de la empresa"
-                    value={formData.company_name}
-                    onChange={(e) => updateField('company_name', e.target.value)}
-                  />
                 </div>
               )}
 
@@ -526,8 +543,8 @@ export default function Onboarding() {
 
               <Button
                 type="submit"
-                className="w-full gradient-primary"
-                disabled={isLoading || (needsConsent && (!termsAccepted || !privacyAccepted))}
+                className="w-full"
+                disabled={isLoading || !isFormComplete}
               >
                 {isLoading ? (
                   <span className="flex items-center gap-2">
@@ -541,6 +558,17 @@ export default function Onboarding() {
             </form>
           </CardContent>
         </Card>
+
+        <div className="flex justify-center">
+          <Button
+            variant="outline"
+            className="w-full sm:w-auto"
+            onClick={handleSignOut}
+          >
+            <LogOut className="h-4 w-4 mr-2" />
+            Cerrar sesión
+          </Button>
+        </div>
       </div>
     </div>
   );
