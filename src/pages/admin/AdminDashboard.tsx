@@ -35,46 +35,45 @@ export default function AdminDashboard() {
     },
   });
 
-  // Fetch registration progress stats: only users with relevant roles
+  // Fetch registration progress stats from profiles + roles
   const { data: whitelistStats, isLoading: isLoadingWhitelist } = useQuery({
     queryKey: ["admin-registration-progress"],
     queryFn: async () => {
-      // 1. Get roles for relevant types only
+      // 1. Get ALL profiles with type info
+      const { data: allProfiles } = await supabase
+        .from("profiles")
+        .select("id, verification_status, onboarding_completed, profile_type");
+
+      // 2. Get user_roles for role assignment (primary source)
       const { data: allRoles } = await supabase
         .from("user_roles")
-        .select("user_id, role")
-        .in("role", ["participant", "mentor", "judge"]);
+        .select("user_id, role");
 
-      if (!allRoles || allRoles.length === 0) return null;
+      if (!allProfiles) return null;
 
-      // 2. Build role map (unique user → display type)
-      const roleMap = new Map<string, string>();
-      allRoles.forEach(r => {
+      // 3. Build role map from user_roles (primary source)
+      const roleFromTable = new Map<string, string>();
+      allRoles?.forEach(r => {
         const displayType =
           r.role === "participant" ? "student" :
           r.role === "mentor" ? "mentor" :
           r.role === "judge" ? "judge" : null;
-        if (displayType) roleMap.set(r.user_id, displayType);
+        if (displayType) roleFromTable.set(r.user_id, displayType);
       });
 
-      const userIds = [...roleMap.keys()];
+      // 4. Map profile_type values to display types (fallback for users without user_roles)
+      const mapProfileType = (pt: string | null): string | null => {
+        if (!pt) return null;
+        const lower = pt.toLowerCase().trim();
+        if (lower === "student" || lower === "participant") return "student";
+        if (lower === "mentor") return "mentor";
+        if (lower === "judge") return "judge";
+        return null; // admin, chapter_ambassador, etc. excluded
+      };
 
-      // 3. Fetch profiles to check registration status
-      const { data: profiles } = await supabase
-        .from("profiles")
-        .select("id, verification_status, onboarding_completed")
-        .in("id", userIds);
-
-      // A user is "registered" if verified (CSV import) OR onboarding completed (app)
-      const registeredIds = new Set(
-        (profiles || [])
-          .filter(p => p.verification_status === "verified" || p.onboarding_completed === true)
-          .map(p => p.id)
-      );
-
-      // 4. Build stats
+      // 5. Build combined stats: user_roles takes priority, profile_type as fallback
       const stats = {
-        total: roleMap.size,
+        total: 0,
         registered: 0,
         byType: {
           student: { total: 0, registered: 0 },
@@ -83,16 +82,23 @@ export default function AdminDashboard() {
         },
       };
 
-      roleMap.forEach((type, userId) => {
+      for (const p of allProfiles) {
+        const type = roleFromTable.get(p.id) ?? mapProfileType(p.profile_type);
+        if (!type) continue; // skip admins/unknown/no type
+
         const key = type as keyof typeof stats.byType;
+        stats.total++;
         stats.byType[key].total++;
-        if (registeredIds.has(userId)) {
+
+        const isRegistered =
+          p.verification_status === "verified" || p.onboarding_completed === true;
+        if (isRegistered) {
           stats.registered++;
           stats.byType[key].registered++;
         }
-      });
+      }
 
-      return stats;
+      return stats.total > 0 ? stats : null;
     },
   });
 
