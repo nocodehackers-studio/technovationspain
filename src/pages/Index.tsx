@@ -65,8 +65,8 @@ export default function Index() {
   };
 
   const handleVerifyOtp = async () => {
-    if (otpCode.length !== 8) {
-      toast.error("Introduce el código de 8 dígitos completo");
+    if (otpCode.length !== 6) {
+      toast.error("Introduce el código de 6 dígitos completo");
       return;
     }
 
@@ -175,7 +175,7 @@ export default function Index() {
                   Código de verificación
                 </Label>
                 <InputOTP
-                  maxLength={8}
+                  maxLength={6}
                   value={otpCode}
                   onChange={(value) => setOtpCode(value)}
                 >
@@ -186,19 +186,17 @@ export default function Index() {
                     <InputOTPSlot index={3} />
                     <InputOTPSlot index={4} />
                     <InputOTPSlot index={5} />
-                    <InputOTPSlot index={6} />
-                    <InputOTPSlot index={7} />
                   </InputOTPGroup>
                 </InputOTP>
                 <p className="text-xs text-muted-foreground">
-                  Introduce el código de 8 dígitos del correo
+                  Introduce el código de 6 dígitos del correo
                 </p>
               </div>
 
               <Button
                 className="w-full"
                 onClick={handleVerifyOtp}
-                disabled={verifyingOtp || otpCode.length !== 8}
+                disabled={verifyingOtp || otpCode.length !== 6}
               >
                 {verifyingOtp ? (
                   <>
