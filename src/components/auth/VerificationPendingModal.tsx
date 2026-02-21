@@ -37,7 +37,7 @@ export function VerificationPendingModal() {
 
   return (
     <Dialog open={open} onOpenChange={() => {}}>
-      <DialogContent 
+      <DialogContent
         className="sm:max-w-md [&>button]:hidden"
         onPointerDownOutside={(e) => e.preventDefault()}
         onEscapeKeyDown={(e) => e.preventDefault()}
@@ -51,8 +51,8 @@ export function VerificationPendingModal() {
           </DialogTitle>
           <DialogDescription className="text-base space-y-4">
             <p>
-              Tu cuenta está siendo verificada. Para acceder a todas las funcionalidades, 
-              necesitamos validar tu registro con <strong>Technovation Global</strong>.
+              Tu cuenta está pendiente de verificación. Danos 24 horas para validar tu cuenta.
+              Asegúrate de estar registrado/a en <strong>Technovation Global</strong> con este mismo email.
             </p>
           </DialogDescription>
         </DialogHeader>
@@ -64,7 +64,7 @@ export function VerificationPendingModal() {
               <div className="text-sm">
                 <p className="font-medium">¿Por qué necesitamos verificarte?</p>
                 <p className="text-muted-foreground mt-1">
-                  Para garantizar la seguridad de todas las participantes, verificamos que todos los 
+                  Para garantizar la seguridad de todas las participantes, verificamos que todos los
                   usuarios estén registrados en Technovation Global.
                 </p>
               </div>
@@ -79,9 +79,9 @@ export function VerificationPendingModal() {
                 <ul className="text-muted-foreground mt-1 space-y-1 list-disc list-inside">
                   <li>
                     Asegúrate de estar registrada en{' '}
-                    <a 
-                      href="https://technovationchallenge.org" 
-                      target="_blank" 
+                    <a
+                      href="https://technovationchallenge.org"
+                      target="_blank"
                       rel="noopener noreferrer"
                       className="text-primary hover:underline"
                     >
@@ -102,7 +102,7 @@ export function VerificationPendingModal() {
               <div className="text-sm">
                 <p className="font-medium">Tiempo de espera</p>
                 <p className="text-muted-foreground mt-1">
-                  <strong>Este proceso puede durar hasta 24 horas.</strong> Recibirás un correo 
+                  <strong>Este proceso puede durar hasta 24 horas.</strong> Recibirás un correo
                   de confirmación cuando tu cuenta esté activa.
                 </p>
               </div>

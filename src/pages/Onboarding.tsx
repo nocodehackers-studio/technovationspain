@@ -1,124 +1,75 @@
-import { useState, useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { Sparkles, User, Calendar, Mail, ArrowRight, ArrowLeft, GraduationCap, Users, Scale, Building2, Heart } from 'lucide-react';
-import { z } from 'zod';
-import { AppRole } from '@/types/database';
-import { calculateAge, isMinor } from '@/lib/age-utils';
+import { User, Calendar, Mail, Building2, LogOut } from 'lucide-react';
 import { validateSpanishDNI } from '@/lib/validation-utils';
+import { isMinor } from '@/lib/age-utils';
+import { getMissingFields, hasMissingFields, REQUIRED_PROFILE_FIELDS } from '@/lib/profile-fields';
+import { getDashboardPath } from '@/lib/dashboard-routes';
 
-type AllowedRole = 'participant' | 'mentor' | 'judge' | 'volunteer';
+type OnboardingField = string;
 
-const roleConfig: Record<AllowedRole, { 
-  label: string; 
-  icon: typeof GraduationCap; 
-  ageMin: number; 
-  ageMax: number | null;
-  ageLabel: string;
-  color: string;
-  requiresTGEmail: boolean;
-}> = {
-  participant: { 
-    label: 'Estudiante', 
-    icon: GraduationCap, 
-    ageMin: 7, 
-    ageMax: 18,
-    ageLabel: '7-18 años',
-    color: 'text-primary',
-    requiresTGEmail: true,
-  },
-  mentor: { 
-    label: 'Mentor', 
-    icon: Users, 
-    ageMin: 18, 
-    ageMax: null,
-    ageLabel: '18+ años',
-    color: 'text-secondary',
-    requiresTGEmail: true,
-  },
-  judge: { 
-    label: 'Juez', 
-    icon: Scale, 
-    ageMin: 18, 
-    ageMax: null,
-    ageLabel: '18+ años',
-    color: 'text-accent',
-    requiresTGEmail: true,
-  },
-  volunteer: { 
-    label: 'Voluntario/a', 
-    icon: Heart, 
-    ageMin: 18, 
-    ageMax: null,
-    ageLabel: '18+ años',
-    color: 'text-accent',
-    requiresTGEmail: false,
-  },
-};
-
-const createOnboardingSchema = (role: AllowedRole) => z.object({
-  first_name: z.string().min(1, 'El nombre es obligatorio').max(100),
-  last_name: z.string().min(1, 'Los apellidos son obligatorios').max(100),
-  date_of_birth: z.string().min(1, 'La fecha de nacimiento es obligatoria'),
-  dni: z.string().min(1, 'El DNI/NIE es obligatorio').refine(
-    validateSpanishDNI,
-    'Formato inválido. Usa 8 números + letra (DNI) o X/Y/Z + 7 números + letra (NIE)'
-  ),
-  role: z.enum(['participant', 'mentor', 'judge', 'volunteer']),
-  parent_email: z.string().email('Email del tutor inválido').optional().or(z.literal('')),
-  tg_email: z.string().email('Email inválido').optional().or(z.literal('')),
-  phone: z.string().max(20).optional(),
-  postal_code: z.string().max(10).optional(),
-});
-
-type OnboardingData = {
+interface FormData {
   first_name: string;
   last_name: string;
   date_of_birth: string;
   dni: string;
-  role: AllowedRole;
-  parent_email: string;
-  tg_email: string;
   hub_id: string;
-  phone: string;
   postal_code: string;
-};
+  phone: string;
+  city: string;
+  state: string;
+  parent_name: string;
+  parent_email: string;
+}
 
 export default function Onboarding() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const { user, refreshProfile } = useAuth();
+  const { user, profile, role, refreshProfile, signOut } = useAuth();
   const { toast } = useToast();
-  
-  // Get role from URL params or default to participant
-  const urlRole = searchParams.get('role') as AllowedRole | null;
-  const initialRole: AllowedRole = urlRole && ['participant', 'mentor', 'judge', 'volunteer'].includes(urlRole) 
-    ? urlRole 
-    : 'participant';
-  
-  const [step, setStep] = useState(1);
+
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
-  
-  const [formData, setFormData] = useState<OnboardingData>({
-    first_name: '',
-    last_name: '',
-    date_of_birth: '',
-    dni: '',
-    role: initialRole,
-    parent_email: '',
-    tg_email: user?.email || '',
-    hub_id: '',
-    phone: '',
-    postal_code: '',
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [privacyAccepted, setPrivacyAccepted] = useState(false);
+
+  // Determine which fields are missing (dynamic)
+  const missingFieldSet = useMemo(() => {
+    if (!profile) return new Set<string>();
+    return new Set(getMissingFields(profile as unknown as Record<string, unknown>));
+  }, [profile]);
+
+  // Whether this is a first-time onboarding (need consent)
+  const needsConsent = !profile?.terms_accepted_at;
+
+  // If no required fields missing and consent done, skip onboarding
+  if (profile && !needsConsent && !hasMissingFields(profile as unknown as Record<string, unknown>)) {
+    navigate(getDashboardPath(role), { replace: true });
+    return null;
+  }
+
+  // Initialize form with profile data
+  const [formData, setFormData] = useState<FormData>({
+    first_name: (profile as any)?.first_name || '',
+    last_name: (profile as any)?.last_name || '',
+    date_of_birth: (profile as any)?.date_of_birth || '',
+    dni: (profile as any)?.dni || '',
+    hub_id: (profile as any)?.hub_id || '',
+    postal_code: (profile as any)?.postal_code || '',
+    phone: (profile as any)?.phone || '',
+    city: (profile as any)?.city || '',
+    state: (profile as any)?.state || '',
+    parent_name: (profile as any)?.parent_name || '',
+    parent_email: (profile as any)?.parent_email || '',
   });
 
   // Fetch available hubs
@@ -134,165 +85,147 @@ export default function Onboarding() {
     },
   });
 
-  // Update role if URL changes
-  useEffect(() => {
-    if (urlRole && ['participant', 'mentor', 'judge', 'volunteer'].includes(urlRole)) {
-      setFormData(prev => ({ ...prev, role: urlRole }));
-    }
-  }, [urlRole]);
+  // Determine if user is a minor based on DOB (form value or existing profile)
+  // Only evaluate when a DOB actually exists — no DOB means hide parent fields
+  const effectiveDob = formData.date_of_birth || (profile as any)?.date_of_birth;
+  const userIsMinor = effectiveDob ? isMinor(effectiveDob) : false;
 
-  const currentRoleConfig = roleConfig[formData.role];
-  const RoleIcon = currentRoleConfig.icon;
+  // Show parent fields only for minors with missing parent data
+  const showParentName = userIsMinor && !(profile as any)?.parent_name;
+  const showParentEmail = userIsMinor && !(profile as any)?.parent_email;
 
-  const updateField = (field: keyof OnboardingData, value: string) => {
+  const updateField = (field: keyof FormData, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
     setErrors(prev => ({ ...prev, [field]: '' }));
   };
 
-  const validateStep1 = () => {
+  // Field labels for display
+  const fieldLabels: Record<string, string> = {
+    first_name: 'Nombre',
+    last_name: 'Apellidos',
+    date_of_birth: 'Fecha de nacimiento',
+    dni: 'DNI/NIE',
+    hub_id: 'Hub Regional',
+    postal_code: 'Código postal',
+    phone: 'Teléfono',
+    city: 'Ciudad',
+    state: 'Comunidad Autónoma',
+    parent_name: 'Nombre padre/madre/tutor',
+    parent_email: 'Email padre/madre/tutor',
+  };
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate('/', { replace: true });
+  };
+
+  const validate = (): boolean => {
     const newErrors: Record<string, string> = {};
-    
-    if (!formData.first_name.trim()) {
+
+    // Only validate missing fields
+    if (missingFieldSet.has('first_name') && !formData.first_name.trim()) {
       newErrors.first_name = 'El nombre es obligatorio';
     }
-    if (!formData.last_name.trim()) {
+    if (missingFieldSet.has('last_name') && !formData.last_name.trim()) {
       newErrors.last_name = 'Los apellidos son obligatorios';
     }
-    if (!formData.date_of_birth) {
+    if (missingFieldSet.has('date_of_birth') && !formData.date_of_birth) {
       newErrors.date_of_birth = 'La fecha de nacimiento es obligatoria';
-    } else {
-      const birthDate = new Date(formData.date_of_birth);
-      const today = new Date();
-      if (birthDate >= today) {
-        newErrors.date_of_birth = 'La fecha debe ser anterior a hoy';
-      } else {
-        // Validate age for role
-        const age = calculateAge(formData.date_of_birth);
-        const { ageMin, ageMax, ageLabel } = currentRoleConfig;
-        
-        if (age < ageMin) {
-          newErrors.date_of_birth = `Debes tener al menos ${ageMin} años para registrarte como ${currentRoleConfig.label.toLowerCase()}`;
-        }
-        if (ageMax !== null && age > ageMax) {
-          newErrors.date_of_birth = `Para registrarte como ${currentRoleConfig.label.toLowerCase()} debes tener entre ${ageMin} y ${ageMax} años`;
-        }
+    }
+    if (missingFieldSet.has('dni')) {
+      if (!formData.dni.trim()) {
+        newErrors.dni = 'El DNI/NIE es obligatorio';
+      } else if (!validateSpanishDNI(formData.dni, true)) {
+        newErrors.dni = 'Formato inválido. Usa 8 números + letra (DNI) o X/Y/Z + 7 números + letra (NIE)';
       }
     }
-    
-    // Validate DNI/NIE
-    if (!formData.dni.trim()) {
-      newErrors.dni = 'El DNI/NIE es obligatorio';
-    } else if (!validateSpanishDNI(formData.dni, true)) {
-      newErrors.dni = 'Formato inválido. Usa 8 números + letra (DNI) o X/Y/Z + 7 números + letra (NIE)';
+    if (missingFieldSet.has('postal_code') && !formData.postal_code.trim()) {
+      newErrors.postal_code = 'El código postal es obligatorio';
+    }
+    if (missingFieldSet.has('hub_id') && !formData.hub_id && hubs && hubs.length > 0) {
+      newErrors.hub_id = 'Selecciona un hub regional';
     }
 
-    // Validate parent_email for minors (only participants can be minors, other roles require 18+)
-    if (formData.role === 'participant' && isMinor(formData.date_of_birth)) {
-      if (!formData.parent_email?.trim()) {
-        newErrors.parent_email = 'El email del padre/madre/tutor es obligatorio para menores de 14 años';
-      } else if (formData.parent_email.trim().toLowerCase() === user?.email?.toLowerCase()) {
-        newErrors.parent_email = 'El email del tutor debe ser diferente al tuyo';
-      }
+    // Parent fields validation (minors only)
+    if (showParentName && !formData.parent_name.trim()) {
+      newErrors.parent_name = 'El nombre del padre/madre/tutor es obligatorio';
+    }
+    if (showParentEmail && !formData.parent_email.trim()) {
+      newErrors.parent_email = 'El email del padre/madre/tutor es obligatorio';
+    }
+
+    // Consent validation (first-time only)
+    if (needsConsent && (!termsAccepted || !privacyAccepted)) {
+      newErrors.consent = 'Debes aceptar los términos y la política de privacidad';
     }
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleNext = () => {
-    if (validateStep1()) {
-      setStep(2);
+  // Real-time check: enable button only when all required fields are filled
+  const isFormComplete = useMemo(() => {
+    // Check required profile fields that are missing
+    for (const field of REQUIRED_PROFILE_FIELDS) {
+      if (missingFieldSet.has(field)) {
+        if (field === 'hub_id') {
+          if (hubs && hubs.length > 0 && !formData.hub_id) return false;
+        } else {
+          if (!(formData as any)[field]?.trim()) return false;
+        }
+      }
     }
-  };
+    // Parent fields required for minors
+    if (showParentName && !formData.parent_name.trim()) return false;
+    if (showParentEmail && !formData.parent_email.trim()) return false;
+    // Consent required for first-time
+    if (needsConsent && (!termsAccepted || !privacyAccepted)) return false;
+    return true;
+  }, [missingFieldSet, formData, hubs, showParentName, showParentEmail, needsConsent, termsAccepted, privacyAccepted]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!user) {
-      toast({
-        title: 'Error',
-        description: 'No hay sesión activa. Por favor, inicia sesión de nuevo.',
-        variant: 'destructive',
-      });
+      toast({ title: 'Error', description: 'No hay sesión activa.', variant: 'destructive' });
       navigate('/');
       return;
     }
 
-    // Validate all fields
-    const schema = createOnboardingSchema(formData.role);
-    const result = schema.safeParse(formData);
-    if (!result.success) {
-      const fieldErrors: Record<string, string> = {};
-      result.error.errors.forEach(err => {
-        if (err.path[0]) {
-          fieldErrors[err.path[0] as string] = err.message;
-        }
-      });
-      setErrors(fieldErrors);
-      return;
-    }
-
-    // Final age validation
-    const age = calculateAge(formData.date_of_birth);
-    const { ageMin, ageMax } = currentRoleConfig;
-    if (age < ageMin || (ageMax !== null && age > ageMax)) {
-      toast({
-        title: 'Error de edad',
-        description: `Tu edad no corresponde con el rol de ${currentRoleConfig.label.toLowerCase()} (${currentRoleConfig.ageLabel})`,
-        variant: 'destructive',
-      });
-      setStep(1);
-      return;
-    }
+    if (!validate()) return;
 
     setIsLoading(true);
 
     try {
-      // Volunteers are auto-verified (no Technovation Global check needed)
-      const isVolunteer = formData.role === 'volunteer';
-      
-      // Check if tg_email is in authorized whitelist - use safe views to protect PII
-      let isInWhitelist = false;
-      let authorizedData: { id: string; tg_id: string | null; matched_profile_id: string | null } | null = null;
-      
-      if (formData.role === 'participant' && formData.tg_email?.trim()) {
-        // Use safe view - only returns id, email, tg_id, matched_profile_id
-        // Cast needed as views aren't in generated types
-        const { data: authorized } = await supabase
-          .from('authorized_students_safe')
-          .select('id, tg_id, matched_profile_id')
-          .ilike('email', formData.tg_email.trim())
-          .maybeSingle() as { data: { id: string; tg_id: string | null; matched_profile_id: string | null } | null };
-        
-        if (authorized && (!authorized.matched_profile_id || authorized.matched_profile_id === user.id)) {
-          isInWhitelist = true;
-          authorizedData = authorized;
-        }
-      }
-
-      // Update profile with verification status based on whitelist or volunteer role
-      const profileUpdate: any = {
-        first_name: formData.first_name.trim(),
-        last_name: formData.last_name.trim(),
-        date_of_birth: formData.date_of_birth,
-        dni: formData.dni.toUpperCase().trim(),
-        tg_email: formData.tg_email?.trim() || null,
-        hub_id: formData.hub_id || null,
-        phone: formData.phone?.trim() || null,
-        postal_code: formData.postal_code?.trim() || null,
-        parent_email: isMinor(formData.date_of_birth) && formData.parent_email?.trim() ? formData.parent_email.trim() : null,
+      // Build profile update with only missing fields
+      const profileUpdate: Record<string, unknown> = {
         onboarding_completed: true,
       };
 
-      // Volunteers are auto-verified
-      if (isVolunteer) {
-        profileUpdate.verification_status = 'verified';
+      // Add consent timestamps if first time
+      if (needsConsent) {
+        profileUpdate.terms_accepted_at = new Date().toISOString();
+        profileUpdate.privacy_accepted_at = new Date().toISOString();
       }
 
-      // If in whitelist (participant), auto-verify and copy TG data
-      if (isInWhitelist && authorizedData) {
-        profileUpdate.verification_status = 'verified';
-        profileUpdate.tg_id = authorizedData.tg_id;
+      // Add each missing field value
+      missingFieldSet.forEach(field => {
+        const value = (formData as any)[field];
+        if (field === 'hub_id') {
+          profileUpdate[field] = value || null;
+        } else if (field === 'dni') {
+          profileUpdate[field] = value?.toUpperCase().trim() || null;
+        } else {
+          profileUpdate[field] = value?.trim() || null;
+        }
+      });
+
+      // Add parent fields for minors
+      if (showParentName) {
+        profileUpdate.parent_name = formData.parent_name.trim() || null;
+      }
+      if (showParentEmail) {
+        profileUpdate.parent_email = formData.parent_email.trim() || null;
       }
 
       const { error: profileError } = await supabase
@@ -300,35 +233,28 @@ export default function Onboarding() {
         .update(profileUpdate)
         .eq('id', user.id);
 
-      if (profileError) {
-        throw profileError;
-      }
+      if (profileError) throw profileError;
 
-      // Assign role - volunteers don't get automatic role (admin must grant QR validator access)
-      // Volunteers are verified but have no special role until admin assigns it
-      if (formData.role !== 'volunteer') {
-        const roleToAssign = formData.role as AppRole;
+      // If user has no role yet (manual registrant), assign 'participant' as default
+      const { data: existingRoles } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', user.id);
+
+      if (!existingRoles || existingRoles.length === 0) {
         const { error: roleError } = await supabase
           .from('user_roles')
-          .insert({ user_id: user.id, role: roleToAssign });
-        
-        // Ignore duplicate errors
+          .insert({ user_id: user.id, role: 'participant' });
         if (roleError && !roleError.message.includes('duplicate')) {
           console.warn('Role assignment warning:', roleError.message);
         }
       }
 
-      // If in whitelist (participant), update authorized_students
-      if (isInWhitelist && authorizedData) {
-        if (!authorizedData.matched_profile_id) {
-          await supabase
-            .from('authorized_students')
-            .update({ matched_profile_id: user.id })
-            .eq('id', authorizedData.id);
-        }
-      }
+      // Refresh profile in auth context
+      await refreshProfile();
+      await new Promise(resolve => setTimeout(resolve, 150));
 
-      // Verify actual profile status from database after update
+      // Check verification status for routing
       const { data: updatedProfile } = await supabase
         .from('profiles')
         .select('verification_status')
@@ -337,86 +263,54 @@ export default function Onboarding() {
 
       const wasVerified = updatedProfile?.verification_status === 'verified';
 
-      // Send welcome email if verified (fire and forget)
       if (wasVerified) {
-        supabase.functions.invoke("send-welcome-email", {
-          body: { email: user.email, firstName: formData.first_name },
-        }).catch((err) => console.error("Welcome email error:", err));
-      }
-
-      // Wait for profile refresh to complete before navigation
-      await refreshProfile();
-
-      // Small delay to ensure React processes the new auth state
-      await new Promise(resolve => setTimeout(resolve, 150));
-
-      if (wasVerified || isInWhitelist || isVolunteer) {
-        toast({
-          title: '¡Bienvenida!',
-          description: 'Tu cuenta ha sido verificada correctamente.',
-        });
-        // Route to role-specific dashboard
-        let redirectPath = '/dashboard';
-        if (isVolunteer) {
-          redirectPath = '/voluntario/dashboard';
-        } else if (formData.role === 'mentor') {
-          redirectPath = '/mentor/dashboard';
+        // Send welcome email only on first-time onboarding (consent just given)
+        if (needsConsent) {
+          supabase.functions.invoke("send-welcome-email", {
+            body: { email: user.email, firstName: formData.first_name || (profile as any)?.first_name },
+          }).catch((err) => console.error("Welcome email error:", err));
         }
-        navigate(redirectPath, { replace: true });
+
+        toast({ title: '¡Bienvenida!', description: 'Tu cuenta está lista.' });
+        navigate(getDashboardPath(role), { replace: true });
       } else {
-        toast({
-          title: 'Registro completado',
-          description: 'Tu perfil está pendiente de verificación.',
-        });
+        toast({ title: 'Registro completado', description: 'Tu perfil está pendiente de verificación.' });
         navigate('/pending-verification', { replace: true });
       }
     } catch (error: any) {
       console.error('Onboarding error:', error);
-      toast({
-        title: 'Error',
-        description: error.message || 'No se pudo completar el registro.',
-        variant: 'destructive',
-      });
+      toast({ title: 'Error', description: error.message || 'No se pudo completar el registro.', variant: 'destructive' });
     } finally {
       setIsLoading(false);
     }
   };
 
+  // Check if there are any fields to show
+  const hasFieldsToShow = missingFieldSet.size > 0 || needsConsent || showParentName || showParentEmail;
+
+  // Render a field only if it's in the missing set
+  const shouldShowField = (field: string) => missingFieldSet.has(field);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-secondary via-background to-muted p-4">
       <div className="w-full max-w-lg space-y-6">
-        {/* Header */}
-        <div className="text-center space-y-2">
-          <div className="inline-flex items-center justify-center gap-2">
-            <Sparkles className="h-6 w-6 text-primary" />
-            <span className="text-2xl font-display font-bold">Technovation España</span>
-          </div>
-          <p className="text-muted-foreground">Completa tu perfil para continuar</p>
-        </div>
-
-        {/* Progress indicator */}
-        <div className="flex items-center justify-center gap-2">
-          <div className={`h-2 w-16 rounded-full ${step >= 1 ? 'bg-primary' : 'bg-muted'}`} />
-          <div className={`h-2 w-16 rounded-full ${step >= 2 ? 'bg-primary' : 'bg-muted'}`} />
-        </div>
-
         <Card className="border-none shadow-2xl">
           <CardHeader>
             <CardTitle className="font-display">
-              {step === 1 ? 'Datos personales' : 'Información adicional'}
+              {needsConsent ? 'Completa tu perfil' : 'Actualiza tu perfil'}
             </CardTitle>
             <CardDescription>
-              {step === 1 
-                ? 'Cuéntanos un poco sobre ti'
-                : 'Información para conectar con Technovation Global'}
+              {needsConsent
+                ? 'Rellena los campos para poder acceder a la plataforma'
+                : 'Necesitamos algunos datos adicionales'}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
-              {step === 1 ? (
-                <>
-                  <div className="grid gap-4 sm:grid-cols-2">
+              {/* Name fields */}
+              {(shouldShowField('first_name') || shouldShowField('last_name')) && (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {shouldShowField('first_name') && (
                     <div className="space-y-2">
                       <Label htmlFor="first_name">Nombre *</Label>
                       <div className="relative">
@@ -430,10 +324,10 @@ export default function Onboarding() {
                           maxLength={100}
                         />
                       </div>
-                      {errors.first_name && (
-                        <p className="text-sm text-destructive">{errors.first_name}</p>
-                      )}
+                      {errors.first_name && <p className="text-sm text-destructive">{errors.first_name}</p>}
                     </div>
+                  )}
+                  {shouldShowField('last_name') && (
                     <div className="space-y-2">
                       <Label htmlFor="last_name">Apellidos *</Label>
                       <Input
@@ -443,181 +337,94 @@ export default function Onboarding() {
                         onChange={(e) => updateField('last_name', e.target.value)}
                         maxLength={100}
                       />
-                      {errors.last_name && (
-                        <p className="text-sm text-destructive">{errors.last_name}</p>
-                      )}
+                      {errors.last_name && <p className="text-sm text-destructive">{errors.last_name}</p>}
                     </div>
-                  </div>
+                  )}
+                </div>
+              )}
 
-                  <div className="space-y-2">
-                    <Label htmlFor="date_of_birth">Fecha de nacimiento *</Label>
-                    <div className="relative">
-                      <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                      <Input
-                        id="date_of_birth"
-                        type="date"
-                        value={formData.date_of_birth}
-                        onChange={(e) => updateField('date_of_birth', e.target.value)}
-                        className="pl-10"
-                        max={new Date().toISOString().split('T')[0]}
-                      />
-                    </div>
-                    {errors.date_of_birth && (
-                      <p className="text-sm text-destructive">{errors.date_of_birth}</p>
-                    )}
-                    {formData.role === 'participant' && formData.date_of_birth && isMinor(formData.date_of_birth) && (
-                      <p className="text-sm text-warning">
-                        Al ser menor de 14 años, necesitarás el consentimiento de tu padre/madre/tutor.
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="dni">DNI/NIE *</Label>
+              {/* Date of birth */}
+              {shouldShowField('date_of_birth') && (
+                <div className="space-y-2">
+                  <Label htmlFor="date_of_birth">Fecha de nacimiento *</Label>
+                  <div className="relative">
+                    <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
-                      id="dni"
-                      placeholder="12345678A"
-                      value={formData.dni}
-                      onChange={(e) => updateField('dni', e.target.value.toUpperCase())}
-                      maxLength={9}
-                      className="uppercase"
+                      id="date_of_birth"
+                      type="date"
+                      value={formData.date_of_birth}
+                      onChange={(e) => updateField('date_of_birth', e.target.value)}
+                      className="pl-10"
+                      max={new Date().toISOString().split('T')[0]}
                     />
-                    <p className="text-xs text-muted-foreground">
-                      8 números + letra (DNI) o X/Y/Z + 7 números + letra (NIE)
-                    </p>
-                    {errors.dni && (
-                      <p className="text-sm text-destructive">{errors.dni}</p>
-                    )}
                   </div>
+                  {errors.date_of_birth && <p className="text-sm text-destructive">{errors.date_of_birth}</p>}
+                </div>
+              )}
 
-                  {/* Parent email for minors — only participants can be minors (other roles require 18+) */}
-                  {formData.role === 'participant' && formData.date_of_birth && isMinor(formData.date_of_birth) && (
-                    <div className="space-y-2">
-                      <Label htmlFor="parent_email">Email del padre/madre/tutor *</Label>
-                      <div className="relative">
-                        <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                        <Input
-                          id="parent_email"
-                          type="email"
-                          placeholder="email@ejemplo.com"
-                          value={formData.parent_email}
-                          onChange={(e) => updateField('parent_email', e.target.value)}
-                          className="pl-10"
-                        />
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        Se enviará una solicitud de consentimiento a este email para cada evento.
-                      </p>
-                      {errors.parent_email && (
-                        <p className="text-sm text-destructive">{errors.parent_email}</p>
-                      )}
-                    </div>
-                  )}
+              {/* DNI */}
+              {shouldShowField('dni') && (
+                <div className="space-y-2">
+                  <Label htmlFor="dni">DNI/NIE *</Label>
+                  <Input
+                    id="dni"
+                    placeholder="12345678A"
+                    value={formData.dni}
+                    onChange={(e) => updateField('dni', e.target.value.toUpperCase())}
+                    maxLength={9}
+                    className="uppercase"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    8 números + letra (DNI) o X/Y/Z + 7 números + letra (NIE)
+                  </p>
+                  {errors.dni && <p className="text-sm text-destructive">{errors.dni}</p>}
+                </div>
+              )}
 
-                  {/* Role display - shows selected role from registration */}
-                  <div className="rounded-lg bg-muted p-4">
-                    <Label className="text-sm font-medium">Tu rol</Label>
-                    <div className="flex items-center gap-2 mt-1">
-                      <RoleIcon className={`h-5 w-5 ${currentRoleConfig.color}`} />
-                      <span className="text-base font-semibold text-foreground">
-                        {currentRoleConfig.label}
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        ({currentRoleConfig.ageLabel})
-                      </span>
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-2">
-                      {formData.role === 'participant' && 
-                        'Si ya estás registrada en Technovation Global, podrás verificar tu cuenta automáticamente.'
-                      }
-                      {formData.role === 'mentor' && 
-                        'Los mentores guían y apoyan a los equipos de estudiantes durante la temporada.'
-                      }
-                      {formData.role === 'judge' && 
-                        'Los jueces evalúan los proyectos de las estudiantes en eventos regionales y nacionales.'
-                      }
-                      {formData.role === 'volunteer' && 
-                        'Los voluntarios apoyan en la logística y organización de eventos.'
-                      }
-                    </p>
+              {/* Hub selector */}
+              {shouldShowField('hub_id') && hubs && hubs.length > 0 && (
+                <div className="space-y-2">
+                  <Label htmlFor="hub_id">Hub Regional</Label>
+                  <div className="relative">
+                    <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none z-10" />
+                    <Select
+                      value={formData.hub_id}
+                      onValueChange={(value) => updateField('hub_id', value === 'none' ? '' : value)}
+                    >
+                      <SelectTrigger className="pl-10">
+                        <SelectValue placeholder="Selecciona tu hub..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Sin hub asignado</SelectItem>
+                        {hubs.map((hub) => (
+                          <SelectItem key={hub.id} value={hub.id}>
+                            {hub.name}{hub.location ? ` (${hub.location})` : ''}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
+                  {errors.hub_id && <p className="text-sm text-destructive">{errors.hub_id}</p>}
+                </div>
+              )}
 
-                  <Button
-                    type="button"
-                    className="w-full gradient-primary"
-                    onClick={handleNext}
-                  >
-                    Continuar
-                    <ArrowRight className="ml-2 h-4 w-4" />
-                  </Button>
-                </>
-              ) : (
-                <>
-                  {/* TG Email - Only show for roles that require it */}
-                  {currentRoleConfig.requiresTGEmail && (
+              {/* Postal code and phone */}
+              {(shouldShowField('postal_code') || shouldShowField('phone')) && (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {shouldShowField('postal_code') && (
                     <div className="space-y-2">
-                      <Label htmlFor="tg_email">Email de Technovation Global</Label>
-                      <div className="relative">
-                        <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                        <Input
-                          id="tg_email"
-                          type="email"
-                          placeholder="email@technovation.org"
-                          value={formData.tg_email}
-                          onChange={(e) => updateField('tg_email', e.target.value)}
-                          className="pl-10"
-                        />
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        Introduce el email con el que estás registrado en Technovation Global.
-                      </p>
-                      {errors.tg_email && (
-                        <p className="text-sm text-destructive">{errors.tg_email}</p>
-                      )}
+                      <Label htmlFor="postal_code">Código postal *</Label>
+                      <Input
+                        id="postal_code"
+                        placeholder="28001"
+                        value={formData.postal_code}
+                        onChange={(e) => updateField('postal_code', e.target.value)}
+                        maxLength={10}
+                      />
+                      {errors.postal_code && <p className="text-sm text-destructive">{errors.postal_code}</p>}
                     </div>
                   )}
-
-                  {/* Volunteer info message */}
-                  {formData.role === 'volunteer' && (
-                    <div className="rounded-lg bg-accent/10 border border-accent/20 p-4">
-                      <p className="text-sm text-muted-foreground">
-                        <Heart className="inline h-4 w-4 mr-1 text-accent" />
-                        ¡Gracias por querer ser voluntario/a! Tu cuenta será verificada automáticamente 
-                        y podrás apuntarte a eventos desde tu dashboard.
-                      </p>
-                    </div>
-                  )}
-
-                  {/* Hub selector - optional */}
-                  {hubs && hubs.length > 0 && (
-                    <div className="space-y-2">
-                      <Label htmlFor="hub_id">Hub Regional (opcional)</Label>
-                      <div className="relative">
-                        <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none z-10" />
-                        <Select
-                          value={formData.hub_id}
-                          onValueChange={(value) => updateField('hub_id', value === 'none' ? '' : value)}
-                        >
-                          <SelectTrigger className="pl-10">
-                            <SelectValue placeholder="Selecciona tu hub..." />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="none">Sin hub asignado</SelectItem>
-                            {hubs.map((hub) => (
-                              <SelectItem key={hub.id} value={hub.id}>
-                                {hub.name}{hub.location ? ` (${hub.location})` : ''}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        Si no conoces tu hub, puedes dejarlo en blanco. Tu mentor o el admin puede asignártelo después.
-                      </p>
-                    </div>
-                  )}
-
-                  <div className="grid gap-4 sm:grid-cols-2">
+                  {shouldShowField('phone') && (
                     <div className="space-y-2">
                       <Label htmlFor="phone">Teléfono</Label>
                       <Input
@@ -629,48 +436,142 @@ export default function Onboarding() {
                         maxLength={20}
                       />
                     </div>
+                  )}
+                </div>
+              )}
+
+              {/* Parent name & email — only for minors (age ≤13) */}
+              {(showParentName || showParentEmail) && (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {showParentName && (
                     <div className="space-y-2">
-                      <Label htmlFor="postal_code">Código postal</Label>
+                      <Label htmlFor="parent_name">Nombre padre/madre/tutor *</Label>
                       <Input
-                        id="postal_code"
-                        placeholder="28001"
-                        value={formData.postal_code}
-                        onChange={(e) => updateField('postal_code', e.target.value)}
-                        maxLength={10}
+                        id="parent_name"
+                        placeholder="Nombre completo"
+                        value={formData.parent_name}
+                        onChange={(e) => updateField('parent_name', e.target.value)}
+                        maxLength={200}
+                      />
+                      {errors.parent_name && <p className="text-sm text-destructive">{errors.parent_name}</p>}
+                    </div>
+                  )}
+                  {showParentEmail && (
+                    <div className="space-y-2">
+                      <Label htmlFor="parent_email">Email padre/madre/tutor *</Label>
+                      <div className="relative">
+                        <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          id="parent_email"
+                          type="email"
+                          placeholder="email@ejemplo.com"
+                          value={formData.parent_email}
+                          onChange={(e) => updateField('parent_email', e.target.value)}
+                          className="pl-10"
+                        />
+                      </div>
+                      {errors.parent_email && <p className="text-sm text-destructive">{errors.parent_email}</p>}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Optional CSV fields */}
+              {(shouldShowField('city') || shouldShowField('state')) && (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {shouldShowField('city') && (
+                    <div className="space-y-2">
+                      <Label htmlFor="city">Ciudad</Label>
+                      <Input
+                        id="city"
+                        placeholder="Madrid"
+                        value={formData.city}
+                        onChange={(e) => updateField('city', e.target.value)}
                       />
                     </div>
-                  </div>
-
-                  <div className="flex gap-3">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="flex-1"
-                      onClick={() => setStep(1)}
-                    >
-                      <ArrowLeft className="mr-2 h-4 w-4" />
-                      Atrás
-                    </Button>
-                    <Button
-                      type="submit"
-                      className="flex-1 gradient-primary"
-                      disabled={isLoading}
-                    >
-                      {isLoading ? (
-                        <span className="flex items-center gap-2">
-                          <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                          Guardando...
-                        </span>
-                      ) : (
-                        'Completar registro'
-                      )}
-                    </Button>
-                  </div>
-                </>
+                  )}
+                  {shouldShowField('state') && (
+                    <div className="space-y-2">
+                      <Label htmlFor="state">Comunidad Autónoma</Label>
+                      <Input
+                        id="state"
+                        placeholder="Comunidad de Madrid"
+                        value={formData.state}
+                        onChange={(e) => updateField('state', e.target.value)}
+                      />
+                    </div>
+                  )}
+                </div>
               )}
+
+              {/* Legal consent (first-time only) */}
+              {needsConsent && (
+                <div className="space-y-3 rounded-lg border p-4 bg-muted/30">
+                  <p className="text-sm font-medium">Consentimiento legal</p>
+                  <div className="flex items-start space-x-3">
+                    <Checkbox
+                      id="terms"
+                      checked={termsAccepted}
+                      onCheckedChange={(checked) => {
+                        setTermsAccepted(!!checked);
+                        setErrors(prev => ({ ...prev, consent: '' }));
+                      }}
+                    />
+                    <Label htmlFor="terms" className="text-sm font-normal leading-snug">
+                      Acepto los{' '}
+                      <a href="https://powertocode.org/terms/" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                        términos de uso
+                      </a>
+                    </Label>
+                  </div>
+                  <div className="flex items-start space-x-3">
+                    <Checkbox
+                      id="privacy"
+                      checked={privacyAccepted}
+                      onCheckedChange={(checked) => {
+                        setPrivacyAccepted(!!checked);
+                        setErrors(prev => ({ ...prev, consent: '' }));
+                      }}
+                    />
+                    <Label htmlFor="privacy" className="text-sm font-normal leading-snug">
+                      Acepto la{' '}
+                      <a href="https://powertocode.org/privacy-policy/" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                        política de privacidad
+                      </a>
+                    </Label>
+                  </div>
+                  {errors.consent && <p className="text-sm text-destructive">{errors.consent}</p>}
+                </div>
+              )}
+
+              <Button
+                type="submit"
+                className="w-full"
+                disabled={isLoading || !isFormComplete}
+              >
+                {isLoading ? (
+                  <span className="flex items-center gap-2">
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                    Guardando...
+                  </span>
+                ) : (
+                  'Completar registro'
+                )}
+              </Button>
             </form>
           </CardContent>
         </Card>
+
+        <div className="flex justify-center">
+          <Button
+            variant="outline"
+            className="w-full sm:w-auto"
+            onClick={handleSignOut}
+          >
+            <LogOut className="h-4 w-4 mr-2" />
+            Cerrar sesión
+          </Button>
+        </div>
       </div>
     </div>
   );

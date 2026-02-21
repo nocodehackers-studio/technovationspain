@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { Link, Navigate, useNavigate } from "react-router-dom";
+import { Navigate, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { hasMissingFields } from "@/lib/profile-fields";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,7 +10,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { LoadingPage } from "@/components/ui/loading-spinner";
 import { toast } from "sonner";
-import { Mail, ArrowLeft, Loader2, Info, KeyRound, UserPlus } from "lucide-react";
+import { Mail, ArrowLeft, Loader2, Info, KeyRound } from "lucide-react";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 
 // Logos from Supabase Storage
@@ -18,7 +19,7 @@ const LOGO_POWER_TO_CODE = "https://orvkqnbshkxzyhqpjsdw.supabase.co/storage/v1/
 
 export default function Index() {
   const navigate = useNavigate();
-  const { user, isLoading, role, needsOnboarding, isVerified } = useAuth();
+  const { user, isLoading, role, isVerified, profile } = useAuth();
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
@@ -30,79 +31,42 @@ export default function Index() {
     return <LoadingPage />;
   }
 
-  // If logged in, redirect based on role and onboarding status
+  // If logged in, redirect based on priority: admin → !verified → !consent → missing fields → role dashboard
   if (user) {
-    if (role === "admin") {
-      return <Navigate to="/admin" replace />;
-    }
-    // Check if user needs onboarding first
-    if (needsOnboarding) {
-      return <Navigate to="/onboarding" replace />;
-    }
-    // Check verification status
-    if (!isVerified) {
-      return <Navigate to="/pending-verification" replace />;
-    }
-    // Role-based redirect for verified users
-    if (role === "volunteer") {
-      return <Navigate to="/voluntario/dashboard" replace />;
-    }
-    if (role === "mentor") {
-      return <Navigate to="/mentor/dashboard" replace />;
-    }
-    // Participants and judges go to generic dashboard
+    if (role === "admin") return <Navigate to="/admin" replace />;
+    if (!isVerified) return <Navigate to="/pending-verification" replace />;
+    if (!profile?.terms_accepted_at) return <Navigate to="/onboarding" replace />;
+    if (profile && hasMissingFields(profile)) return <Navigate to="/onboarding" replace />;
+    if (role === "chapter_ambassador") return <Navigate to="/admin" replace />;
+    if (role === "mentor") return <Navigate to="/mentor/dashboard" replace />;
     return <Navigate to="/dashboard" replace />;
   }
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!email) {
-      toast.error("Por favor, introduce tu email");
-      return;
-    }
-
+    if (!email) { toast.error("Por favor, introduce tu email"); return; }
     setLoading(true);
-    
-    // Check if the email exists in profiles before sending OTP
-    const { data: emailExists, error: checkError } = await supabase
-      .rpc('check_email_exists', { check_email: email });
-    
-    if (checkError) {
-      console.error('Error checking email:', checkError);
-      // On error, continue with normal flow as fallback
-    } else if (!emailExists) {
-      // Email not registered: redirect to registration
-      setLoading(false);
-      toast.info("Este email no está registrado. Por favor, crea una cuenta.");
-      navigate('/register', { state: { email } });
-      return;
-    }
-    
-    // Email exists: proceed with OTP
+
     const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
     const baseUrl = isLocalhost ? window.location.origin : 'https://app.powertocode.org';
-    
+
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: {
-        emailRedirectTo: `${baseUrl}/auth/callback`,
-      },
+      options: { emailRedirectTo: `${baseUrl}/auth/callback` },
     });
 
     setLoading(false);
-
     if (error) {
       toast.error(`Error: ${error.message}`);
     } else {
       setEmailSent(true);
-      toast.success("¡Enlace enviado! Revisa tu correo electrónico");
+      toast.success("¡Código enviado! Revisa tu correo electrónico");
     }
   };
 
   const handleVerifyOtp = async () => {
-    if (otpCode.length !== 8) {
-      toast.error("Introduce el código de 8 dígitos completo");
+    if (otpCode.length !== 6) {
+      toast.error("Introduce el código de 6 dígitos completo");
       return;
     }
 
@@ -119,36 +83,36 @@ export default function Index() {
 
       if (data.session) {
         toast.success("¡Verificación exitosa!");
-        
+
         // Check profile to determine redirect
-        const { data: profile } = await supabase
+        const { data: profileData } = await supabase
           .from('profiles')
-          .select('onboarding_completed, verification_status')
+          .select('*')
           .eq('id', data.session.user.id)
           .maybeSingle();
-        
-        if (!profile?.onboarding_completed) {
-          navigate('/onboarding', { replace: true });
-          return;
-        }
-        
+
         // Check role for redirect
         const { data: rolesData } = await supabase
           .from('user_roles')
           .select('role')
           .eq('user_id', data.session.user.id);
-        
-        type AppRole = 'admin' | 'mentor' | 'judge' | 'volunteer' | 'participant';
-        const rolePriority: AppRole[] = ['admin', 'mentor', 'judge', 'volunteer', 'participant'];
+
+        type AppRole = 'admin' | 'chapter_ambassador' | 'mentor' | 'judge' | 'participant';
+        const rolePriority: AppRole[] = ['admin', 'chapter_ambassador', 'mentor', 'judge', 'participant'];
         const userRoles = (rolesData?.map(r => r.role) || []) as AppRole[];
         const highestRole = rolePriority.find(r => userRoles.includes(r));
-        
+
+        // Priority: admin → !verified → !consent → missing fields → role dashboard
         if (highestRole === 'admin') {
           navigate('/admin', { replace: true });
-        } else if (profile?.verification_status !== 'verified') {
+        } else if (profileData?.verification_status !== 'verified') {
           navigate('/pending-verification', { replace: true });
-        } else if (highestRole === 'volunteer') {
-          navigate('/voluntario/dashboard', { replace: true });
+        } else if (!profileData?.terms_accepted_at) {
+          navigate('/onboarding', { replace: true });
+        } else if (profileData && hasMissingFields(profileData as Record<string, unknown>)) {
+          navigate('/onboarding', { replace: true });
+        } else if (highestRole === 'chapter_ambassador') {
+          navigate('/admin', { replace: true });
         } else if (highestRole === 'mentor') {
           navigate('/mentor/dashboard', { replace: true });
         } else {
@@ -169,15 +133,15 @@ export default function Index() {
           <CardHeader className="text-center">
             {/* Logos */}
             <div className="flex items-center justify-center gap-6 mb-6">
-              <img 
-                src={LOGO_TECHNOVATION} 
-                alt="Technovation Girls Madrid" 
+              <img
+                src={LOGO_TECHNOVATION}
+                alt="Technovation Girls Madrid"
                 className="h-14 w-auto"
               />
               <div className="h-10 w-px bg-border" />
-              <img 
-                src={LOGO_POWER_TO_CODE} 
-                alt="Power to Code" 
+              <img
+                src={LOGO_POWER_TO_CODE}
+                alt="Power to Code"
                 className="h-12 w-auto"
               />
             </div>
@@ -191,7 +155,7 @@ export default function Index() {
           </CardHeader>
           <CardContent className="space-y-6">
             <p className="text-center text-sm text-muted-foreground">
-              Haz clic en el enlace del correo para completar tu registro. 
+              Haz clic en el enlace del correo para completar tu registro.
               El enlace expira en 1 hora.
             </p>
 
@@ -211,7 +175,7 @@ export default function Index() {
                   Código de verificación
                 </Label>
                 <InputOTP
-                  maxLength={8}
+                  maxLength={6}
                   value={otpCode}
                   onChange={(value) => setOtpCode(value)}
                 >
@@ -222,19 +186,17 @@ export default function Index() {
                     <InputOTPSlot index={3} />
                     <InputOTPSlot index={4} />
                     <InputOTPSlot index={5} />
-                    <InputOTPSlot index={6} />
-                    <InputOTPSlot index={7} />
                   </InputOTPGroup>
                 </InputOTP>
                 <p className="text-xs text-muted-foreground">
-                  Introduce el código de 8 dígitos del correo
+                  Introduce el código de 6 dígitos del correo
                 </p>
               </div>
 
-              <Button 
-                className="w-full" 
+              <Button
+                className="w-full"
                 onClick={handleVerifyOtp}
-                disabled={verifyingOtp || otpCode.length !== 8}
+                disabled={verifyingOtp || otpCode.length !== 6}
               >
                 {verifyingOtp ? (
                   <>
@@ -248,8 +210,8 @@ export default function Index() {
             </div>
           </CardContent>
           <CardFooter className="flex flex-col gap-3">
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               className="w-full"
               onClick={() => {
                 setEmailSent(false);
@@ -271,21 +233,21 @@ export default function Index() {
         <CardHeader className="text-center">
           {/* Logos */}
           <div className="flex items-center justify-center gap-6 mb-4">
-            <img 
-              src={LOGO_TECHNOVATION} 
-              alt="Technovation Girls Madrid" 
+            <img
+              src={LOGO_TECHNOVATION}
+              alt="Technovation Girls Madrid"
               className="h-14 w-auto"
             />
             <div className="h-10 w-px bg-border" />
-            <img 
-              src={LOGO_POWER_TO_CODE} 
-              alt="Power to Code" 
+            <img
+              src={LOGO_POWER_TO_CODE}
+              alt="Power to Code"
               className="h-12 w-auto"
             />
           </div>
-          <CardTitle className="text-xl font-display">Iniciar sesión</CardTitle>
+          <CardTitle className="text-xl font-display">Acceder a la plataforma</CardTitle>
           <CardDescription className="text-base">
-            Introduce tu email para acceder a tu cuenta
+            Introduce tu email de Technovation Global
           </CardDescription>
         </CardHeader>
         <form onSubmit={handleSignUp}>
@@ -293,13 +255,12 @@ export default function Index() {
             <Alert className="border-muted bg-accent/5">
               <Info className="h-4 w-4 text-accent" />
               <AlertDescription className="text-sm">
-                <strong>Importante:</strong> Usa el mismo email con el que te registraste 
-                en Technovation Global para verificar tu cuenta automáticamente.
+                Debes usar el mismo email que usas en Technovation Global
               </AlertDescription>
             </Alert>
-            
+
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email">Email de Technovation Global</Label>
               <Input
                 id="email"
                 type="email"
@@ -309,9 +270,6 @@ export default function Index() {
                 required
                 autoComplete="email"
               />
-              <p className="text-xs text-muted-foreground">
-                Usa tu email de Technovation Global
-              </p>
             </div>
           </CardContent>
           <CardFooter className="flex flex-col gap-3">
@@ -325,23 +283,6 @@ export default function Index() {
                 "Continuar con email"
               )}
             </Button>
-            <div className="relative w-full">
-              <div className="absolute inset-0 flex items-center">
-                <span className="w-full border-t" />
-              </div>
-              <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-card px-2 text-muted-foreground">o</span>
-              </div>
-            </div>
-            <Link to="/register" className="w-full">
-              <Button variant="outline" className="w-full" type="button">
-                <UserPlus className="mr-2 h-4 w-4" />
-                Crear cuenta nueva
-              </Button>
-            </Link>
-            <p className="text-center text-xs text-muted-foreground">
-              Al continuar, aceptas los términos de uso y la política de privacidad.
-            </p>
           </CardFooter>
         </form>
       </Card>

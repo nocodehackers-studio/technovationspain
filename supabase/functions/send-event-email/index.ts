@@ -9,6 +9,7 @@ const BREVO_REPLY_TO_EMAIL = Deno.env.get("BREVO_REPLY_TO_EMAIL") || "soporte@po
 const ALLOWED_ORIGINS = [
   "https://app.powertocode.org",
   "http://localhost:5173",
+  "http://localhost:8080",
 ];
 
 function getCorsHeaders(req: Request) {

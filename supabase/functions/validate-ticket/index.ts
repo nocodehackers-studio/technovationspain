@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const ALLOWED_ORIGINS = [
   "https://app.powertocode.org",
   "http://localhost:5173",
+  "http://localhost:8080",
 ];
 
 function getCorsHeaders(req: Request) {

@@ -20,6 +20,7 @@ function escapeHtml(text: string | null | undefined): string {
 const ALLOWED_ORIGINS = [
   PUBLIC_SITE_URL,
   "http://localhost:5173",
+  "http://localhost:8080",
 ].filter(Boolean) as string[];
 
 if (!PUBLIC_SITE_URL) {

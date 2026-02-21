@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { RoleBadges } from "@/components/admin/RoleBadge";
 import { toast } from "sonner";
-import { Shield, Crown, Users, GraduationCap, Scale, QrCode, Check } from "lucide-react";
+import { Shield, Crown, Users, GraduationCap, Scale, QrCode, Heart, Check } from "lucide-react";
 import { AppRole } from "@/types/database";
 
 interface MultiRoleSelectorProps {
@@ -23,7 +23,6 @@ const PRIMARY_ROLES: { role: AppRole; label: string; icon: React.ReactNode }[] =
 
 // Additional roles - can be combined with primary
 const ADDITIONAL_ROLES: { role: AppRole; label: string; description: string; icon: React.ReactNode }[] = [
-  { role: "volunteer", label: "Validador QR", description: "Puede escanear entradas en eventos", icon: <QrCode className="h-4 w-4" /> },
   { role: "admin", label: "Administrador", description: "Acceso completo al panel de gestión", icon: <Shield className="h-4 w-4" /> },
 ];
 
@@ -33,6 +32,22 @@ export function MultiRoleSelector({ userId }: MultiRoleSelectorProps) {
     add: AppRole[];
     remove: AppRole[];
   }>({ add: [], remove: [] });
+  const [volunteerTogglePending, setVolunteerTogglePending] = useState<boolean | null>(null);
+
+  // Fetch is_volunteer from profile
+  const { data: isVolunteerProfile } = useQuery({
+    queryKey: ["user-volunteer", userId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("is_volunteer")
+        .eq("id", userId)
+        .single();
+      if (error) throw error;
+      return (data as any)?.is_volunteer ?? false;
+    },
+    enabled: !!userId,
+  });
 
   // Fetch all current roles for this user
   const { data: userRoles, isLoading } = useQuery({
@@ -52,6 +67,7 @@ export function MultiRoleSelector({ userId }: MultiRoleSelectorProps) {
   // Reset pending changes when user changes
   useEffect(() => {
     setPendingChanges({ add: [], remove: [] });
+    setVolunteerTogglePending(null);
   }, [userId]);
 
   // Calculate effective roles (current + pending)
@@ -85,11 +101,22 @@ export function MultiRoleSelector({ userId }: MultiRoleSelectorProps) {
           .upsert({ user_id: userId, role }, { onConflict: "user_id,role" });
         if (error) throw error;
       }
+
+      // Update is_volunteer on profile if changed
+      if (volunteerTogglePending !== null) {
+        const { error } = await supabase
+          .from("profiles")
+          .update({ is_volunteer: volunteerTogglePending } as any)
+          .eq("id", userId);
+        if (error) throw error;
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["user-roles", userId] });
+      queryClient.invalidateQueries({ queryKey: ["user-volunteer", userId] });
       queryClient.invalidateQueries({ queryKey: ["admin-users"] });
       setPendingChanges({ add: [], remove: [] });
+      setVolunteerTogglePending(null);
       toast.success("Roles actualizados correctamente");
     },
     onError: (error) => {
@@ -157,7 +184,8 @@ export function MultiRoleSelector({ userId }: MultiRoleSelectorProps) {
     setPendingChanges({ add: newAdd, remove: newRemove });
   };
 
-  const hasChanges = pendingChanges.add.length > 0 || pendingChanges.remove.length > 0;
+  const effectiveVolunteer = volunteerTogglePending !== null ? volunteerTogglePending : (isVolunteerProfile ?? false);
+  const hasChanges = pendingChanges.add.length > 0 || pendingChanges.remove.length > 0 || volunteerTogglePending !== null;
 
   if (isLoading) {
     return <div className="text-sm text-muted-foreground">Cargando roles...</div>;
@@ -213,12 +241,28 @@ export function MultiRoleSelector({ userId }: MultiRoleSelectorProps) {
         </div>
       </div>
 
-      {/* Additional roles */}
+      {/* Additional roles & flags */}
       <div className="space-y-3">
-        <p className="text-sm font-medium">Roles Adicionales</p>
+        <p className="text-sm font-medium">Roles Adicionales y Flags</p>
         <p className="text-xs text-muted-foreground mb-2">
-          Estos roles se combinan con el rol principal
+          Estos se combinan con el rol principal
         </p>
+
+        {/* Volunteer (is_volunteer on profile) */}
+        <div className="flex items-center justify-between p-3 rounded-md border">
+          <div className="flex items-center gap-3">
+            <div className="text-muted-foreground"><Heart className="h-4 w-4" /></div>
+            <div>
+              <p className="text-sm font-medium">Voluntario/a</p>
+              <p className="text-xs text-muted-foreground">Acceso al portal de voluntariado y escáner QR</p>
+            </div>
+          </div>
+          <Switch
+            checked={effectiveVolunteer}
+            onCheckedChange={(checked) => setVolunteerTogglePending(checked)}
+          />
+        </div>
+
         {ADDITIONAL_ROLES.map(({ role, label, description, icon }) => (
           <div
             key={role}
