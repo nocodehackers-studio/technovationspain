@@ -142,9 +142,7 @@ export default function Onboarding() {
     if (missingFieldSet.has('postal_code') && !formData.postal_code.trim()) {
       newErrors.postal_code = 'El código postal es obligatorio';
     }
-    if (missingFieldSet.has('hub_id') && !formData.hub_id && hubs && hubs.length > 0) {
-      newErrors.hub_id = 'Selecciona un hub regional';
-    }
+    // hub_id is optional — user can select "Sin hub asignado"
 
     // Parent fields validation (minors only)
     if (showParentName && !formData.parent_name.trim()) {
@@ -169,7 +167,7 @@ export default function Onboarding() {
     for (const field of REQUIRED_PROFILE_FIELDS) {
       if (missingFieldSet.has(field)) {
         if (field === 'hub_id') {
-          if (hubs && hubs.length > 0 && !formData.hub_id) return false;
+          continue; // Hub is optional, never blocks form completion
         } else {
           if (!(formData as any)[field]?.trim()) return false;
         }
@@ -212,7 +210,7 @@ export default function Onboarding() {
       missingFieldSet.forEach(field => {
         const value = (formData as any)[field];
         if (field === 'hub_id') {
-          profileUpdate[field] = value || null;
+          profileUpdate[field] = value === 'none' || !value ? null : value;
         } else if (field === 'dni') {
           profileUpdate[field] = value?.toUpperCase().trim() || null;
         } else {
@@ -389,7 +387,7 @@ export default function Onboarding() {
                     <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none z-10" />
                     <Select
                       value={formData.hub_id}
-                      onValueChange={(value) => updateField('hub_id', value === 'none' ? '' : value)}
+                      onValueChange={(value) => updateField('hub_id', value)}
                     >
                       <SelectTrigger className="pl-10">
                         <SelectValue placeholder="Selecciona tu hub..." />
