@@ -380,7 +380,7 @@ export default function Onboarding() {
               )}
 
               {/* Hub selector */}
-              {shouldShowField('hub_id') && (
+              {shouldShowField('hub_id') && hubs && hubs.length > 0 && (
                 <div className="space-y-2">
                   <Label htmlFor="hub_id">Hub Regional</Label>
                   <div className="relative">
@@ -394,7 +394,7 @@ export default function Onboarding() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="none">Sin hub asignado</SelectItem>
-                        {hubs?.map((hub) => (
+                        {hubs.map((hub) => (
                           <SelectItem key={hub.id} value={hub.id}>
                             {hub.name}{hub.location ? ` (${hub.location})` : ''}
                           </SelectItem>

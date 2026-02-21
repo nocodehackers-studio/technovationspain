@@ -24,8 +24,9 @@ export function getMissingFields(profile: Record<string, unknown>): string[] {
   REQUIRED_PROFILE_FIELDS.forEach(field => {
     if (!profile[field]) missing.push(field);
   });
-  // CSV-optional fields — only show if empty
+  // CSV-optional fields — only show if empty (hub_id excluded: null is a valid value)
   CSV_OPTIONAL_FIELDS.forEach(field => {
+    if (field === 'hub_id') return;
     if (!profile[field]) missing.push(field);
   });
   return missing;
