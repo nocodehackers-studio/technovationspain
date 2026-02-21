@@ -63,7 +63,7 @@ export default function Onboarding() {
     last_name: (profile as any)?.last_name || '',
     date_of_birth: (profile as any)?.date_of_birth || '',
     dni: (profile as any)?.dni || '',
-    hub_id: (profile as any)?.hub_id || '',
+    hub_id: (profile as any)?.hub_id || 'none',
     postal_code: (profile as any)?.postal_code || '',
     phone: (profile as any)?.phone || '',
     city: (profile as any)?.city || '',
@@ -142,9 +142,7 @@ export default function Onboarding() {
     if (missingFieldSet.has('postal_code') && !formData.postal_code.trim()) {
       newErrors.postal_code = 'El código postal es obligatorio';
     }
-    if (missingFieldSet.has('hub_id') && !formData.hub_id && hubs && hubs.length > 0) {
-      newErrors.hub_id = 'Selecciona un hub regional';
-    }
+    // hub_id is optional — user can select "Sin hub asignado"
 
     // Parent fields validation (minors only)
     if (showParentName && !formData.parent_name.trim()) {
@@ -168,11 +166,7 @@ export default function Onboarding() {
     // Check required profile fields that are missing
     for (const field of REQUIRED_PROFILE_FIELDS) {
       if (missingFieldSet.has(field)) {
-        if (field === 'hub_id') {
-          if (hubs && hubs.length > 0 && !formData.hub_id) return false;
-        } else {
-          if (!(formData as any)[field]?.trim()) return false;
-        }
+        if (!(formData as any)[field]?.trim()) return false;
       }
     }
     // Parent fields required for minors
@@ -181,7 +175,7 @@ export default function Onboarding() {
     // Consent required for first-time
     if (needsConsent && (!termsAccepted || !privacyAccepted)) return false;
     return true;
-  }, [missingFieldSet, formData, hubs, showParentName, showParentEmail, needsConsent, termsAccepted, privacyAccepted]);
+  }, [missingFieldSet, formData, showParentName, showParentEmail, needsConsent, termsAccepted, privacyAccepted]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -211,14 +205,18 @@ export default function Onboarding() {
       // Add each missing field value
       missingFieldSet.forEach(field => {
         const value = (formData as any)[field];
-        if (field === 'hub_id') {
-          profileUpdate[field] = value || null;
-        } else if (field === 'dni') {
+        if (field === 'dni') {
           profileUpdate[field] = value?.toUpperCase().trim() || null;
         } else {
           profileUpdate[field] = value?.trim() || null;
         }
       });
+
+      // Hub is optional — save selection if shown during first-time onboarding
+      if (needsConsent) {
+        const hubValue = formData.hub_id;
+        profileUpdate.hub_id = hubValue === 'none' || !hubValue ? null : hubValue;
+      }
 
       // Add parent fields for minors
       if (showParentName) {
@@ -381,15 +379,15 @@ export default function Onboarding() {
                 </div>
               )}
 
-              {/* Hub selector */}
-              {shouldShowField('hub_id') && hubs && hubs.length > 0 && (
+              {/* Hub selector — optional, shown during first-time onboarding */}
+              {needsConsent && hubs && hubs.length > 0 && (
                 <div className="space-y-2">
-                  <Label htmlFor="hub_id">Hub Regional</Label>
+                  <Label htmlFor="hub_id">Hub Regional (opcional)</Label>
                   <div className="relative">
                     <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none z-10" />
                     <Select
                       value={formData.hub_id}
-                      onValueChange={(value) => updateField('hub_id', value === 'none' ? '' : value)}
+                      onValueChange={(value) => updateField('hub_id', value)}
                     >
                       <SelectTrigger className="pl-10">
                         <SelectValue placeholder="Selecciona tu hub..." />
