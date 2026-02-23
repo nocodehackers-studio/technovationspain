@@ -107,6 +107,7 @@ export function TeamRegistrationSummary({
           </TableHeader>
           <TableBody>
             {teams.map((team) => {
+              const registered = team.members.filter((m) => m.isRegistered);
               const missing = team.members.filter((m) => !m.isRegistered);
 
               return (
@@ -158,28 +159,53 @@ export function TeamRegistrationSummary({
                         </TableCell>
                       </TableRow>
                     </TooltipTrigger>
-                    {missing.length > 0 && (
+                    {team.members.length > 0 && (
                       <TooltipContent
                         side="bottom"
-                        className="max-w-[280px]"
+                        className="max-w-[300px]"
                       >
-                        <p className="font-medium text-sm mb-1">
-                          Faltan por registrarse:
-                        </p>
-                        {missing.map((m) => (
-                          <p
-                            key={m.userId}
-                            className="text-xs flex items-center gap-1"
-                          >
-                            <Clock className="h-3 w-3 text-warning shrink-0" />
-                            {m.name}
-                            <span className="text-muted-foreground">
-                              ({m.memberType === "mentor"
-                                ? "Mentor"
-                                : "Participante"})
-                            </span>
-                          </p>
-                        ))}
+                        {registered.length > 0 && (
+                          <>
+                            <p className="font-medium text-sm mb-1">
+                              Inscritos:
+                            </p>
+                            {registered.map((m) => (
+                              <p
+                                key={m.userId}
+                                className="text-xs flex items-center gap-1"
+                              >
+                                <CheckCircle2 className="h-3 w-3 text-success shrink-0" />
+                                {m.name}
+                                <span className="text-muted-foreground">
+                                  ({m.memberType === "mentor"
+                                    ? "Mentor"
+                                    : "Participante"})
+                                </span>
+                              </p>
+                            ))}
+                          </>
+                        )}
+                        {missing.length > 0 && (
+                          <>
+                            <p className={`font-medium text-sm mb-1${registered.length > 0 ? " mt-2" : ""}`}>
+                              Faltan por registrarse:
+                            </p>
+                            {missing.map((m) => (
+                              <p
+                                key={m.userId}
+                                className="text-xs flex items-center gap-1"
+                              >
+                                <Clock className="h-3 w-3 text-warning shrink-0" />
+                                {m.name}
+                                <span className="text-muted-foreground">
+                                  ({m.memberType === "mentor"
+                                    ? "Mentor"
+                                    : "Participante"})
+                                </span>
+                              </p>
+                            ))}
+                          </>
+                        )}
                       </TooltipContent>
                     )}
                   </Tooltip>
