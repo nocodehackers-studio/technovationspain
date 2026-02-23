@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Html5Qrcode } from 'html5-qrcode';
+import { Html5Qrcode, Html5QrcodeScannerState } from 'html5-qrcode';
 import { Check, X, Camera, AlertTriangle, CalendarX, UserX, SwitchCamera, Flashlight, ShieldAlert, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { LoadingPage } from '@/components/ui/loading-spinner';
@@ -46,6 +46,17 @@ function ScannerMode() {
   const isInitializedRef = useRef(false);
   const hasNavigatedRef = useRef(false);
 
+  const isStoppable = useCallback(() => {
+    if (!scannerRef.current) return false;
+    try {
+      const state = scannerRef.current.getState();
+      return state === Html5QrcodeScannerState.SCANNING
+        || state === Html5QrcodeScannerState.PAUSED;
+    } catch {
+      return false;
+    }
+  }, []);
+
   const extractCode = useCallback((decodedText: string): string => {
     try {
       const url = new URL(decodedText);
@@ -77,11 +88,15 @@ function ScannerMode() {
             hasNavigatedRef.current = true;
 
             const code = extractCode(decodedText);
-            scanner.stop().then(() => {
+            if (isStoppable()) {
+              scanner.stop().then(() => {
+                navigate(`/validate/${code}`);
+              }).catch(() => {
+                navigate(`/validate/${code}`);
+              });
+            } else {
               navigate(`/validate/${code}`);
-            }).catch(() => {
-              navigate(`/validate/${code}`);
-            });
+            }
           },
           () => {
             // Ignore continuous scan errors
@@ -105,8 +120,8 @@ function ScannerMode() {
     startScanner();
 
     return () => {
-      if (scannerRef.current) {
-        scannerRef.current.stop().catch(() => {});
+      if (isStoppable()) {
+        scannerRef.current!.stop().catch(() => {});
       }
     };
   }, [navigate, extractCode]);
