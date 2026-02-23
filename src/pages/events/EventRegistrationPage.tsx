@@ -189,7 +189,10 @@ const selectedTicketId = form.watch('ticket_type_id');
   const maxCompanions = selectedTicket?.max_companions || 0;
   const companionFieldsConfig: string[] = (selectedTicket as any)?.companion_fields_config || ['first_name', 'last_name', 'relationship'];
   const requiredFields: string[] = (selectedTicket as any)?.required_fields || ['first_name', 'last_name', 'email'];
-  
+  const isSelectedTicketSoldOut = selectedTicket
+    ? (selectedTicket.max_capacity || 0) - (selectedTicket.current_count || 0) <= 0
+    : false;
+
   // Determine number of steps based on whether companions are allowed
   const totalSteps = maxCompanions > 0 ? 4 : 3;
   
@@ -559,6 +562,15 @@ const selectedTicketId = form.watch('ticket_type_id');
             
             {/* Step 2: Personal Data */}
             {step === 2 && (
+              <>
+              {isSelectedTicketSoldOut && (
+                <Alert variant="warning" className="mb-4">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription>
+                    No quedan plazas disponibles para este tipo de entrada. Al completar el registro, entrarás en la <strong>lista de espera</strong>. Te notificaremos si se libera una plaza.
+                  </AlertDescription>
+                </Alert>
+              )}
               <Card>
                 <CardHeader>
                   <CardTitle>Datos personales</CardTitle>
@@ -689,10 +701,20 @@ const selectedTicketId = form.watch('ticket_type_id');
                   )}
                 </CardContent>
               </Card>
+              </>
             )}
-            
+
 {/* Step 3: Companions (only if allowed) */}
             {step === 3 && maxCompanions > 0 && (
+              <>
+              {isSelectedTicketSoldOut && (
+                <Alert variant="warning" className="mb-4">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription>
+                    No quedan plazas disponibles. Al completar el registro, entrarás en la <strong>lista de espera</strong>.
+                  </AlertDescription>
+                </Alert>
+              )}
               <CompanionFields
                 form={form}
                 maxCompanions={maxCompanions}
@@ -702,14 +724,23 @@ const selectedTicketId = form.watch('ticket_type_id');
                 onRemoveCompanion={handleRemoveCompanion}
                 onUpdateCompanion={handleUpdateCompanion}
               />
+              </>
             )}
             
             {/* Step 4 (or 3 if no companions): Confirmation */}
             {step === totalSteps && (
               <div className="space-y-6">
+                {isSelectedTicketSoldOut && (
+                  <Alert variant="warning">
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertDescription>
+                      Vas a entrar en la <strong>lista de espera</strong>. No se te asignará entrada hasta que se libere una plaza. Te notificaremos por email.
+                    </AlertDescription>
+                  </Alert>
+                )}
                 <Card>
                   <CardHeader>
-                    <CardTitle>Resumen de tu inscripción</CardTitle>
+                    <CardTitle>{isSelectedTicketSoldOut ? 'Resumen — Lista de espera' : 'Resumen de tu inscripción'}</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <div className="grid grid-cols-2 gap-4 text-sm">
@@ -863,7 +894,7 @@ const selectedTicketId = form.watch('ticket_type_id');
                       Procesando...
                     </>
                   ) : (
-                    'Confirmar inscripción'
+                    isSelectedTicketSoldOut ? 'Apuntarme a lista de espera' : 'Confirmar inscripción'
                   )}
                 </Button>
               ) : (
@@ -883,7 +914,7 @@ const selectedTicketId = form.watch('ticket_type_id');
                       Procesando...
                     </>
                   ) : (
-                    'Confirmar inscripción'
+                    isSelectedTicketSoldOut ? 'Apuntarme a lista de espera' : 'Confirmar inscripción'
                   )}
                 </Button>
               )}
