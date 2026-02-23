@@ -29,6 +29,7 @@ export interface Profile {
   state?: string | null;
   school_name?: string | null;
   company_name?: string | null;
+  chapter?: string | null;
   parent_name?: string | null;
   onboarding_completed: boolean;
   terms_accepted_at?: string | null;

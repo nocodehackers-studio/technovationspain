@@ -19,7 +19,7 @@ interface UnregisteredUser {
   last_name: string | null;
   profile_type: string | null;
   city: string | null;
-  company_name: string | null;
+  chapter: string | null;
   created_at: string;
   tg_id: string | null;
 }
@@ -32,7 +32,7 @@ export function UnregisteredUsersTable() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("profiles")
-        .select("id, email, first_name, last_name, profile_type, city, company_name, created_at, tg_id")
+        .select("id, email, first_name, last_name, profile_type, city, chapter, created_at, tg_id")
         .eq("onboarding_completed", false)
         .eq("verification_status", "verified")
         .order("created_at", { ascending: false });
@@ -65,7 +65,7 @@ export function UnregisteredUsersTable() {
     {
       id: "name",
       accessorFn: (row) =>
-        `${row.first_name || ""} ${row.last_name || ""} ${row.email || ""} ${row.city || ""} ${row.company_name || ""}`.toLowerCase(),
+        `${row.first_name || ""} ${row.last_name || ""} ${row.email || ""} ${row.city || ""} ${row.chapter || ""}`.toLowerCase(),
       header: "Nombre",
       cell: ({ row }) => (
         <div className="flex flex-col">
@@ -98,7 +98,7 @@ export function UnregisteredUsersTable() {
       ),
     },
     {
-      accessorKey: "company_name",
+      accessorKey: "chapter",
       header: "Chapter",
       filterFn: (row, id, value) => {
         const v = row.getValue(id) as string | null;
@@ -109,7 +109,7 @@ export function UnregisteredUsersTable() {
         return v === value;
       },
       cell: ({ row }) => (
-        <span className="text-sm">{row.original.company_name || "—"}</span>
+        <span className="text-sm">{row.original.chapter || "—"}</span>
       ),
     },
     {
@@ -197,9 +197,9 @@ export function UnregisteredUsersTable() {
         citySet.add(u.city);
         cityOpts.push({ value: u.city, label: u.city });
       }
-      if (u.company_name && !chapterSet.has(u.company_name)) {
-        chapterSet.add(u.company_name);
-        chapterOpts.push({ value: u.company_name, label: u.company_name });
+      if (u.chapter && !chapterSet.has(u.chapter)) {
+        chapterSet.add(u.chapter);
+        chapterOpts.push({ value: u.chapter, label: u.chapter });
       }
     });
 
@@ -211,7 +211,7 @@ export function UnregisteredUsersTable() {
 
     return [
       { key: "profile_type", label: "Tipo", options: typeOptions },
-      { key: "company_name", label: "Chapter", options: sortOpts(chapterOpts) },
+      { key: "chapter", label: "Chapter", options: sortOpts(chapterOpts) },
       { key: "city", label: "Ciudad", options: sortOpts(cityOpts) },
     ];
   }, [unregisteredUsers]);
