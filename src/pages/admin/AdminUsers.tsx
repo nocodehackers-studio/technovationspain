@@ -40,6 +40,7 @@ type UserWithRoles = Profile & {
   team_name?: string | null;
   school_name?: string | null;
   hub_name?: string | null;
+  chapter?: string | null;
   city?: string | null;
   state?: string | null;
 };
@@ -115,6 +116,7 @@ export default function AdminUsers() {
           team_name: teamByUserId.get(profile.id as string) || null,
           school_name: profileAny.school_name || profileAny.company_name || null,
           hub_name: (profile.hub as { name: string } | null)?.name || null,
+          chapter: profileAny.chapter || null,
           city: profileAny.city || null,
           state: profileAny.state || null,
         };
@@ -258,7 +260,7 @@ export default function AdminUsers() {
     {
       id: "name",
       accessorFn: (row) => 
-        `${row.first_name || ""} ${row.last_name || ""} ${row.email || ""} ${row.tg_id || ""} ${row.phone || ""} ${row.team_name || ""} ${row.school_name || ""} ${row.hub_name || ""} ${row.city || ""} ${row.state || ""}`.toLowerCase(),
+        `${row.first_name || ""} ${row.last_name || ""} ${row.email || ""} ${row.tg_id || ""} ${row.phone || ""} ${row.team_name || ""} ${row.school_name || ""} ${row.hub_name || ""} ${row.chapter || ""} ${row.city || ""} ${row.state || ""}`.toLowerCase(),
       header: "Nombre",
       enableHiding: true,
       cell: ({ row }) => (
@@ -349,6 +351,20 @@ export default function AdminUsers() {
       },
       cell: ({ row }) => (
         <span className="text-sm">{row.original.hub_name || "—"}</span>
+      ),
+    },
+    {
+      accessorKey: "chapter",
+      header: "Chapter",
+      enableHiding: true,
+      filterFn: (row, id, value) => {
+        const v = row.getValue(id) as string | null;
+        const normalized = v || "__empty__";
+        if (Array.isArray(value)) return value.includes(normalized);
+        return normalized === value;
+      },
+      cell: ({ row }) => (
+        <span className="text-sm">{row.original.chapter || "—"}</span>
       ),
     },
     {
@@ -514,14 +530,14 @@ export default function AdminUsers() {
     const stateOptions: FilterableColumn["options"] = [
       { value: "__empty__", label: "Sin comunidad" },
     ];
-    const schoolOptions: FilterableColumn["options"] = [
+    const chapterOptions: FilterableColumn["options"] = [
       { value: "__empty__", label: "Sin chapter" },
     ];
 
     const hubSet = new Set<string>();
     const teamSet = new Set<string>();
     const stateSet = new Set<string>();
-    const schoolSet = new Set<string>();
+    const chapterSet = new Set<string>();
 
     (users || []).forEach((u) => {
       if (u.hub_name && !hubSet.has(u.hub_name)) {
@@ -536,9 +552,9 @@ export default function AdminUsers() {
         stateSet.add(u.state);
         stateOptions.push({ value: u.state, label: u.state });
       }
-      if (u.school_name && !schoolSet.has(u.school_name)) {
-        schoolSet.add(u.school_name);
-        schoolOptions.push({ value: u.school_name, label: u.school_name });
+      if (u.chapter && !chapterSet.has(u.chapter)) {
+        chapterSet.add(u.chapter);
+        chapterOptions.push({ value: u.chapter, label: u.chapter });
       }
     });
 
@@ -582,9 +598,9 @@ export default function AdminUsers() {
         options: sortOpts(teamOptions),
       },
       {
-        key: "school_name",
+        key: "chapter",
         label: "Chapter",
-        options: sortOpts(schoolOptions),
+        options: sortOpts(chapterOptions),
       },
       {
         key: "state",
@@ -636,6 +652,8 @@ export default function AdminUsers() {
           return row.school_name || "";
         case "hub_name":
           return row.hub_name || "";
+        case "chapter":
+          return row.chapter || "";
         case "phone":
           return row.phone || "";
         case "created_at":

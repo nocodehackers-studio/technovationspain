@@ -139,6 +139,7 @@ interface ExistingProfile {
   state: string | null;
   school_name: string | null;
   company_name: string | null;
+  chapter: string | null;
   parent_name: string | null;
   parent_email: string | null;
   profile_type: string | null;
@@ -502,7 +503,7 @@ async function processUserBatch(
   const { data: existingProfiles } = await supabase
     .from("profiles")
     .select(
-      "id, email, first_name, last_name, phone, tg_id, city, state, school_name, company_name, parent_name, parent_email, profile_type, verification_status"
+      "id, email, first_name, last_name, phone, tg_id, city, state, school_name, company_name, chapter, parent_name, parent_email, profile_type, verification_status"
     )
     .in("email", batchEmails);
 
@@ -1047,6 +1048,10 @@ function extractProfileFields(
     school_name: trimField(row["School name"] || row["school_name"]) || null,
     company_name:
       trimField(row["Company name"] || row["company_name"]) || null,
+    chapter: (() => {
+      const val = trimField(row["Chapter"] || row["chapter"]);
+      return val && val !== "-" ? val : null;
+    })(),
     city: trimField(row["City"] || row["city"]) || null,
     state: trimField(row["State"] || row["state"]) || null,
     profile_type:
