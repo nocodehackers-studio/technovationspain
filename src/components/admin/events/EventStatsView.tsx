@@ -10,7 +10,8 @@ import { ConfirmDialog } from "@/components/admin/ConfirmDialog";
 import { useAdminCancelRegistration } from "@/hooks/useAdminCancelRegistration";
 import { useEventTeamStats } from "@/hooks/useEventTeamStats";
 import { TeamRegistrationSummary } from "./TeamRegistrationSummary";
-import { Users, Users2, UserPlus, GraduationCap, Ticket, UsersRound, XCircle, FileCheck, Mail, Loader2 } from "lucide-react";
+import { Users, Users2, UserPlus, GraduationCap, Ticket, UsersRound, XCircle, FileCheck, Mail, Loader2, AlertTriangle } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "@/hooks/use-toast";
 import { ColumnDef } from "@tanstack/react-table";
@@ -193,6 +194,76 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
 
       if (error) throw error;
       return data || [];
+    },
+  });
+
+  // Detect participants registered in inactive/previous-season teams
+  const { data: inactiveTeamMembers } = useQuery({
+    queryKey: ["event-inactive-team-members", eventId],
+    enabled: !!registrations && registrations.length > 0,
+    queryFn: async () => {
+      const userIds = registrations!.map((r) => r.user_id).filter(Boolean);
+      if (userIds.length === 0) return [];
+
+      // Get team memberships for registered users
+      const { data: memberships } = await supabase
+        .from("team_members")
+        .select("user_id, team:teams!team_members_team_id_fkey(id, name, status, season)")
+        .in("user_id", userIds);
+
+      if (!memberships) return [];
+
+      // Build sets: users with active teams and users with inactive teams
+      const usersWithActiveTeam = new Set<string>();
+      const inactiveEntries: Array<{
+        userId: string;
+        teamName: string;
+        season: string | null;
+      }> = [];
+
+      for (const m of memberships) {
+        const team = m.team as unknown as { id: string; name: string; status: string; season: string | null } | null;
+        if (!team) continue;
+
+        if (team.status === "active") {
+          usersWithActiveTeam.add(m.user_id);
+        } else {
+          inactiveEntries.push({
+            userId: m.user_id,
+            teamName: team.name,
+            season: team.season,
+          });
+        }
+      }
+
+      // Only flag users who are NOT members of any active team
+      const results: Array<{
+        userId: string;
+        name: string;
+        email: string;
+        teamName: string;
+        season: string | null;
+      }> = [];
+
+      for (const entry of inactiveEntries) {
+        if (usersWithActiveTeam.has(entry.userId)) continue;
+
+        const reg = registrations!.find((r) => r.user_id === entry.userId);
+        if (!reg) continue;
+
+        // Avoid duplicate entries for same user
+        if (results.some((r) => r.userId === entry.userId)) continue;
+
+        results.push({
+          userId: entry.userId,
+          name: `${reg.first_name || ""} ${reg.last_name || ""}`.trim(),
+          email: reg.email || "",
+          teamName: entry.teamName,
+          season: entry.season,
+        });
+      }
+
+      return results;
     },
   });
 
@@ -546,6 +617,27 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
           </div>
         </div>
       </div>
+
+      {/* Warning: participants in inactive/previous-season teams */}
+      {inactiveTeamMembers && inactiveTeamMembers.length > 0 && (
+        <Alert variant="destructive">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>Participantes en equipos de ediciones anteriores</AlertTitle>
+          <AlertDescription>
+            <p className="mb-2">
+              {inactiveTeamMembers.length} persona(s) registrada(s) en este evento pertenecen a equipos inactivos o de ediciones anteriores:
+            </p>
+            <ul className="list-disc pl-4 space-y-1 text-sm">
+              {inactiveTeamMembers.map((m) => (
+                <li key={m.userId}>
+                  <span className="font-medium">{m.name}</span> ({m.email}) — Equipo: {m.teamName}
+                  {m.season && ` (Season ${m.season})`}
+                </li>
+              ))}
+            </ul>
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* Metrics Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">

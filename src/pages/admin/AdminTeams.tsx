@@ -99,6 +99,7 @@ export default function AdminTeams() {
       const { data: teamsData, error } = await supabase
         .from("teams")
         .select("*, team_members(count), hub:hubs(id, name)")
+        .eq("status", "active")
         .order("created_at", { ascending: false });
 
       if (error) throw error;

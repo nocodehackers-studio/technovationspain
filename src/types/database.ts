@@ -83,6 +83,8 @@ export interface Team {
   category?: TeamCategory | null;
   hub_id?: string | null;
   notes?: string | null;
+  status?: 'active' | 'inactive' | string;
+  season?: string | null;
   created_at: string;
   updated_at: string;
 }
