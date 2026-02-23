@@ -139,6 +139,7 @@ interface ExistingProfile {
   state: string | null;
   school_name: string | null;
   company_name: string | null;
+  chapter: string | null;
   parent_name: string | null;
   parent_email: string | null;
   profile_type: string | null;
@@ -411,7 +412,16 @@ async function processBatch(
         supabase, teamList, teamOffset, BATCH_SIZE, userRowCount, counters
       );
     } else {
-      // All rows examined → finalize
+      // All rows examined → deactivate teams not in CSV (scoped by season), then finalize
+      const csvTeamIds = Array.from(teamMap.keys());
+      // Extract season from CSV — use first team's season as the scope
+      const firstTeamRow = teamList[0]?.row;
+      const csvSeason = firstTeamRow
+        ? trimField(firstTeamRow["Seasons"] || firstTeamRow["seasons"])
+        : null;
+      if (csvTeamIds.length > 0 && csvSeason) {
+        await deactivateTeamsNotInCsv(supabase, csvTeamIds, csvSeason);
+      }
       return await finalize(supabase, importId, counters, corsHeaders);
     }
 
@@ -502,7 +512,7 @@ async function processUserBatch(
   const { data: existingProfiles } = await supabase
     .from("profiles")
     .select(
-      "id, email, first_name, last_name, phone, tg_id, city, state, school_name, company_name, parent_name, parent_email, profile_type, verification_status"
+      "id, email, first_name, last_name, phone, tg_id, city, state, school_name, company_name, chapter, parent_name, parent_email, profile_type, verification_status"
     )
     .in("email", batchEmails);
 
@@ -762,7 +772,7 @@ async function processTeamBatch(
   // Diff: fetch existing teams for this batch
   const { data: existingTeams } = await supabase
     .from("teams")
-    .select("id, tg_team_id, name, category, city, state")
+    .select("id, tg_team_id, name, category, city, state, status, season")
     .in("tg_team_id", batchTeamIds);
 
   const teamByTgId = new Map<
@@ -774,6 +784,8 @@ async function processTeamBatch(
       category: string | null;
       city: string | null;
       state: string | null;
+      status: string | null;
+      season: string | null;
     }
   >();
   for (const t of existingTeams || []) {
@@ -788,6 +800,7 @@ async function processTeamBatch(
     const category = trimField(row["Division"] || row["division"]);
     const city = trimField(row["City"] || row["city"]);
     const state = trimField(row["State"] || row["state"]);
+    const season = trimField(row["Seasons"] || row["seasons"]);
 
     const existing = teamByTgId.get(tgTeamId);
 
@@ -800,6 +813,8 @@ async function processTeamBatch(
           category: category || null,
           city: city || null,
           state: state || null,
+          status: "active",
+          season: season || null,
         })
         .select("id")
         .single();
@@ -819,6 +834,9 @@ async function processTeamBatch(
         changes.category = category;
       if (city && city !== existing.city) changes.city = city;
       if (state && state !== existing.state) changes.state = state;
+      // Always re-activate teams present in CSV
+      changes.status = "active";
+      if (season && season !== existing.season) changes.season = season;
 
       if (Object.keys(changes).length > 0) {
         await supabase.from("teams").update(changes).eq("id", existing.id);
@@ -928,6 +946,51 @@ async function processTeamBatch(
 
   // Set final records_processed for this batch
   counters.records_processed = userRowCount + teamOffset + batchTeams.length;
+}
+
+// ─── DEACTIVATE TEAMS NOT IN CSV ────────────────────────────────────
+// Scoped by season: only deactivates teams from the SAME season that
+// are not present in the CSV. Teams from other seasons are untouched.
+async function deactivateTeamsNotInCsv(
+  supabase: ReturnType<typeof createClient>,
+  csvTeamIds: string[],
+  season: string
+): Promise<void> {
+  // Fetch teams from the same season with tg_team_id that are not inactive
+  const { data: seasonTeams, error } = await supabase
+    .from("teams")
+    .select("id, tg_team_id")
+    .not("tg_team_id", "is", null)
+    .eq("season", season)
+    .neq("status", "inactive");
+
+  if (error) {
+    console.error("Failed to fetch season teams for deactivation:", error.message);
+    return;
+  }
+
+  if (!seasonTeams || seasonTeams.length === 0) return;
+
+  const csvIdSet = new Set(csvTeamIds);
+  const toDeactivate = seasonTeams
+    .filter((t) => t.tg_team_id && !csvIdSet.has(t.tg_team_id))
+    .map((t) => t.id);
+
+  if (toDeactivate.length === 0) return;
+
+  // Deactivate in batches of 100 to avoid query size limits
+  for (let i = 0; i < toDeactivate.length; i += 100) {
+    const batch = toDeactivate.slice(i, i + 100);
+    const { error: updateErr } = await supabase
+      .from("teams")
+      .update({ status: "inactive" })
+      .in("id", batch);
+    if (updateErr) {
+      console.error(`Failed to deactivate team batch: ${updateErr.message}`);
+    }
+  }
+
+  console.log(`Deactivated ${toDeactivate.length} teams from season ${season} not present in CSV`);
 }
 
 // ─── FINALIZE ───────────────────────────────────────────────────────
@@ -1047,6 +1110,10 @@ function extractProfileFields(
     school_name: trimField(row["School name"] || row["school_name"]) || null,
     company_name:
       trimField(row["Company name"] || row["company_name"]) || null,
+    chapter: (() => {
+      const val = trimField(row["Chapter"] || row["chapter"]);
+      return val && val !== "-" ? val : null;
+    })(),
     city: trimField(row["City"] || row["city"]) || null,
     state: trimField(row["State"] || row["state"]) || null,
     profile_type:

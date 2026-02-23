@@ -979,6 +979,7 @@ export type Database = {
       }
       profiles: {
         Row: {
+          chapter: string | null
           created_at: string | null
           custom_fields: Json | null
           date_of_birth: string | null
@@ -1000,6 +1001,7 @@ export type Database = {
             | null
         }
         Insert: {
+          chapter?: string | null
           created_at?: string | null
           custom_fields?: Json | null
           date_of_birth?: string | null
@@ -1021,6 +1023,7 @@ export type Database = {
             | null
         }
         Update: {
+          chapter?: string | null
           created_at?: string | null
           custom_fields?: Json | null
           date_of_birth?: string | null
