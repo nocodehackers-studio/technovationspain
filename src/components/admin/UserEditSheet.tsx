@@ -107,9 +107,9 @@ export function UserEditSheet({
       updates: {
         first_name?: string;
         last_name?: string;
-        phone?: string;
-        postal_code?: string;
-        tg_id?: string;
+        phone?: string | null;
+        postal_code?: string | null;
+        tg_id?: string | null;
         verification_status?: VerificationStatus;
       };
     }) => {
@@ -226,9 +226,9 @@ export function UserEditSheet({
       updates: {
         first_name: formData.get("first_name") as string,
         last_name: formData.get("last_name") as string,
-        phone: formData.get("phone") as string,
-        postal_code: formData.get("postal_code") as string,
-        tg_id: formData.get("tg_id") as string,
+        phone: (formData.get("phone") as string) || null,
+        postal_code: (formData.get("postal_code") as string) || null,
+        tg_id: (formData.get("tg_id") as string) || null,
       },
     });
 

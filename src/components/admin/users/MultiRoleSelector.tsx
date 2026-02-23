@@ -286,6 +286,7 @@ export function MultiRoleSelector({ userId }: MultiRoleSelectorProps) {
       {/* Save button */}
       {hasChanges && (
         <Button
+          type="button"
           onClick={() => saveRolesMutation.mutate()}
           disabled={saveRolesMutation.isPending}
           className="w-full"
