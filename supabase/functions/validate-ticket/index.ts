@@ -80,22 +80,34 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    const { data: roles, error: rolesError } = await supabaseAdmin
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", userId);
+    // Check admin role from user_roles AND volunteer flag from profiles in parallel
+    const [rolesResult, profileResult] = await Promise.all([
+      supabaseAdmin
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", userId)
+        .eq("role", "admin")
+        .maybeSingle(),
+      supabaseAdmin
+        .from("profiles")
+        .select("is_volunteer")
+        .eq("id", userId)
+        .single(),
+    ]);
 
-    if (rolesError) {
-      console.error("Roles error:", rolesError);
+    if (rolesResult.error && profileResult.error) {
+      console.error("Role/profile check errors:", rolesResult.error, profileResult.error);
       return new Response(JSON.stringify({ error: "Failed to verify roles" }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" }
       });
     }
 
-    const userRoles = roles?.map(r => r.role) || [];
-    if (!userRoles.includes("volunteer") && !userRoles.includes("admin")) {
-      console.log("Unauthorized role for user:", userId, "roles:", userRoles);
+    const isAdmin = !!rolesResult.data;
+    const isVolunteer = profileResult.data?.is_volunteer === true;
+
+    if (!isAdmin && !isVolunteer) {
+      console.log("Unauthorized role for user:", userId, "isAdmin:", isAdmin, "isVolunteer:", isVolunteer);
       return new Response(JSON.stringify({ error: "Unauthorized role" }), {
         status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" }
