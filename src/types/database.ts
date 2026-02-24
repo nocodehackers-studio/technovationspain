@@ -85,6 +85,7 @@ export interface Team {
   notes?: string | null;
   status?: 'active' | 'inactive' | string;
   season?: string | null;
+  validated?: boolean;
   created_at: string;
   updated_at: string;
 }

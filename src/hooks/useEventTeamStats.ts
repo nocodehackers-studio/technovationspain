@@ -12,6 +12,7 @@ export interface TeamEventStats {
   teamId: string;
   teamName: string;
   category: string | null;
+  validated: boolean;
   totalParticipants: number;
   registeredParticipants: number;
   totalMentors: number;
@@ -30,7 +31,7 @@ export function useEventTeamStats(eventId: string) {
           .from("team_members")
           .select(
             `team_id, user_id, member_type,
-             team:teams!team_members_team_id_fkey(id, name, category),
+             team:teams!team_members_team_id_fkey(id, name, category, validated),
              user:profiles!team_members_user_id_fkey(first_name, last_name, email)`
           ),
         // 2. Fetch ALL active registrations for this event (no team_id filter)
@@ -67,6 +68,7 @@ export function useEventTeamStats(eventId: string) {
           id: string;
           name: string;
           category: string | null;
+          validated: boolean | null;
         } | null;
         if (!team) return;
 
@@ -76,6 +78,7 @@ export function useEventTeamStats(eventId: string) {
             teamId: m.team_id,
             teamName: team.name,
             category: team.category,
+            validated: team.validated ?? false,
             totalParticipants: 0,
             registeredParticipants: 0,
             totalMentors: 0,
@@ -111,8 +114,12 @@ export function useEventTeamStats(eventId: string) {
         stats.members.push({ userId: m.user_id, name, memberType, isRegistered });
       });
 
-      // 5. Calculate completion and sort
-      const result = Array.from(teamStatsMap.values());
+      // 5. Filter: only teams with at least 1 registered member
+      const result = Array.from(teamStatsMap.values()).filter(
+        (s) => s.registeredParticipants + s.registeredMentors > 0
+      );
+
+      // 6. Calculate completion and sort
       result.forEach((s) => {
         const total = s.totalParticipants + s.totalMentors;
         const registered = s.registeredParticipants + s.registeredMentors;

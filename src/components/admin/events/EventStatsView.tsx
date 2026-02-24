@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { MetricCard } from "@/components/admin/MetricCard";
 import { AirtableDataTable, FilterableColumn, ExportData } from "@/components/admin/AirtableDataTable";
@@ -7,10 +7,12 @@ import { RegistrationStatusBadge } from "@/components/events/RegistrationStatusB
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/admin/ConfirmDialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAdminCancelRegistration } from "@/hooks/useAdminCancelRegistration";
 import { useEventTeamStats } from "@/hooks/useEventTeamStats";
 import { TeamRegistrationSummary } from "./TeamRegistrationSummary";
-import { Users, Users2, UserPlus, GraduationCap, Ticket, UsersRound, XCircle, FileCheck, Mail, Loader2, AlertTriangle } from "lucide-react";
+import { isMinor } from "@/lib/age-utils";
+import { Users, Users2, UserPlus, GraduationCap, Ticket, UsersRound, XCircle, FileCheck, Mail, Loader2, AlertTriangle, Clock } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "@/hooks/use-toast";
@@ -50,6 +52,9 @@ interface RegistrationWithCompanions {
   }[];
   has_consent: boolean;
   consent_signed_at: string | null;
+  date_of_birth: string | null;
+  chapter: string | null;
+  hub_name: string | null;
   // Derived fields for filtering
   ticket_type_name: string;
   consent_status: string;
@@ -61,6 +66,24 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
   const [sendingConsentIds, setSendingConsentIds] = useState<Set<string>>(new Set());
   const cancelMutation = useAdminCancelRegistration();
   const { data: teamStats, isLoading: teamStatsLoading } = useEventTeamStats(eventId);
+  const queryClient = useQueryClient();
+
+  // Mutation for toggling team validated status
+  const toggleValidatedMutation = useMutation({
+    mutationFn: async ({ teamId, validated }: { teamId: string; validated: boolean }) => {
+      const { error } = await supabase
+        .from("teams")
+        .update({ validated })
+        .eq("id", teamId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["event-team-stats", eventId] });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "No se pudo actualizar el estado de validación", variant: "destructive" });
+    },
+  });
 
   const handleResendConsent = async (registration: RegistrationWithCompanions) => {
     setSendingConsentIds((prev) => new Set(prev).add(registration.id));
@@ -128,6 +151,37 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
       const regIds = regs?.map((r) => r.id) || [];
       if (regIds.length === 0) return [];
 
+      // Fetch profile data (date_of_birth, chapter, hub) separately
+      const userIds = regs?.map((r) => r.user_id).filter(Boolean) || [];
+      const profileMap = new Map<string, { date_of_birth: string | null; chapter: string | null; hub_name: string | null }>();
+
+      if (userIds.length > 0) {
+        const { data: profiles } = await supabase
+          .from("profiles")
+          .select("id, date_of_birth, chapter, hub_id")
+          .in("id", userIds);
+
+        // Collect hub_ids to resolve names
+        const hubIds = [...new Set((profiles || []).map(p => p.hub_id).filter(Boolean))] as string[];
+        const hubMap = new Map<string, string>();
+
+        if (hubIds.length > 0) {
+          const { data: hubs } = await supabase
+            .from("hubs")
+            .select("id, name")
+            .in("id", hubIds);
+          hubs?.forEach(h => hubMap.set(h.id, h.name));
+        }
+
+        profiles?.forEach(p => {
+          profileMap.set(p.id, {
+            date_of_birth: p.date_of_birth || null,
+            chapter: p.chapter || null,
+            hub_name: p.hub_id ? (hubMap.get(p.hub_id) || null) : null,
+          });
+        });
+      }
+
       const { data: companions } = await supabase
         .from("companions")
         .select("event_registration_id, first_name, last_name, relationship, dni, checked_in_at")
@@ -158,14 +212,32 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
             ? (raw[0] as { id: string; signed_at: string })
             : null;
 
+        // Extract profile data
+        const profileData = profileMap.get(r.user_id);
+        const dateOfBirth = profileData?.date_of_birth || null;
+        const hasConsent = !!consentRecord;
+
+        // Determine consent status based on age
+        let consentStatus: string;
+        if (hasConsent) {
+          consentStatus = "signed";
+        } else if (!isMinor(dateOfBirth)) {
+          consentStatus = "pending_adult";
+        } else {
+          consentStatus = "pending_minor";
+        }
+
         return {
           ...r,
           companions_count: companionCounts[r.id] || 0,
           companions_details: companionDetails[r.id] || [],
-          has_consent: !!consentRecord,
+          has_consent: hasConsent,
           consent_signed_at: consentRecord?.signed_at || null,
+          date_of_birth: dateOfBirth,
+          chapter: profileData?.chapter || null,
+          hub_name: profileData?.hub_name || null,
           ticket_type_name: r.ticket_type?.name || "",
-          consent_status: consentRecord ? "signed" : "pending",
+          consent_status: consentStatus,
         };
       }) as RegistrationWithCompanions[];
     },
@@ -205,7 +277,6 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
       const userIds = registrations!.map((r) => r.user_id).filter(Boolean);
       if (userIds.length === 0) return [];
 
-      // Get team memberships for registered users
       const { data: memberships } = await supabase
         .from("team_members")
         .select("user_id, team:teams!team_members_team_id_fkey(id, name, status, season)")
@@ -213,7 +284,6 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
 
       if (!memberships) return [];
 
-      // Build sets: users with active teams and users with inactive teams
       const usersWithActiveTeam = new Set<string>();
       const inactiveEntries: Array<{
         userId: string;
@@ -236,7 +306,6 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
         }
       }
 
-      // Only flag users who are NOT members of any active team
       const results: Array<{
         userId: string;
         name: string;
@@ -251,7 +320,6 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
         const reg = registrations!.find((r) => r.user_id === entry.userId);
         if (!reg) continue;
 
-        // Avoid duplicate entries for same user
         if (results.some((r) => r.userId === entry.userId)) continue;
 
         results.push({
@@ -293,6 +361,8 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
     const consentsTotal = regs.length;
     const consentsSigned = regs.filter((r) => r.has_consent).length;
 
+    const waitlistedCount = regs.filter((r) => r.registration_status === "waitlisted").length;
+
     return {
       participantsCount,
       mentorsCount,
@@ -302,6 +372,7 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
       remainingTickets,
       consentsTotal,
       consentsSigned,
+      waitlistedCount,
     };
   }, [registrations, allCompanions, event]);
 
@@ -310,6 +381,8 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
     const regs = registrations || [];
     const ticketTypes = [...new Set(regs.map((r) => r.ticket_type?.name).filter(Boolean))];
     const teams = [...new Set(regs.map((r) => r.team_name).filter(Boolean))].sort();
+    const chapters = [...new Set(regs.map((r) => r.chapter).filter(Boolean))].sort();
+    const hubs = [...new Set(regs.map((r) => r.hub_name).filter(Boolean))].sort();
 
     return [
       {
@@ -330,9 +403,28 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
         label: "Consentimiento",
         options: [
           { value: "signed", label: "Firmado" },
-          { value: "pending", label: "Pendiente" },
+          { value: "pending_adult", label: "Pendiente (Mayor 14)" },
+          { value: "pending_minor", label: "Pendiente padre (Menor 14)" },
         ],
       },
+      ...(chapters.length > 0
+        ? [
+            {
+              key: "chapter",
+              label: "Chapter",
+              options: chapters.map((c) => ({ value: c!, label: c! })),
+            },
+          ]
+        : []),
+      ...(hubs.length > 0
+        ? [
+            {
+              key: "hub_name",
+              label: "Hub",
+              options: hubs.map((h) => ({ value: h!, label: h! })),
+            },
+          ]
+        : []),
       ...(teams.length > 0
         ? [
             {
@@ -427,17 +519,58 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
           return filterValues.includes(row.original.consent_status);
         },
         cell: ({ row }) => {
-          if (row.original.has_consent) {
+          const status = row.original.consent_status;
+
+          if (status === "signed") {
             return (
               <Badge className="bg-success/10 text-success border-success/20 hover:bg-success/20" variant="outline">
                 Firmado
               </Badge>
             );
           }
+
+          if (status === "pending_adult") {
+            return (
+              <div className="flex items-center gap-1">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Badge className="bg-destructive/10 text-destructive border-destructive/20 hover:bg-destructive/20" variant="outline">
+                      <AlertTriangle className="h-3 w-3 mr-1" />
+                      Pendiente
+                    </Badge>
+                  </TooltipTrigger>
+                  <TooltipContent>Mayor de 14 — debería haber firmado al registrarse</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6"
+                      disabled={sendingConsentIds.has(row.original.id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleResendConsent(row.original);
+                      }}
+                    >
+                      {sendingConsentIds.has(row.original.id) ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Mail className="h-3 w-3" />
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Reenviar email de consentimiento</TooltipContent>
+                </Tooltip>
+              </div>
+            );
+          }
+
+          // pending_minor
           return (
             <div className="flex items-center gap-1">
               <Badge className="bg-warning/10 text-warning border-warning/20 hover:bg-warning/20" variant="outline">
-                Pendiente
+                Pendiente padre
               </Badge>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -458,11 +591,33 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
                     )}
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Reenviar email de consentimiento</TooltipContent>
+                <TooltipContent>Reenviar email de consentimiento al padre/tutor</TooltipContent>
               </Tooltip>
             </div>
           );
         },
+      },
+      {
+        accessorKey: "chapter",
+        header: "Chapter",
+        filterFn: (row, _id, filterValues: string[]) => {
+          if (!filterValues?.length) return true;
+          return filterValues.includes(row.original.chapter || "");
+        },
+        cell: ({ row }) => (
+          <span className="text-sm">{row.original.chapter || "-"}</span>
+        ),
+      },
+      {
+        accessorKey: "hub_name",
+        header: "Hub",
+        filterFn: (row, _id, filterValues: string[]) => {
+          if (!filterValues?.length) return true;
+          return filterValues.includes(row.original.hub_name || "");
+        },
+        cell: ({ row }) => (
+          <span className="text-sm">{row.original.hub_name || "-"}</span>
+        ),
       },
       {
         accessorKey: "registration_status",
@@ -543,6 +698,8 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
         Acompañantes: r.companions_count,
         Consentimiento: r.has_consent ? "Sí" : "No",
         Estado: r.registration_status || "",
+        Chapter: r.chapter || "",
+        Hub: r.hub_name || "",
         "Check-in": r.checked_in_at
           ? format(new Date(r.checked_in_at), "dd/MM/yyyy HH:mm")
           : "No",
@@ -551,7 +708,6 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
           : "",
       });
 
-      // Add companion rows
       r.companions_details.forEach((comp) => {
         csvRows.push({
           Nombre: `  ↳ ${comp.first_name || ""} ${comp.last_name || ""}`.trim(),
@@ -563,6 +719,8 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
           Acompañantes: "",
           Consentimiento: "",
           Estado: "",
+          Chapter: "",
+          Hub: "",
           "Check-in": comp.checked_in_at
             ? format(new Date(comp.checked_in_at), "dd/MM/yyyy HH:mm")
             : "No",
@@ -640,7 +798,7 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
       )}
 
       {/* Metrics Grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <MetricCard
           title="Participantes"
           value={metrics.participantsCount}
@@ -677,27 +835,44 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
           icon={<Ticket />}
           color={metrics.remainingTickets < 20 ? "warning" : "accent"}
         />
-      </div>
-
-      {/* Team Registration Summary */}
-      <TeamRegistrationSummary
-        teams={teamStats || []}
-        isLoading={teamStatsLoading}
-      />
-
-      {/* Registrations Table */}
-      <div>
-        <h3 className="text-lg font-semibold mb-4">Listado de Inscripciones</h3>
-        <AirtableDataTable
-          columns={columns}
-          data={registrations || []}
-          loading={isLoading}
-          searchPlaceholder="Buscar por nombre o email..."
-          filterableColumns={filterableColumns}
-          hiddenColumns={hiddenColumns}
-          onExport={handleExport}
+        <MetricCard
+          title="Lista de espera"
+          value={metrics.waitlistedCount}
+          icon={<Clock />}
+          color={metrics.waitlistedCount > 0 ? "warning" : "accent"}
         />
       </div>
+
+      {/* Tabs: Equipos / Usuarios */}
+      <Tabs defaultValue="equipos">
+        <TabsList>
+          <TabsTrigger value="equipos">Equipos</TabsTrigger>
+          <TabsTrigger value="usuarios">Usuarios</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="equipos" className="mt-4">
+          <TeamRegistrationSummary
+            teams={teamStats || []}
+            isLoading={teamStatsLoading}
+            onToggleValidated={(teamId, validated) =>
+              toggleValidatedMutation.mutate({ teamId, validated })
+            }
+          />
+        </TabsContent>
+
+        <TabsContent value="usuarios" className="mt-4">
+          <h3 className="text-lg font-semibold mb-4">Listado de Inscripciones</h3>
+          <AirtableDataTable
+            columns={columns}
+            data={registrations || []}
+            loading={isLoading}
+            searchPlaceholder="Buscar por nombre o email..."
+            filterableColumns={filterableColumns}
+            hiddenColumns={hiddenColumns}
+            onExport={handleExport}
+          />
+        </TabsContent>
+      </Tabs>
 
       {/* Confirmation Dialog */}
       <ConfirmDialog
