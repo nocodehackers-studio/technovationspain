@@ -218,11 +218,10 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
         const hasConsent = !!consentRecord;
 
         // Determine consent status based on age
+        // Adults (>14) give implicit consent at registration — only minors need explicit parental consent
         let consentStatus: string;
-        if (hasConsent) {
+        if (hasConsent || !isMinor(dateOfBirth)) {
           consentStatus = "signed";
-        } else if (!isMinor(dateOfBirth)) {
-          consentStatus = "pending_adult";
         } else {
           consentStatus = "pending_minor";
         }
@@ -403,7 +402,6 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
         label: "Consentimiento",
         options: [
           { value: "signed", label: "Firmado" },
-          { value: "pending_adult", label: "Pendiente (Mayor 14)" },
           { value: "pending_minor", label: "Pendiente padre (Menor 14)" },
         ],
       },
@@ -526,43 +524,6 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
               <Badge className="bg-success/10 text-success border-success/20 hover:bg-success/20" variant="outline">
                 Firmado
               </Badge>
-            );
-          }
-
-          if (status === "pending_adult") {
-            return (
-              <div className="flex items-center gap-1">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Badge className="bg-destructive/10 text-destructive border-destructive/20 hover:bg-destructive/20" variant="outline">
-                      <AlertTriangle className="h-3 w-3 mr-1" />
-                      Pendiente
-                    </Badge>
-                  </TooltipTrigger>
-                  <TooltipContent>Mayor de 14 — debería haber firmado al registrarse</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6"
-                      disabled={sendingConsentIds.has(row.original.id)}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleResendConsent(row.original);
-                      }}
-                    >
-                      {sendingConsentIds.has(row.original.id) ? (
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                      ) : (
-                        <Mail className="h-3 w-3" />
-                      )}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Reenviar email de consentimiento</TooltipContent>
-                </Tooltip>
-              </div>
             );
           }
 
