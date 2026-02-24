@@ -401,7 +401,7 @@ export default function WorkshopPreferencesPage() {
           <Info className="h-4 w-4" />
           <AlertTitle>Instrucciones</AlertTitle>
           <AlertDescription>
-            Ordena los talleres según tu preferencia (1 = más deseado). Tu equipo será asignado a <strong>2 talleres</strong> automáticamente según disponibilidad.
+            Ordena talleres según disponibilidad y orden de inscripción. Tu equipo será asignado a <strong>2 talleres</strong> automáticamente.
             {!isReadOnly && (
               <> Arrastra los talleres o usa las flechas para reordenarlos.</>
             )}
@@ -486,9 +486,12 @@ export default function WorkshopPreferencesPage() {
 
         {/* Warning */}
         {!isReadOnly && (
-          <p className="text-sm text-muted-foreground text-center">
-            ⚠️ Solo puedes enviar preferencias una vez por equipo. Si necesitas hacer cambios después, contacta con administración.
-          </p>
+          <Alert variant="destructive" className="border-destructive/50">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>
+              Una vez validado, no se puede cambiar por ningún miembro del equipo.
+            </AlertDescription>
+          </Alert>
         )}
       </main>
     </div>

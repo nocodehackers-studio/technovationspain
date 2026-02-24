@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { TeamEventStats } from "@/hooks/useEventTeamStats";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Table,
   TableHeader,
@@ -10,17 +12,25 @@ import {
   TableCell,
 } from "@/components/ui/table";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { CheckCircle2, Clock, AlertCircle } from "lucide-react";
+import { CheckCircle2, Clock, AlertCircle, ShieldCheck } from "lucide-react";
 import { TeamCategory } from "@/types/database";
 
 interface TeamRegistrationSummaryProps {
   teams: TeamEventStats[];
   isLoading: boolean;
+  onToggleValidated?: (teamId: string, validated: boolean) => void;
 }
 
 const categoryColors: Record<TeamCategory, string> = {
@@ -38,11 +48,32 @@ const categoryLabels: Record<TeamCategory, string> = {
   senior: "Senior",
 };
 
-function StatusBadge({ team }: { team: TeamEventStats }) {
+type TeamStatus = "sin_mentor" | "parcial" | "completo" | "validado";
+
+function getTeamStatus(team: TeamEventStats): TeamStatus {
+  if (team.validated) return "validado";
   const total = team.totalParticipants + team.totalMentors;
   const registered = team.registeredParticipants + team.registeredMentors;
+  if (registered === total && total > 0) return "completo";
+  if (team.registeredMentors === 0 && team.totalMentors > 0) return "sin_mentor";
+  return "parcial";
+}
 
-  if (registered === total && total > 0) {
+function StatusBadge({ team }: { team: TeamEventStats }) {
+  const status = getTeamStatus(team);
+
+  if (status === "validado") {
+    return (
+      <Badge
+        className="bg-primary/10 text-primary border-primary/20"
+        variant="outline"
+      >
+        <ShieldCheck className="h-3 w-3 mr-1" />
+        Validado
+      </Badge>
+    );
+  }
+  if (status === "completo") {
     return (
       <Badge
         className="bg-success/10 text-success border-success/20"
@@ -53,7 +84,7 @@ function StatusBadge({ team }: { team: TeamEventStats }) {
       </Badge>
     );
   }
-  if (team.registeredMentors === 0 && team.totalMentors > 0) {
+  if (status === "sin_mentor") {
     return (
       <Badge
         className="bg-warning/10 text-warning border-warning/20"
@@ -78,7 +109,10 @@ function StatusBadge({ team }: { team: TeamEventStats }) {
 export function TeamRegistrationSummary({
   teams,
   isLoading,
+  onToggleValidated,
 }: TeamRegistrationSummaryProps) {
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+
   if (isLoading) {
     return (
       <div className="animate-pulse space-y-3">
@@ -88,11 +122,35 @@ export function TeamRegistrationSummary({
     );
   }
 
-  if (teams.length === 0) return null;
+  if (teams.length === 0) {
+    return (
+      <div className="text-center text-muted-foreground py-12">
+        No hay equipos con miembros registrados en este evento
+      </div>
+    );
+  }
+
+  const filteredTeams = statusFilter === "all"
+    ? teams
+    : teams.filter((team) => getTeamStatus(team) === statusFilter);
 
   return (
     <div>
-      <h3 className="text-lg font-semibold mb-4">Registro por Equipos</h3>
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-lg font-semibold">Registro por Equipos</h3>
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger className="w-[200px]">
+            <SelectValue placeholder="Filtrar por estado" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos ({teams.length})</SelectItem>
+            <SelectItem value="sin_mentor">Sin mentor ({teams.filter(t => getTeamStatus(t) === "sin_mentor").length})</SelectItem>
+            <SelectItem value="parcial">Parcial ({teams.filter(t => getTeamStatus(t) === "parcial").length})</SelectItem>
+            <SelectItem value="completo">Completo ({teams.filter(t => getTeamStatus(t) === "completo").length})</SelectItem>
+            <SelectItem value="validado">Validado ({teams.filter(t => getTeamStatus(t) === "validado").length})</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
       <div className="border rounded-lg overflow-hidden">
         <Table>
           <TableHeader>
@@ -103,10 +161,11 @@ export function TeamRegistrationSummary({
               <TableHead>Mentores</TableHead>
               <TableHead className="min-w-[140px]">Progreso</TableHead>
               <TableHead>Estado</TableHead>
+              <TableHead className="text-center">Validado</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {teams.map((team) => {
+            {filteredTeams.map((team) => {
               const registered = team.members.filter((m) => m.isRegistered);
               const missing = team.members.filter((m) => !m.isRegistered);
 
@@ -156,6 +215,15 @@ export function TeamRegistrationSummary({
                         </TableCell>
                         <TableCell>
                           <StatusBadge team={team} />
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <Checkbox
+                            checked={team.validated}
+                            onCheckedChange={(checked) => {
+                              onToggleValidated?.(team.teamId, !!checked);
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                          />
                         </TableCell>
                       </TableRow>
                     </TooltipTrigger>
@@ -212,6 +280,13 @@ export function TeamRegistrationSummary({
                 </TooltipProvider>
               );
             })}
+            {filteredTeams.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                  No hay equipos con el estado seleccionado
+                </TableCell>
+              </TableRow>
+            )}
           </TableBody>
         </Table>
       </div>
