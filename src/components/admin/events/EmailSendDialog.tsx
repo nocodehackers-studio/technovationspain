@@ -49,7 +49,7 @@ export function EmailSendDialog({ eventId, open, onClose }: EmailSendDialogProps
 
   // Fetch ticket types
   const { data: ticketTypes } = useQuery({
-    queryKey: ["event-ticket-types", eventId],
+    queryKey: ["event-ticket-types-active", eventId],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("event_ticket_types")
