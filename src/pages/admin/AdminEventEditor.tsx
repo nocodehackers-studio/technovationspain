@@ -80,7 +80,7 @@ export default function AdminEventEditor() {
 
   // Fetch ticket types to check if any exist
   const { data: ticketTypes } = useQuery({
-    queryKey: ["event-ticket-types", eventId],
+    queryKey: ["event-ticket-types-check", eventId],
     queryFn: async () => {
       if (!eventId) return [];
       const { data, error } = await supabase
