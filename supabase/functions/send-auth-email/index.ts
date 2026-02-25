@@ -27,8 +27,8 @@ if (hookSecret?.startsWith("v1,whsec_")) {
 // Set to "false" in Supabase Dashboard secrets to strip magic link buttons from auth emails,
 // showing only the 6-digit OTP code. Useful when corporate email firewalls pre-click links.
 // Values: "true" (default, include magic link) | "false" (OTP-only mode)
-const INCLUDE_MAGIC_LINK = (Deno.env.get("INCLUDE_MAGIC_LINK") || "true").toLowerCase() !== "false";
-console.log(`INCLUDE_MAGIC_LINK: ${INCLUDE_MAGIC_LINK}`);
+const SEND_EMAIL_INCLUDE_MAGIC_LINK = (Deno.env.get("SEND_EMAIL_INCLUDE_MAGIC_LINK") || "true").toLowerCase() !== "false";
+console.log(`SEND_EMAIL_INCLUDE_MAGIC_LINK: ${SEND_EMAIL_INCLUDE_MAGIC_LINK}`);
 
 const ALLOWED_ORIGINS = [
   "https://app.powertocode.org",
@@ -277,7 +277,7 @@ Deno.serve(async (req) => {
     const content = getEmailContent(email_action_type);
     
     // Generate HTML with the appropriate content
-    const html = generateEmailHtml(magicLinkUrl, token, content, INCLUDE_MAGIC_LINK);
+    const html = generateEmailHtml(magicLinkUrl, token, content, SEND_EMAIL_INCLUDE_MAGIC_LINK);
 
     // Send email in background using EdgeRuntime.waitUntil
     // This allows us to respond immediately while email sends async
