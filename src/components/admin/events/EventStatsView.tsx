@@ -1110,6 +1110,8 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
         variant="danger"
         loading={promoteMutation.isPending}
         onConfirm={handleConfirmPromote}
+      />
+
       {/* Bulk Consent Email Dialog */}
       <ConfirmDialog
         open={showBulkConsentConfirm}
