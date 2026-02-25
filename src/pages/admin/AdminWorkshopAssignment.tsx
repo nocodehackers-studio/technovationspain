@@ -98,8 +98,10 @@ export default function AdminWorkshopAssignment() {
     enabled: !!eventId,
   });
 
-  const teamsWithPrefs = teamsData?.filter(t => t.hasPreferences).length || 0;
-  const totalTeams = teamsData?.length || 0;
+  const validatedTeams = teamsData?.filter(t => t.validated) || [];
+  const excludedTeams = teamsData?.filter(t => !t.validated) || [];
+  const teamsWithPrefs = validatedTeams.filter(t => t.hasPreferences).length;
+  const totalTeams = validatedTeams.length;
   const teamsWithoutPrefs = totalTeams - teamsWithPrefs;
 
   const hasAssignments = existingAssignments && existingAssignments.length > 0;
@@ -152,6 +154,11 @@ export default function AdminWorkshopAssignment() {
     {
       label: `${timeSlots?.length || 0} turnos horarios definidos`,
       ok: (timeSlots?.length || 0) > 0,
+    },
+    {
+      label: `${excludedTeams.length} equipos excluidos por no estar validados`,
+      ok: true,
+      warning: excludedTeams.length > 0,
     },
   ];
 

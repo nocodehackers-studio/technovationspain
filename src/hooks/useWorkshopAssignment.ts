@@ -113,9 +113,21 @@ export function useWorkshopAssignment(eventId: string) {
       if (regError) throw regError;
 
       // 2. Recopilar team_ids directos del registro
-      const directTeamIds = new Set(
+      const directTeamIdsRaw = new Set(
         registrations?.map(r => r.team_id).filter((id): id is string => !!id) || []
       );
+
+      // 2b. Filtrar solo equipos validados
+      const directTeamIds = new Set<string>();
+      if (directTeamIdsRaw.size > 0) {
+        const { data: validatedTeams, error: valError } = await supabase
+          .from('teams')
+          .select('id')
+          .in('id', [...directTeamIdsRaw])
+          .eq('validated', true);
+        if (valError) throw valError;
+        validatedTeams?.forEach(t => directTeamIds.add(t.id));
+      }
 
       // 3. Para usuarios sin team_id en el registro, buscar equipo vía team_members
       const userIdsWithoutTeam = (registrations || [])
@@ -146,7 +158,8 @@ export function useWorkshopAssignment(eventId: string) {
         const { data: teamData } = await supabase
           .from('teams')
           .select('id, name')
-          .in('id', teamsFromMembership);
+          .in('id', teamsFromMembership)
+          .eq('validated', true);
         extraTeams = teamData || [];
       }
 
@@ -163,10 +176,10 @@ export function useWorkshopAssignment(eventId: string) {
         });
       }
 
-      // 7. Construir teamsMap desde registros directos
+      // 7. Construir teamsMap desde registros directos (solo equipos validados)
       const teamsMap = new Map<string, TeamForAssignment>();
       registrations?.forEach(reg => {
-        if (reg.team_id && reg.team) {
+        if (reg.team_id && reg.team && directTeamIds.has(reg.team_id)) {
           const existing = teamsMap.get(reg.team_id);
           if (!existing) {
             teamsMap.set(reg.team_id, {
