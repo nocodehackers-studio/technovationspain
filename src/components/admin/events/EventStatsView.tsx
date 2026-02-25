@@ -64,6 +64,10 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
   const [registrationToCancel, setRegistrationToCancel] = useState<RegistrationWithCompanions | null>(null);
   const [hiddenColumns] = useState<string[]>(["dni", "phone"]);
   const [sendingConsentIds, setSendingConsentIds] = useState<Set<string>>(new Set());
+  const [activeFilters, setActiveFilters] = useState<Record<string, string[]>>({});
+  const [bulkConsentSending, setBulkConsentSending] = useState(false);
+  const [bulkConsentProgress, setBulkConsentProgress] = useState<{ sent: number; failed: number; total: number } | null>(null);
+  const [showBulkConsentConfirm, setShowBulkConsentConfirm] = useState(false);
   const cancelMutation = useAdminCancelRegistration();
   const { data: teamStats, isLoading: teamStatsLoading } = useEventTeamStats(eventId);
   const queryClient = useQueryClient();
@@ -241,6 +245,56 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
       }) as RegistrationWithCompanions[];
     },
   });
+
+  const isPendingMinorFilterActive = activeFilters["consent_status"]?.includes("pending_minor") && activeFilters["consent_status"]?.length === 1;
+
+  const pendingMinorRegistrations = useMemo(
+    () => (registrations || []).filter((r) => r.consent_status === "pending_minor"),
+    [registrations]
+  );
+
+  const handleBulkConsentSend = async () => {
+    const targets = pendingMinorRegistrations;
+    if (targets.length === 0) return;
+
+    setBulkConsentSending(true);
+    setBulkConsentProgress({ sent: 0, failed: 0, total: targets.length });
+
+    let sent = 0;
+    let failed = 0;
+
+    for (const registration of targets) {
+      try {
+        const { data, error } = await supabase.functions.invoke("send-event-consent", {
+          body: { registrationId: registration.id },
+        });
+        if (error) throw error;
+        if (data?.error) throw new Error(data.error);
+        sent++;
+      } catch {
+        failed++;
+      }
+      setBulkConsentProgress({ sent, failed, total: targets.length });
+      await new Promise((r) => setTimeout(r, 100));
+    }
+
+    if (failed === 0) {
+      toast({
+        title: "Envío masivo completado",
+        description: `${sent} email${sent !== 1 ? "s" : ""} de consentimiento enviado${sent !== 1 ? "s" : ""} correctamente.`,
+      });
+    } else {
+      toast({
+        title: "Envío masivo completado con errores",
+        description: `${sent} enviado${sent !== 1 ? "s" : ""}, ${failed} fallido${failed !== 1 ? "s" : ""}.`,
+        variant: "destructive",
+      });
+    }
+
+    setBulkConsentSending(false);
+    setBulkConsentProgress(null);
+    setShowBulkConsentConfirm(false);
+  };
 
   // Fetch total companions count for metrics
   const { data: allCompanions } = useQuery({
@@ -823,6 +877,28 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
 
         <TabsContent value="usuarios" className="mt-4">
           <h3 className="text-lg font-semibold mb-4">Listado de Inscripciones</h3>
+          {isPendingMinorFilterActive && pendingMinorRegistrations.length > 0 && (
+            <div className="mb-4">
+              <Button
+                variant="outline"
+                className="border-warning text-warning hover:bg-warning/10"
+                disabled={bulkConsentSending || pendingMinorRegistrations.length === 0}
+                onClick={() => setShowBulkConsentConfirm(true)}
+              >
+                {bulkConsentSending && bulkConsentProgress ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Enviando {bulkConsentProgress.sent + bulkConsentProgress.failed} de {bulkConsentProgress.total}...
+                  </>
+                ) : (
+                  <>
+                    <Mail className="mr-2 h-4 w-4" />
+                    Enviar correo a todos los pendientes ({pendingMinorRegistrations.length})
+                  </>
+                )}
+              </Button>
+            </div>
+          )}
           <AirtableDataTable
             columns={columns}
             data={registrations || []}
@@ -831,6 +907,7 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
             filterableColumns={filterableColumns}
             hiddenColumns={hiddenColumns}
             onExport={handleExport}
+            onActiveFiltersChange={setActiveFilters}
           />
         </TabsContent>
       </Tabs>
@@ -859,6 +936,18 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
           });
           setRegistrationToCancel(null);
         }}
+      />
+
+      {/* Bulk Consent Email Dialog */}
+      <ConfirmDialog
+        open={showBulkConsentConfirm}
+        onOpenChange={setShowBulkConsentConfirm}
+        title="¿Enviar email de consentimiento a todos los pendientes?"
+        description={`Se enviarán ${pendingMinorRegistrations.length} email${pendingMinorRegistrations.length !== 1 ? "s" : ""} de consentimiento a los padres/tutores de los menores pendientes. Esta acción puede tardar unos segundos.`}
+        confirmText="Enviar a todos"
+        variant="warning"
+        loading={bulkConsentSending}
+        onConfirm={handleBulkConsentSend}
       />
     </div>
   );

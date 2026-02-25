@@ -83,6 +83,7 @@ interface AirtableDataTableProps<TData, TValue> {
   hiddenColumns?: string[];
   onHiddenColumnsChange?: (columns: string[]) => void;
   onRowClick?: (row: TData) => void;
+  onActiveFiltersChange?: (filters: Record<string, string[]>) => void;
 }
 
 export function AirtableDataTable<TData, TValue>({
@@ -97,6 +98,7 @@ export function AirtableDataTable<TData, TValue>({
   hiddenColumns = [],
   onHiddenColumnsChange,
   onRowClick,
+  onActiveFiltersChange,
 }: AirtableDataTableProps<TData, TValue>) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
@@ -124,6 +126,11 @@ export function AirtableDataTable<TData, TValue>({
       onHiddenColumnsChange(hidden);
     }
   }, [columnVisibility, onHiddenColumnsChange]);
+
+  // Notify parent when active filters change
+  useEffect(() => {
+    onActiveFiltersChange?.(activeFilters);
+  }, [activeFilters, onActiveFiltersChange]);
 
   const table = useReactTable({
     data,
