@@ -23,6 +23,7 @@ function getCorsHeaders(req: Request) {
 
 interface RegistrationEmailRequest {
   registrationId: string;
+  subjectOverride?: string;
 }
 
 // Default template content
@@ -115,7 +116,7 @@ const handler = async (req: Request): Promise<Response> => {
 
     console.log("Authenticated user:", user.id);
 
-    const { registrationId }: RegistrationEmailRequest = await req.json();
+    const { registrationId, subjectOverride }: RegistrationEmailRequest = await req.json();
     console.log("Processing registration:", registrationId);
 
     // Create Supabase client with service role for data access
@@ -227,7 +228,9 @@ const handler = async (req: Request): Promise<Response> => {
       "{enlace_evento}": eventPageUrl,
     };
 
-    const emailSubject = replaceVariables(subjectTemplate, templateVars);
+    const emailSubject = subjectOverride
+      ? replaceVariables(subjectOverride, templateVars)
+      : replaceVariables(subjectTemplate, templateVars);
     const emailBodyText = replaceVariables(bodyTemplate, templateVars);
 
     // Generate QR code and upload to storage
