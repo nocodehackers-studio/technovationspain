@@ -24,6 +24,12 @@ if (hookSecret?.startsWith("v1,whsec_")) {
   hookSecret = hookSecret.substring(3);
 }
 
+// Set to "false" in Supabase Dashboard secrets to strip magic link buttons from auth emails,
+// showing only the 6-digit OTP code. Useful when corporate email firewalls pre-click links.
+// Values: "true" (default, include magic link) | "false" (OTP-only mode)
+const SEND_EMAIL_INCLUDE_MAGIC_LINK = (Deno.env.get("SEND_EMAIL_INCLUDE_MAGIC_LINK") || "true").toLowerCase() !== "false";
+console.log(`SEND_EMAIL_INCLUDE_MAGIC_LINK: ${SEND_EMAIL_INCLUDE_MAGIC_LINK}`);
+
 const ALLOWED_ORIGINS = [
   "https://app.powertocode.org",
   "http://localhost:5173",
@@ -44,6 +50,7 @@ function getEmailContent(emailActionType: string): {
   headingText: string;
   introText: string;
   buttonText: string;
+  otpOnlyIntroText: string;
 } {
   switch (emailActionType) {
     case "signup":
@@ -52,6 +59,7 @@ function getEmailContent(emailActionType: string): {
         headingText: "¡Bienvenido/a a Technovation Girls Madrid!",
         introText: "Estás a un paso de unirte a nuestra comunidad.",
         buttonText: "Verificar mi cuenta",
+        otpOnlyIntroText: "Usa el siguiente código de verificación para verificar tu cuenta.",
       };
     case "invite":
       return {
@@ -59,6 +67,7 @@ function getEmailContent(emailActionType: string): {
         headingText: "¡Has recibido una invitación!",
         introText: "Un administrador te ha invitado a unirte a la plataforma de Technovation Girls Madrid.",
         buttonText: "Aceptar invitación",
+        otpOnlyIntroText: "Usa el siguiente código de verificación para aceptar tu invitación.",
       };
     case "magiclink":
       return {
@@ -66,6 +75,7 @@ function getEmailContent(emailActionType: string): {
         headingText: "¡Hola de nuevo!",
         introText: "Haz clic en el botón para acceder a tu cuenta.",
         buttonText: "Iniciar sesión",
+        otpOnlyIntroText: "Usa el siguiente código de verificación para acceder a tu cuenta.",
       };
     case "recovery":
       return {
@@ -73,6 +83,7 @@ function getEmailContent(emailActionType: string): {
         headingText: "Recuperación de cuenta",
         introText: "Has solicitado restablecer tu acceso a la plataforma.",
         buttonText: "Recuperar cuenta",
+        otpOnlyIntroText: "Usa el siguiente código de verificación para recuperar tu cuenta.",
       };
     default:
       return {
@@ -80,6 +91,7 @@ function getEmailContent(emailActionType: string): {
         headingText: "¡Bienvenido/a a Technovation Girls Madrid!",
         introText: "Estás a un paso de unirte a nuestra comunidad.",
         buttonText: "Verificar mi cuenta",
+        otpOnlyIntroText: "Usa el siguiente código de verificación para verificar tu cuenta.",
       };
   }
 }
@@ -88,8 +100,10 @@ function getEmailContent(emailActionType: string): {
 function generateEmailHtml(
   magicLinkUrl: string,
   token: string,
-  content: { subject: string; headingText: string; introText: string; buttonText: string }
+  content: { subject: string; headingText: string; introText: string; buttonText: string; otpOnlyIntroText: string },
+  includeMagicLink: boolean
 ): string {
+  const introText = includeMagicLink ? content.introText : content.otpOnlyIntroText;
   return `
 <!DOCTYPE html>
 <html>
@@ -124,27 +138,27 @@ function generateEmailHtml(
                 ${content.headingText}
               </h2>
               <p style="margin: 0 0 24px; color: #52525b; font-size: 16px; line-height: 1.6;">
-                ${content.introText}
+                ${introText}
               </p>
               
-              <!-- Button -->
+              ${includeMagicLink ? `<!-- Button -->
               <table role="presentation" style="width: 100%; border-collapse: collapse;">
                 <tr>
                   <td align="center" style="padding: 16px 0 32px;">
-                    <a href="${magicLinkUrl}" 
+                    <a href="${magicLinkUrl}"
                        style="display: inline-block; background: linear-gradient(135deg, #00A5CF 0%, #25A18E 100%); color: #ffffff; text-decoration: none; padding: 16px 32px; border-radius: 12px; font-size: 16px; font-weight: 600; box-shadow: 0 4px 14px rgba(0, 165, 207, 0.4);">
                       ${content.buttonText}
                     </a>
                   </td>
                 </tr>
               </table>
-              
+
               <!-- Divider -->
-              <hr style="border: none; border-top: 1px solid #e4e4e7; margin: 24px 0;">
-              
+              <hr style="border: none; border-top: 1px solid #e4e4e7; margin: 24px 0;">` : ""}
+
               <!-- Code section -->
               <p style="margin: 0 0 12px; color: #71717a; font-size: 14px;">
-                O copia y pega este código de verificación:
+                ${includeMagicLink ? "O copia y pega este código de verificación:" : "Copia y pega este código de verificación:"}
               </p>
               <div style="background-color: #f4f4f5; border-radius: 8px; padding: 16px; text-align: center; margin-bottom: 24px;">
                 <code style="font-size: 24px; font-weight: 600; color: #18181b; letter-spacing: 4px;">
@@ -154,7 +168,9 @@ function generateEmailHtml(
               
               <!-- Warning -->
               <p style="margin: 0; color: #a1a1aa; font-size: 13px; line-height: 1.5;">
-                Si no has solicitado este email, puedes ignorarlo de forma segura. Este enlace expirará en 24 horas.
+                ${includeMagicLink
+                  ? "Si no has solicitado este email, puedes ignorarlo de forma segura. Este enlace expirará en 1 hora."
+                  : "Si no has solicitado este email, puedes ignorarlo de forma segura. Este código expirará en 1 hora."}
               </p>
             </td>
           </tr>
@@ -261,7 +277,7 @@ Deno.serve(async (req) => {
     const content = getEmailContent(email_action_type);
     
     // Generate HTML with the appropriate content
-    const html = generateEmailHtml(magicLinkUrl, token, content);
+    const html = generateEmailHtml(magicLinkUrl, token, content, SEND_EMAIL_INCLUDE_MAGIC_LINK);
 
     // Send email in background using EdgeRuntime.waitUntil
     // This allows us to respond immediately while email sends async
