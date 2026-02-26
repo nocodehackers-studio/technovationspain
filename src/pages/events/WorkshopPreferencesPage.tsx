@@ -281,7 +281,7 @@ export default function WorkshopPreferencesPage() {
       });
       setHasChanges(false);
       // Redirect to mentor dashboard after successful submission
-      navigate('/mentor');
+      navigate('/mentor/dashboard');
     } catch (error) {
       // Error handled in hook
     }
@@ -300,7 +300,7 @@ export default function WorkshopPreferencesPage() {
 
   useEffect(() => {
     if (allTeamsSubmitted) {
-      navigate('/mentor', { replace: true });
+      navigate('/mentor/dashboard', { replace: true });
     }
   }, [allTeamsSubmitted, navigate]);
 
