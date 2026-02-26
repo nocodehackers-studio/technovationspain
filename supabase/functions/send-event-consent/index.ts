@@ -247,7 +247,7 @@ Deno.serve(async (req) => {
               </div>
 
               <p style="margin: 0 0 16px 0;">
-                Para confirmar la asistencia, necesitamos tu consentimiento. Haz clic en el botón para firmar el consentimiento online.
+                Es necesario firmar el consentimiento para participar en el evento:
               </p>
 
               <div style="text-align: center; margin: 24px 0;">
@@ -265,7 +265,7 @@ Deno.serve(async (req) => {
                 <tr>
                   <td>
                     <p style="color: #92400e; font-size: 14px; margin: 0; line-height: 1.5;">
-                      <strong>⚠️ Importante:</strong> Sin el consentimiento firmado, no se podrá acceder al evento.
+                      <strong>⚠️ Importante:</strong> Si el consentimiento no se firma antes del evento, no podemos garantizar la participación en el mismo.
                     </p>
                   </td>
                 </tr>
