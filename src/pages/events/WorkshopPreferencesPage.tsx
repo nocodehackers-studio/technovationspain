@@ -280,6 +280,8 @@ export default function WorkshopPreferencesPage() {
         userId: user.id,
       });
       setHasChanges(false);
+      // Redirect to mentor dashboard after successful submission
+      navigate('/mentor');
     } catch (error) {
       // Error handled in hook
     }
@@ -287,6 +289,20 @@ export default function WorkshopPreferencesPage() {
 
   const isReadOnly = submissionStatus?.submitted || false;
   const selectedTeam = myTeams?.find(t => t.id === selectedTeamId);
+
+  // Redirect to mentor dashboard if all teams for this event already have preferences submitted
+  const allTeamsSubmitted = !eligibilityLoading && myTeams.length > 0 && myTeams.every(team => {
+    const teamEligibility = eligibleForPreferences.find(
+      et => et.teamId === team.id && et.eventId === eventId
+    );
+    return teamEligibility?.hasSubmittedPreferences === true;
+  });
+
+  useEffect(() => {
+    if (allTeamsSubmitted) {
+      navigate('/mentor', { replace: true });
+    }
+  }, [allTeamsSubmitted, navigate]);
 
   if (!isVerified) {
     return (
@@ -401,10 +417,7 @@ export default function WorkshopPreferencesPage() {
           <Info className="h-4 w-4" />
           <AlertTitle>Instrucciones</AlertTitle>
           <AlertDescription>
-            Ordena talleres según disponibilidad y orden de inscripción. Tu equipo será asignado a <strong>2 talleres</strong> automáticamente.
-            {!isReadOnly && (
-              <> Arrastra los talleres o usa las flechas para reordenarlos.</>
-            )}
+            Ordena los talleres según tus preferencias (1 el más prioritario) arrastrando los talleres o usando las flechas. A tu equipo se le asignarán dos talleres automáticamente según preferencias y orden de inscripción.
           </AlertDescription>
         </Alert>
 
@@ -489,7 +502,7 @@ export default function WorkshopPreferencesPage() {
           <Alert variant="destructive" className="border-destructive/50">
             <AlertTriangle className="h-4 w-4" />
             <AlertDescription>
-              Una vez validado, no se puede cambiar por ningún miembro del equipo.
+              Los talleres asignados se conocerán el día del evento. Una vez seleccionados, no se podrán volver a elegir.
             </AlertDescription>
           </Alert>
         )}
