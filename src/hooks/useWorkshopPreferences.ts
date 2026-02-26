@@ -255,7 +255,7 @@ export function useAllTeamsPreferences(eventId: string) {
 
       // 5. Obtener info de equipos y miembros en paralelo (consultas separadas)
       const [teamsResult, membersResult] = await Promise.all([
-        supabase.from('teams').select('id, name, category').in('id', allTeamIds),
+        supabase.from('teams').select('id, name, category, validated').in('id', allTeamIds),
         supabase.from('team_members').select('team_id, user_id').in('team_id', allTeamIds),
       ]);
 
@@ -274,6 +274,7 @@ export function useAllTeamsPreferences(eventId: string) {
         id: team.id,
         name: team.name,
         category: team.category,
+        validated: team.validated ?? false,
         participantCount: participantCountByTeam.get(team.id) || 1,
       }));
 

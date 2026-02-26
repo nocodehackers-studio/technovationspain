@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/admin/ConfirmDialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAdminCancelRegistration } from "@/hooks/useAdminCancelRegistration";
+import { useAdminPromoteWaitlist, checkWaitlistCapacity } from "@/hooks/useAdminPromoteWaitlist";
 import { useEventTeamStats } from "@/hooks/useEventTeamStats";
 import { TeamRegistrationSummary } from "./TeamRegistrationSummary";
 import { isMinor } from "@/lib/age-utils";
@@ -62,9 +63,17 @@ interface RegistrationWithCompanions {
 
 export function EventStatsView({ eventId }: EventStatsViewProps) {
   const [registrationToCancel, setRegistrationToCancel] = useState<RegistrationWithCompanions | null>(null);
+  const [registrationToPromote, setRegistrationToPromote] = useState<RegistrationWithCompanions | null>(null);
+  const [promoteCapacityWarning, setPromoteCapacityWarning] = useState<{ currentCount: number; maxCapacity: number } | null>(null);
+  const [promotingIds, setPromotingIds] = useState<Set<string>>(new Set());
   const [hiddenColumns] = useState<string[]>(["dni", "phone"]);
   const [sendingConsentIds, setSendingConsentIds] = useState<Set<string>>(new Set());
+  const [activeFilters, setActiveFilters] = useState<Record<string, string[]>>({});
+  const [bulkConsentSending, setBulkConsentSending] = useState(false);
+  const [bulkConsentProgress, setBulkConsentProgress] = useState<{ sent: number; failed: number; total: number } | null>(null);
+  const [showBulkConsentConfirm, setShowBulkConsentConfirm] = useState(false);
   const cancelMutation = useAdminCancelRegistration();
+  const promoteMutation = useAdminPromoteWaitlist();
   const { data: teamStats, isLoading: teamStatsLoading } = useEventTeamStats(eventId);
   const queryClient = useQueryClient();
 
@@ -110,6 +119,55 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
         next.delete(registration.id);
         return next;
       });
+    }
+  };
+
+  const handlePromoteClick = async (registration: RegistrationWithCompanions) => {
+    if (!registration.ticket_type?.id) return;
+    setPromotingIds((prev) => new Set(prev).add(registration.id));
+    try {
+      const capacity = await checkWaitlistCapacity(registration.ticket_type.id);
+      if (capacity.exceedsCapacity) {
+        setPromoteCapacityWarning({ currentCount: capacity.currentCount, maxCapacity: capacity.maxCapacity });
+        setRegistrationToPromote(registration);
+      } else {
+        await promoteMutation.mutateAsync({
+          registrationId: registration.id,
+          eventId: eventId,
+          ticketTypeId: registration.ticket_type.id,
+        });
+      }
+    } catch (err) {
+      // F8 fix: surface capacity check errors (mutation errors handled by onError)
+      if (err instanceof Error && !err.message.includes("procesada")) {
+        toast({ title: "Error", description: err.message, variant: "destructive" });
+      }
+    } finally {
+      setPromotingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(registration.id);
+        return next;
+      });
+    }
+  };
+
+  const handleConfirmPromote = async () => {
+    if (!registrationToPromote?.ticket_type?.id) return;
+    setPromotingIds((prev) => new Set(prev).add(registrationToPromote.id));
+    try {
+      await promoteMutation.mutateAsync({
+        registrationId: registrationToPromote.id,
+        eventId: eventId,
+        ticketTypeId: registrationToPromote.ticket_type.id,
+      });
+    } finally {
+      setPromotingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(registrationToPromote.id);
+        return next;
+      });
+      setRegistrationToPromote(null);
+      setPromoteCapacityWarning(null);
     }
   };
 
@@ -242,6 +300,56 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
     },
   });
 
+  const isPendingMinorFilterActive = activeFilters["consent_status"]?.includes("pending_minor") && activeFilters["consent_status"]?.length === 1;
+
+  const pendingMinorRegistrations = useMemo(
+    () => (registrations || []).filter((r) => r.consent_status === "pending_minor"),
+    [registrations]
+  );
+
+  const handleBulkConsentSend = async () => {
+    const targets = pendingMinorRegistrations;
+    if (targets.length === 0) return;
+
+    setBulkConsentSending(true);
+    setBulkConsentProgress({ sent: 0, failed: 0, total: targets.length });
+
+    let sent = 0;
+    let failed = 0;
+
+    for (const registration of targets) {
+      try {
+        const { data, error } = await supabase.functions.invoke("send-event-consent", {
+          body: { registrationId: registration.id },
+        });
+        if (error) throw error;
+        if (data?.error) throw new Error(data.error);
+        sent++;
+      } catch {
+        failed++;
+      }
+      setBulkConsentProgress({ sent, failed, total: targets.length });
+      await new Promise((r) => setTimeout(r, 100));
+    }
+
+    if (failed === 0) {
+      toast({
+        title: "Envío masivo completado",
+        description: `${sent} email${sent !== 1 ? "s" : ""} de consentimiento enviado${sent !== 1 ? "s" : ""} correctamente.`,
+      });
+    } else {
+      toast({
+        title: "Envío masivo completado con errores",
+        description: `${sent} enviado${sent !== 1 ? "s" : ""}, ${failed} fallido${failed !== 1 ? "s" : ""}.`,
+        variant: "destructive",
+      });
+    }
+
+    setBulkConsentSending(false);
+    setBulkConsentProgress(null);
+    setShowBulkConsentConfirm(false);
+  };
+
   // Fetch total companions count for metrics
   const { data: allCompanions } = useQuery({
     queryKey: ["event-companions-count", eventId],
@@ -337,19 +445,21 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
   // Calculate metrics
   const metrics = useMemo(() => {
     const regs = registrations || [];
+    // F5 fix: exclude waitlisted from confirmed-attendee metrics
+    const confirmedRegs = regs.filter((r) => r.registration_status !== "waitlisted");
 
-    const participantsCount = regs.filter((r) =>
+    const participantsCount = confirmedRegs.filter((r) =>
       r.ticket_type?.allowed_roles?.includes("participant")
     ).length;
 
-    const mentorsCount = regs.filter(
+    const mentorsCount = confirmedRegs.filter(
       (r) =>
         r.ticket_type?.allowed_roles?.includes("mentor") ||
         r.ticket_type?.allowed_roles?.includes("judge")
     ).length;
 
     const companionsCount = allCompanions?.length || 0;
-    const mainRegistrations = regs.length;
+    const mainRegistrations = confirmedRegs.length;
     const totalAttendees = mainRegistrations + companionsCount;
 
     const remainingTickets = Math.max(
@@ -357,8 +467,8 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
       (event?.max_capacity || 0) - totalAttendees
     );
 
-    const consentsTotal = regs.length;
-    const consentsSigned = regs.filter((r) => r.has_consent).length;
+    const consentsTotal = confirmedRegs.length;
+    const consentsSigned = confirmedRegs.filter((r) => r.has_consent).length;
 
     const waitlistedCount = regs.filter((r) => r.registration_status === "waitlisted").length;
 
@@ -641,6 +751,83 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
     [sendingConsentIds]
   );
 
+  // Waitlist data: filtered and sorted FIFO
+  const waitlistRegistrations = useMemo(() => {
+    return (registrations || [])
+      .filter((r) => r.registration_status === "waitlisted")
+      .sort((a, b) => {
+        const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
+        return dateA - dateB;
+      });
+  }, [registrations]);
+
+  // Waitlist table columns
+  const waitlistColumns: ColumnDef<RegistrationWithCompanions>[] = useMemo(
+    () => [
+      {
+        accessorKey: "name",
+        header: "Nombre",
+        accessorFn: (row) =>
+          `${row.first_name || ""} ${row.last_name || ""} ${row.email || ""}`.trim().toLowerCase(),
+        cell: ({ row }) => {
+          const name = `${row.original.first_name || ""} ${row.original.last_name || ""}`.trim();
+          return (
+            <div>
+              <p className="font-medium">{name || "-"}</p>
+              <p className="text-xs text-muted-foreground">{row.original.email}</p>
+            </div>
+          );
+        },
+      },
+      {
+        accessorKey: "ticket_type_name",
+        header: "Tipo Entrada",
+        cell: ({ row }) => (
+          <span className="text-sm">{row.original.ticket_type?.name || "-"}</span>
+        ),
+      },
+      {
+        accessorKey: "created_at",
+        header: "Fecha registro",
+        cell: ({ row }) => {
+          const date = row.original.created_at;
+          if (!date) return "-";
+          return (
+            <span className="text-sm text-muted-foreground">
+              {format(new Date(date), "dd/MM/yy HH:mm", { locale: es })}
+            </span>
+          );
+        },
+      },
+      {
+        id: "actions",
+        header: "",
+        cell: ({ row }) => (
+          <Button
+            variant="outline"
+            size="sm"
+            className="text-primary border-primary/30 hover:bg-primary/10"
+            disabled={promotingIds.has(row.original.id) || promoteMutation.isPending}
+            onClick={(e) => {
+              e.stopPropagation();
+              handlePromoteClick(row.original);
+            }}
+          >
+            {promotingIds.has(row.original.id) ? (
+              <Loader2 className="h-4 w-4 animate-spin mr-1" />
+            ) : (
+              <UserPlus className="h-4 w-4 mr-1" />
+            )}
+            Invitar
+          </Button>
+        ),
+      },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [promotingIds, promoteMutation.isPending]
+  );
+
   // Export CSV
   const handleExport = (exportData: ExportData<RegistrationWithCompanions>) => {
     const rows = exportData.rows;
@@ -804,11 +991,16 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
         />
       </div>
 
-      {/* Tabs: Equipos / Usuarios */}
+      {/* Tabs: Equipos / Usuarios / Lista de espera */}
       <Tabs defaultValue="equipos">
         <TabsList>
           <TabsTrigger value="equipos">Equipos</TabsTrigger>
           <TabsTrigger value="usuarios">Usuarios</TabsTrigger>
+          {metrics.waitlistedCount > 0 && (
+            <TabsTrigger value="lista-espera">
+              Lista de espera ({metrics.waitlistedCount})
+            </TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="equipos" className="mt-4">
@@ -823,6 +1015,28 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
 
         <TabsContent value="usuarios" className="mt-4">
           <h3 className="text-lg font-semibold mb-4">Listado de Inscripciones</h3>
+          {isPendingMinorFilterActive && pendingMinorRegistrations.length > 0 && (
+            <div className="mb-4">
+              <Button
+                variant="outline"
+                className="border-warning text-warning hover:bg-warning/10"
+                disabled={bulkConsentSending || pendingMinorRegistrations.length === 0}
+                onClick={() => setShowBulkConsentConfirm(true)}
+              >
+                {bulkConsentSending && bulkConsentProgress ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Enviando {bulkConsentProgress.sent + bulkConsentProgress.failed} de {bulkConsentProgress.total}...
+                  </>
+                ) : (
+                  <>
+                    <Mail className="mr-2 h-4 w-4" />
+                    Enviar correo a todos los pendientes ({pendingMinorRegistrations.length})
+                  </>
+                )}
+              </Button>
+            </div>
+          )}
           <AirtableDataTable
             columns={columns}
             data={registrations || []}
@@ -831,8 +1045,24 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
             filterableColumns={filterableColumns}
             hiddenColumns={hiddenColumns}
             onExport={handleExport}
+            onActiveFiltersChange={setActiveFilters}
           />
         </TabsContent>
+
+        {metrics.waitlistedCount > 0 && (
+          <TabsContent value="lista-espera" className="mt-4">
+            <h3 className="text-lg font-semibold mb-4">Lista de Espera</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Ordenado por fecha de registro (primera persona en apuntarse primero). Pulsa "Invitar" para confirmar la inscripción y enviar el email con la entrada.
+            </p>
+            <AirtableDataTable
+              columns={waitlistColumns}
+              data={waitlistRegistrations}
+              loading={isLoading}
+              searchPlaceholder="Buscar en lista de espera..."
+            />
+          </TabsContent>
+        )}
       </Tabs>
 
       {/* Confirmation Dialog */}
@@ -859,6 +1089,39 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
           });
           setRegistrationToCancel(null);
         }}
+      />
+
+      {/* Promote from Waitlist Confirmation Dialog (capacity warning) */}
+      <ConfirmDialog
+        open={!!registrationToPromote}
+        onOpenChange={(open) => {
+          if (!open) {
+            setRegistrationToPromote(null);
+            setPromoteCapacityWarning(null);
+          }
+        }}
+        title="⚠️ Se superará el aforo máximo"
+        description={
+          registrationToPromote && promoteCapacityWarning
+            ? `Al confirmar la inscripción de ${registrationToPromote.first_name || ""} ${registrationToPromote.last_name || ""}, el tipo de entrada "${registrationToPromote.ticket_type?.name || ""}" pasará a ${promoteCapacityWarning.currentCount + 1}/${promoteCapacityWarning.maxCapacity} plazas ocupadas. ¿Deseas continuar?`
+            : ""
+        }
+        confirmText="Confirmar inscripción"
+        variant="danger"
+        loading={promoteMutation.isPending}
+        onConfirm={handleConfirmPromote}
+      />
+
+      {/* Bulk Consent Email Dialog */}
+      <ConfirmDialog
+        open={showBulkConsentConfirm}
+        onOpenChange={setShowBulkConsentConfirm}
+        title="¿Enviar email de consentimiento a todos los pendientes?"
+        description={`Se enviarán ${pendingMinorRegistrations.length} email${pendingMinorRegistrations.length !== 1 ? "s" : ""} de consentimiento a los padres/tutores de los menores pendientes. Esta acción puede tardar unos segundos.`}
+        confirmText="Enviar a todos"
+        variant="warning"
+        loading={bulkConsentSending}
+        onConfirm={handleBulkConsentSend}
       />
     </div>
   );
