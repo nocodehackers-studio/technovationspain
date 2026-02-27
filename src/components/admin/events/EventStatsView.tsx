@@ -308,7 +308,7 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
         const hasConsent = !!consentRecord;
 
         // Determine consent status based on age
-        // Adults (>14) give implicit consent at registration — only minors need explicit parental consent
+        // Adults (14+ by cycle date) give implicit consent at registration — only minors (≤13 by cycle date) need explicit parental consent
         let consentStatus: string;
         if (hasConsent || !isMinor(dateOfBirth)) {
           consentStatus = "signed";
@@ -555,7 +555,7 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
         label: "Consentimiento",
         options: [
           { value: "signed", label: "Firmado" },
-          { value: "pending_minor", label: "Pendiente padre (Menor 14)" },
+          { value: "pending_minor", label: "Pendiente padre (menor según ciclo)" },
         ],
       },
       ...(chapters.length > 0

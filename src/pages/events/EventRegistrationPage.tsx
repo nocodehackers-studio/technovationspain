@@ -8,7 +8,7 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useEvent, useEventRegistration, useExistingRegistration } from '@/hooks/useEventRegistration';
 import { useAuth } from '@/hooks/useAuth';
-import { isMinor, calculateAge } from '@/lib/age-utils';
+import { isMinor, calculateAge, getCycleReferenceDate } from '@/lib/age-utils';
 import { validateSpanishDNI } from '@/lib/validation-utils';
 import { ConsentModal } from '@/components/events/ConsentModal';
 import { getDashboardPath } from '@/lib/dashboard-routes';
@@ -930,7 +930,7 @@ const selectedTicketId = form.watch('ticket_type_id');
             onCancel={() => setConsentModalOpen(false)}
             participantName={`${form.getValues('first_name')} ${form.getValues('last_name')}`}
             participantDni={form.getValues('dni')}
-            participantAge={profile?.date_of_birth ? calculateAge(profile.date_of_birth, event.date) : undefined}
+            participantAge={profile?.date_of_birth ? calculateAge(profile.date_of_birth, getCycleReferenceDate()) : undefined}
             eventName={event.name}
             eventDate={new Date(event.date).toLocaleDateString('es-ES', {
               weekday: 'long',
