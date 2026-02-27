@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useWorkshopAssignment } from '@/hooks/useWorkshopAssignment';
 import { useAllTeamsPreferences } from '@/hooks/useWorkshopPreferences';
@@ -21,18 +21,20 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { 
-  ArrowLeft, 
-  Shuffle, 
-  Play, 
-  Eye, 
-  Check, 
-  AlertTriangle, 
-  X, 
+import {
+  ArrowLeft,
+  Shuffle,
+  Play,
+  Eye,
+  Check,
+  AlertTriangle,
+  X,
   Trash2,
   CheckCircle2,
   FlaskConical,
-  Loader2
+  Loader2,
+  Download,
+  ExternalLink,
 } from 'lucide-react';
 
 interface AssignmentResult {
@@ -52,6 +54,14 @@ interface AssignmentStats {
   partiallyAssigned: number;
   unassigned: number;
   preferenceStats: { preference: number; count: number }[];
+}
+
+interface GroupedAssignment {
+  teamId: string;
+  teamName: string;
+  participantCount: number;
+  slotA: { workshopName: string; slotNumber: number; preferenceMatched: number | null; assignmentType: string } | null;
+  slotB: { workshopName: string; slotNumber: number; preferenceMatched: number | null; assignmentType: string } | null;
 }
 
 export default function AdminWorkshopAssignment() {
@@ -98,6 +108,13 @@ export default function AdminWorkshopAssignment() {
     enabled: !!eventId,
   });
 
+  // Clear stale preview when assignments change
+  useEffect(() => {
+    if (existingAssignments && existingAssignments.length > 0) {
+      setPreviewResults(null);
+    }
+  }, [existingAssignments]);
+
   const validatedTeams = teamsData?.filter(t => t.validated) || [];
   const excludedTeams = teamsData?.filter(t => !t.validated) || [];
   const teamsWithPrefs = validatedTeams.filter(t => t.hasPreferences).length;
@@ -105,6 +122,47 @@ export default function AdminWorkshopAssignment() {
   const teamsWithoutPrefs = totalTeams - teamsWithPrefs;
 
   const hasAssignments = existingAssignments && existingAssignments.length > 0;
+
+  // Group existing assignments by team (read-only)
+  const groupedAssignments = useMemo<GroupedAssignment[]>(() => {
+    if (!existingAssignments || existingAssignments.length === 0) return [];
+
+    const map = new Map<string, GroupedAssignment>();
+
+    for (const assignment of existingAssignments) {
+      const team = assignment.team as any;
+      const workshop = assignment.workshop as any;
+      const timeSlot = assignment.time_slot as any;
+      if (!team?.id) continue;
+
+      if (!map.has(team.id)) {
+        const teamData = validatedTeams.find(t => t.id === team.id);
+        map.set(team.id, {
+          teamId: team.id,
+          teamName: team.name,
+          participantCount: teamData?.participantCount || 1,
+          slotA: null,
+          slotB: null,
+        });
+      }
+
+      const entry = map.get(team.id)!;
+      const slotData = {
+        workshopName: workshop?.name || '',
+        slotNumber: timeSlot?.slot_number,
+        preferenceMatched: assignment.preference_matched,
+        assignmentType: assignment.assignment_type || 'algorithm',
+      };
+
+      if (assignment.assignment_slot === 'A') {
+        entry.slotA = slotData;
+      } else {
+        entry.slotB = slotData;
+      }
+    }
+
+    return Array.from(map.values()).sort((a, b) => a.teamName.localeCompare(b.teamName));
+  }, [existingAssignments, validatedTeams]);
 
   const handlePreview = async () => {
     try {
@@ -136,6 +194,52 @@ export default function AdminWorkshopAssignment() {
     setPreviewResults(null);
   };
 
+  // CSV export (read-only data)
+  const handleExportAssignmentsCSV = () => {
+    if (groupedAssignments.length === 0) return;
+
+    const headers = ['Equipo', 'Participantes', 'Taller A', 'Turno A', 'Preferencia A', 'Taller B', 'Turno B', 'Preferencia B', 'Tipo Asignación'];
+    const rows = groupedAssignments.map(g => {
+      const typeA = g.slotA?.assignmentType || '';
+      const typeB = g.slotB?.assignmentType || '';
+      const type = typeA === 'manual' || typeB === 'manual' ? 'manual' : typeA || typeB || '';
+      return [
+        g.teamName,
+        String(g.participantCount),
+        g.slotA?.workshopName || '',
+        g.slotA ? `Turno ${g.slotA.slotNumber}` : '',
+        g.slotA?.preferenceMatched != null ? `#${g.slotA.preferenceMatched}` : '',
+        g.slotB?.workshopName || '',
+        g.slotB ? `Turno ${g.slotB.slotNumber}` : '',
+        g.slotB?.preferenceMatched != null ? `#${g.slotB.preferenceMatched}` : '',
+        type,
+      ];
+    });
+
+    const csvRows = [
+      headers.join(','),
+      ...rows.map(row =>
+        row.map(val => {
+          const strVal = String(val);
+          if (strVal.includes(',') || strVal.includes('"') || strVal.includes('\n')) {
+            return `"${strVal.replace(/"/g, '""')}"`;
+          }
+          return strVal;
+        }).join(',')
+      ),
+    ];
+
+    const blob = new Blob(['\ufeff' + csvRows.join('\n')], {
+      type: 'text/csv;charset=utf-8;',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `asignaciones-talleres-${event?.name || 'evento'}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   // Validation checks
   const validationChecks = [
     {
@@ -162,8 +266,8 @@ export default function AdminWorkshopAssignment() {
     },
   ];
 
-  const canRun = validationChecks.filter(c => !c.ok && !c.warning).length === 0 && 
-                 (workshops?.length || 0) > 0 && 
+  const canRun = validationChecks.filter(c => !c.ok && !c.warning).length === 0 &&
+                 (workshops?.length || 0) > 0 &&
                  (timeSlots?.length || 0) > 0;
 
   return (
@@ -185,16 +289,24 @@ export default function AdminWorkshopAssignment() {
               <p className="text-muted-foreground">{event?.name}</p>
             </div>
           </div>
-          {hasAssignments && (
-            <Button 
-              variant="outline" 
-              className="text-destructive hover:text-destructive"
-              onClick={() => setClearDialogOpen(true)}
-            >
-              <Trash2 className="mr-2 h-4 w-4" />
-              Eliminar Asignaciones
-            </Button>
-          )}
+          <div className="flex items-center gap-2">
+            {hasAssignments && (
+              <>
+                <Button variant="outline" onClick={handleExportAssignmentsCSV}>
+                  <Download className="mr-2 h-4 w-4" />
+                  Exportar CSV
+                </Button>
+                <Button
+                  variant="outline"
+                  className="text-destructive hover:text-destructive"
+                  onClick={() => setClearDialogOpen(true)}
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Eliminar Asignaciones
+                </Button>
+              </>
+            )}
+          </div>
         </div>
 
         {/* Current Status */}
@@ -203,8 +315,16 @@ export default function AdminWorkshopAssignment() {
             <CheckCircle2 className="h-4 w-4 text-green-600" />
             <AlertTitle className="text-green-800">Asignaciones existentes</AlertTitle>
             <AlertDescription className="text-green-700">
-              Hay {existingAssignments?.length || 0} asignaciones guardadas. 
+              Hay {groupedAssignments.length} equipos con asignaciones guardadas.
               Si ejecutas el algoritmo de nuevo, se reemplazarán las asignaciones actuales.
+              Para editar asignaciones individuales, ve al{' '}
+              <Link
+                to={`/admin/events/${eventId}/workshops/schedule`}
+                className="font-medium underline hover:text-green-900 inline-flex items-center gap-1"
+              >
+                Cuadrante de Talleres
+                <ExternalLink className="h-3 w-3" />
+              </Link>.
             </AlertDescription>
           </Alert>
         )}
@@ -228,7 +348,7 @@ export default function AdminWorkshopAssignment() {
           <CardContent>
             <div className="flex gap-3">
               {!hasDemoData ? (
-                <Button 
+                <Button
                   variant="outline"
                   onClick={generateDemoData}
                   disabled={isGenerating}
@@ -246,7 +366,7 @@ export default function AdminWorkshopAssignment() {
                   )}
                 </Button>
               ) : (
-                <Button 
+                <Button
                   variant="outline"
                   className="text-destructive hover:text-destructive"
                   onClick={() => setClearDemoDialogOpen(true)}
@@ -301,15 +421,15 @@ export default function AdminWorkshopAssignment() {
 
         {/* Actions */}
         <div className="flex gap-3">
-          <Button 
-            variant="outline" 
+          <Button
+            variant="outline"
             onClick={handlePreview}
             disabled={!canRun || isRunning}
           >
             <Eye className="mr-2 h-4 w-4" />
             {isRunning ? 'Calculando...' : 'Vista Previa (Dry Run)'}
           </Button>
-          <Button 
+          <Button
             onClick={handleExecute}
             disabled={!canRun || isRunning}
           >
@@ -323,8 +443,11 @@ export default function AdminWorkshopAssignment() {
           <Card>
             <CardHeader>
               <CardTitle className="text-lg">
-                Resultados {previewResults.stats ? '(Vista Previa)' : ''}
+                Resultados (Vista Previa)
               </CardTitle>
+              <CardDescription>
+                Estos resultados no se han guardado todavía. Pulsa "Ejecutar Asignación" para guardarlos.
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               {/* Stats Summary */}
@@ -382,7 +505,7 @@ export default function AdminWorkshopAssignment() {
               {/* Results Table */}
               <div>
                 <h4 className="font-medium mb-3">Detalle por equipo:</h4>
-                <div className="max-h-80 overflow-y-auto">
+                <div className="max-h-96 overflow-y-auto">
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -444,6 +567,90 @@ export default function AdminWorkshopAssignment() {
                     </TableBody>
                   </Table>
                 </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Saved Assignments (read-only) */}
+        {hasAssignments && !previewResults && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Asignaciones Guardadas</CardTitle>
+              <CardDescription>
+                {groupedAssignments.length} equipos asignados. Para editar, ve al{' '}
+                <Link
+                  to={`/admin/events/${eventId}/workshops/schedule`}
+                  className="font-medium underline"
+                >
+                  Cuadrante de Talleres
+                </Link>.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="max-h-96 overflow-y-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Equipo</TableHead>
+                      <TableHead className="text-center">Part.</TableHead>
+                      <TableHead>Taller A</TableHead>
+                      <TableHead>Taller B</TableHead>
+                      <TableHead className="text-center">Estado</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {groupedAssignments.map((g) => (
+                      <TableRow key={g.teamId}>
+                        <TableCell className="font-medium">{g.teamName}</TableCell>
+                        <TableCell className="text-center">{g.participantCount}</TableCell>
+                        <TableCell>
+                          {g.slotA ? (
+                            <div className="text-sm">
+                              <span>{g.slotA.workshopName}</span>
+                              <div className="text-xs text-muted-foreground">
+                                Turno {g.slotA.slotNumber}
+                                {g.slotA.preferenceMatched != null && (
+                                  <> • Pref #{g.slotA.preferenceMatched}</>
+                                )}
+                                {g.slotA.assignmentType === 'manual' && (
+                                  <> • <span className="text-amber-600">Manual</span></>
+                                )}
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {g.slotB ? (
+                            <div className="text-sm">
+                              <span>{g.slotB.workshopName}</span>
+                              <div className="text-xs text-muted-foreground">
+                                Turno {g.slotB.slotNumber}
+                                {g.slotB.preferenceMatched != null && (
+                                  <> • Pref #{g.slotB.preferenceMatched}</>
+                                )}
+                                {g.slotB.assignmentType === 'manual' && (
+                                  <> • <span className="text-amber-600">Manual</span></>
+                                )}
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          {g.slotA && g.slotB ? (
+                            <Badge className="bg-green-100 text-green-800 text-xs">OK</Badge>
+                          ) : (
+                            <Badge variant="secondary" className="text-xs">Parcial</Badge>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
               </div>
             </CardContent>
           </Card>

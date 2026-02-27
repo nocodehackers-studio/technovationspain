@@ -459,7 +459,75 @@ export function useWorkshopAssignment(eventId: string) {
       assignmentSlot: 'A' | 'B';
       userId: string;
     }) => {
-      // Verificar si ya existe asignación para este slot
+      // 1. Validar conflictos: consultar el otro slot del equipo
+      const otherSlot = assignmentSlot === 'A' ? 'B' : 'A';
+      const { data: otherAssignment } = await supabase
+        .from('workshop_assignments')
+        .select('workshop_id, time_slot_id')
+        .eq('team_id', teamId)
+        .eq('event_id', eventId)
+        .eq('assignment_slot', otherSlot)
+        .maybeSingle();
+
+      if (otherAssignment) {
+        if (otherAssignment.workshop_id === workshopId) {
+          throw new Error('No se puede asignar el mismo taller en ambos turnos');
+        }
+        if (otherAssignment.time_slot_id === timeSlotId) {
+          throw new Error('No se puede asignar el mismo turno para ambos talleres');
+        }
+      }
+
+      // 2. Validar capacidad: contar participantes actuales en el workshop+slot
+      const { data: workshop } = await supabase
+        .from('workshops')
+        .select('name, max_capacity')
+        .eq('id', workshopId)
+        .single();
+
+      if (!workshop) throw new Error('Taller no encontrado');
+
+      // Contar participantes asignados al workshop en este time_slot (excluyendo este equipo)
+      const { data: currentAssignments } = await supabase
+        .from('workshop_assignments')
+        .select('team_id')
+        .eq('event_id', eventId)
+        .eq('workshop_id', workshopId)
+        .eq('time_slot_id', timeSlotId)
+        .neq('team_id', teamId);
+
+      const assignedTeamIds = currentAssignments?.map(a => a.team_id) || [];
+      let currentOccupancy = 0;
+
+      if (assignedTeamIds.length > 0) {
+        const { data: memberCounts } = await supabase
+          .from('team_members')
+          .select('team_id')
+          .in('team_id', assignedTeamIds);
+
+        currentOccupancy = memberCounts?.length || 0;
+      }
+
+      // Contar participantes del equipo que queremos asignar
+      const { data: teamMembers } = await supabase
+        .from('team_members')
+        .select('id')
+        .eq('team_id', teamId);
+
+      const teamSize = teamMembers?.length || 1;
+
+      if (currentOccupancy + teamSize > workshop.max_capacity) {
+        const { data: slotInfo } = await supabase
+          .from('workshop_time_slots')
+          .select('slot_number')
+          .eq('id', timeSlotId)
+          .single();
+        throw new Error(
+          `El taller "${workshop.name}" está lleno en el turno ${slotInfo?.slot_number || '?'} (${currentOccupancy}/${workshop.max_capacity} participantes)`
+        );
+      }
+
+      // 3. Verificar si ya existe asignación para este slot
       const { data: existing } = await supabase
         .from('workshop_assignments')
         .select('id')
@@ -508,6 +576,34 @@ export function useWorkshopAssignment(eventId: string) {
     },
   });
 
+  // Eliminar una asignación específica de un equipo
+  const removeAssignmentMutation = useMutation({
+    mutationFn: async ({
+      teamId,
+      assignmentSlot,
+    }: {
+      teamId: string;
+      assignmentSlot: 'A' | 'B';
+    }) => {
+      const { error } = await supabase
+        .from('workshop_assignments')
+        .delete()
+        .eq('team_id', teamId)
+        .eq('event_id', eventId)
+        .eq('assignment_slot', assignmentSlot);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['workshop-assignments', eventId] });
+      queryClient.invalidateQueries({ queryKey: ['workshop-assignments-full', eventId] });
+      toast.success('Asignación eliminada');
+    },
+    onError: (error) => {
+      toast.error(`Error: ${error.message}`);
+    },
+  });
+
   // Eliminar todas las asignaciones
   const clearAssignmentsMutation = useMutation({
     mutationFn: async () => {
@@ -534,9 +630,11 @@ export function useWorkshopAssignment(eventId: string) {
     assignmentsLoading,
     runAssignment: runAssignmentMutation.mutateAsync,
     manualAssign: manualAssignMutation.mutateAsync,
+    removeAssignment: removeAssignmentMutation.mutateAsync,
     clearAssignments: clearAssignmentsMutation.mutateAsync,
     isRunning: runAssignmentMutation.isPending,
     isAssigning: manualAssignMutation.isPending,
+    isRemoving: removeAssignmentMutation.isPending,
     isClearing: clearAssignmentsMutation.isPending,
   };
 }
