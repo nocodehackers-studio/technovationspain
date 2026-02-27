@@ -4,8 +4,10 @@ import { supabase } from "@/integrations/supabase/client";
 interface TeamMemberDetail {
   userId: string;
   name: string;
+  email: string;
   memberType: "participant" | "mentor";
   isRegistered: boolean;
+  isCancelled: boolean;
 }
 
 export interface TeamEventStats {
@@ -34,13 +36,12 @@ export function useEventTeamStats(eventId: string) {
              team:teams!team_members_team_id_fkey(id, name, category, validated),
              user:profiles!team_members_user_id_fkey(first_name, last_name, email)`
           ),
-        // 2. Fetch ALL active registrations for this event (no team_id filter)
+        // 2. Fetch ALL registrations for this event (including cancelled)
         supabase
           .from("event_registrations")
-          .select("user_id")
+          .select("user_id, registration_status")
           .eq("event_id", eventId)
-          .eq("is_companion", false)
-          .neq("registration_status", "cancelled"),
+          .eq("is_companion", false),
       ]);
 
       if (membersResult.error) throw membersResult.error;
@@ -51,9 +52,16 @@ export function useEventTeamStats(eventId: string) {
 
       if (members.length === 0) return [];
 
-      // 3. Build set of registered user_ids (event-wide, not per-team)
+      // 3. Build sets of registered and cancelled user_ids (event-wide)
       const registeredUserIds = new Set(
         registrations
+          .filter((r) => r.registration_status !== "cancelled")
+          .map((r) => r.user_id)
+          .filter((id): id is string => !!id)
+      );
+      const cancelledUserIds = new Set(
+        registrations
+          .filter((r) => r.registration_status === "cancelled")
           .map((r) => r.user_id)
           .filter((id): id is string => !!id)
       );
@@ -111,7 +119,8 @@ export function useEventTeamStats(eventId: string) {
             ? `${user.first_name} ${user.last_name}`
             : user?.email || "Desconocido";
 
-        stats.members.push({ userId: m.user_id, name, memberType, isRegistered });
+        const isCancelled = cancelledUserIds.has(m.user_id);
+        stats.members.push({ userId: m.user_id, name, email: user?.email || "", memberType, isRegistered, isCancelled });
       });
 
       // 5. Filter: only teams with at least 1 registered member

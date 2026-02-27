@@ -200,7 +200,6 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
         `)
         .eq("event_id", eventId)
         .eq("is_companion", false)
-        .neq("registration_status", "cancelled")
         .order("created_at", { ascending: false });
 
       if (error) throw error;
@@ -300,10 +299,21 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
     },
   });
 
+  // Hide cancelled by default; when user applies any status filter, pass all data
+  // and let the table's filterFn handle the filtering
+  const displayedRegistrations = useMemo(() => {
+    const regs = registrations || [];
+    const statusFilters = activeFilters["registration_status"];
+    if (statusFilters && statusFilters.length > 0) {
+      return regs;
+    }
+    return regs.filter((r) => r.registration_status !== "cancelled");
+  }, [registrations, activeFilters]);
+
   const isPendingMinorFilterActive = activeFilters["consent_status"]?.includes("pending_minor") && activeFilters["consent_status"]?.length === 1;
 
   const pendingMinorRegistrations = useMemo(
-    () => (registrations || []).filter((r) => r.consent_status === "pending_minor"),
+    () => (registrations || []).filter((r) => r.consent_status === "pending_minor" && r.registration_status !== "cancelled"),
     [registrations]
   );
 
@@ -358,8 +368,7 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
         .from("event_registrations")
         .select("id")
         .eq("event_id", eventId)
-        .eq("is_companion", false)
-        .neq("registration_status", "cancelled");
+        .eq("is_companion", false);
 
       if (!regIds || regIds.length === 0) return [];
 
@@ -446,7 +455,7 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
   const metrics = useMemo(() => {
     const regs = registrations || [];
     // F5 fix: exclude waitlisted from confirmed-attendee metrics
-    const confirmedRegs = regs.filter((r) => r.registration_status !== "waitlisted");
+    const confirmedRegs = regs.filter((r) => r.registration_status !== "waitlisted" && r.registration_status !== "cancelled");
 
     const participantsCount = confirmedRegs.filter((r) =>
       r.ticket_type?.allowed_roles?.includes("participant")
@@ -505,6 +514,7 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
         options: [
           { value: "confirmed", label: "Confirmado" },
           { value: "waitlisted", label: "En lista de espera" },
+          { value: "cancelled", label: "Cancelado" },
         ],
       },
       {
@@ -732,19 +742,22 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
       {
         id: "actions",
         header: "",
-        cell: ({ row }) => (
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={(e) => {
-              e.stopPropagation();
-              setRegistrationToCancel(row.original);
-            }}
-            title="Cancelar inscripción"
-          >
-            <XCircle className="h-4 w-4 text-destructive" />
-          </Button>
-        ),
+        cell: ({ row }) => {
+          if (row.original.registration_status === "cancelled") return null;
+          return (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={(e) => {
+                e.stopPropagation();
+                setRegistrationToCancel(row.original);
+              }}
+              title="Cancelar inscripción"
+            >
+              <XCircle className="h-4 w-4 text-destructive" />
+            </Button>
+          );
+        },
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1039,7 +1052,7 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
           )}
           <AirtableDataTable
             columns={columns}
-            data={registrations || []}
+            data={displayedRegistrations}
             loading={isLoading}
             searchPlaceholder="Buscar por nombre o email..."
             filterableColumns={filterableColumns}

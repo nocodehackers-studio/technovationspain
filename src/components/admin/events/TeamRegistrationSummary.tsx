@@ -24,7 +24,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { CheckCircle2, Clock, AlertCircle, ShieldCheck } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { CheckCircle2, Clock, AlertCircle, ShieldCheck, Download, XCircle } from "lucide-react";
 import { TeamCategory } from "@/types/database";
 
 interface TeamRegistrationSummaryProps {
@@ -106,6 +107,69 @@ function StatusBadge({ team }: { team: TeamEventStats }) {
   );
 }
 
+function handleExportTeamsCSV(teams: TeamEventStats[]) {
+  const mentorsByTeam = teams.map((t) =>
+    t.members.filter((m) => m.memberType === "mentor")
+  );
+  const maxMentors = Math.max(0, ...mentorsByTeam.map((m) => m.length));
+
+  const headers = [
+    "Equipo",
+    "Categoría",
+    "Participantes registrados",
+    "Total participantes",
+    "Mentores registrados",
+    "Total mentores",
+    "Completitud (%)",
+    "Estado",
+    "Validado",
+  ];
+  for (let i = 1; i <= maxMentors; i++) {
+    headers.push(`Mentor ${i} - Nombre`, `Mentor ${i} - Email`, `Mentor ${i} - Registrado`);
+  }
+
+  const statusLabels: Record<TeamStatus, string> = {
+    sin_mentor: "Sin mentor",
+    parcial: "Parcial",
+    completo: "Completo",
+    validado: "Validado",
+  };
+
+  const rows = teams.map((team, idx) => {
+    const mentors = mentorsByTeam[idx];
+    const row: string[] = [
+      team.teamName,
+      team.category ?? "",
+      String(team.registeredParticipants),
+      String(team.totalParticipants),
+      String(team.registeredMentors),
+      String(team.totalMentors),
+      String(team.completionPercentage),
+      statusLabels[getTeamStatus(team)],
+      team.validated ? "Sí" : "No",
+    ];
+    for (let i = 0; i < maxMentors; i++) {
+      const m = mentors[i];
+      row.push(m?.name ?? "", m?.email ?? "", m ? (m.isRegistered ? "Sí" : "No") : "");
+    }
+    return row;
+  });
+
+  const escape = (v: string) => `"${v.replace(/"/g, '""')}"`;
+  const csv =
+    "\uFEFF" +
+    [headers, ...rows].map((r) => r.map(escape).join(";")).join("\n");
+
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const date = new Date().toISOString().slice(0, 10);
+  a.href = url;
+  a.download = `equipos-evento-${date}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export function TeamRegistrationSummary({
   teams,
   isLoading,
@@ -138,6 +202,16 @@ export function TeamRegistrationSummary({
     <div>
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-semibold">Registro por Equipos</h3>
+        <div className="flex items-center gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => handleExportTeamsCSV(filteredTeams)}
+          disabled={filteredTeams.length === 0}
+        >
+          <Download className="h-4 w-4 mr-2" />
+          Exportar CSV
+        </Button>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-[200px]">
             <SelectValue placeholder="Filtrar por estado" />
@@ -150,6 +224,7 @@ export function TeamRegistrationSummary({
             <SelectItem value="validado">Validado ({teams.filter(t => getTeamStatus(t) === "validado").length})</SelectItem>
           </SelectContent>
         </Select>
+        </div>
       </div>
       <div className="border rounded-lg overflow-hidden">
         <Table>
@@ -166,8 +241,9 @@ export function TeamRegistrationSummary({
           </TableHeader>
           <TableBody>
             {filteredTeams.map((team) => {
-              const registered = team.members.filter((m) => m.isRegistered);
-              const missing = team.members.filter((m) => !m.isRegistered);
+              const registered = team.members.filter((m) => m.isRegistered && !m.isCancelled);
+              const cancelled = team.members.filter((m) => m.isCancelled);
+              const missing = team.members.filter((m) => !m.isRegistered && !m.isCancelled);
 
               return (
                 <TooltipProvider key={team.teamId}>
@@ -264,6 +340,27 @@ export function TeamRegistrationSummary({
                                 className="text-xs flex items-center gap-1"
                               >
                                 <Clock className="h-3 w-3 text-warning shrink-0" />
+                                {m.name}
+                                <span className="text-muted-foreground">
+                                  ({m.memberType === "mentor"
+                                    ? "Mentor"
+                                    : "Participante"})
+                                </span>
+                              </p>
+                            ))}
+                          </>
+                        )}
+                        {cancelled.length > 0 && (
+                          <>
+                            <p className={`font-medium text-sm mb-1${registered.length > 0 || missing.length > 0 ? " mt-2" : ""}`}>
+                              Cancelados:
+                            </p>
+                            {cancelled.map((m) => (
+                              <p
+                                key={m.userId}
+                                className="text-xs flex items-center gap-1"
+                              >
+                                <XCircle className="h-3 w-3 text-destructive shrink-0" />
                                 {m.name}
                                 <span className="text-muted-foreground">
                                   ({m.memberType === "mentor"
