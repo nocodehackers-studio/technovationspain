@@ -152,7 +152,7 @@ export function useWorkshopPreferences(eventId: string, teamId?: string) {
 
   // Admin: actualizar preferencias
   const updatePreferencesMutation = useMutation({
-    mutationFn: async ({ orderedWorkshopIds }: { orderedWorkshopIds: string[] }) => {
+    mutationFn: async ({ orderedWorkshopIds, userId }: { orderedWorkshopIds: string[]; userId?: string }) => {
       if (!teamId || !eventId) {
         throw new Error('Faltan datos del equipo o evento');
       }
@@ -173,7 +173,7 @@ export function useWorkshopPreferences(eventId: string, teamId?: string) {
           event_id: eventId,
           workshop_id: workshopId,
           preference_order: index + 1,
-          submitted_by: (submissionStatus as any)?.submittedById || '',
+          submitted_by: userId || (submissionStatus as any)?.submittedById || '',
         }));
 
         const { error: insertError } = await supabase
@@ -185,6 +185,9 @@ export function useWorkshopPreferences(eventId: string, teamId?: string) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['team-workshop-preferences', eventId, teamId] });
+      queryClient.invalidateQueries({ queryKey: ['team-preferences-status', eventId, teamId] });
+      queryClient.invalidateQueries({ queryKey: ['workshop-preferences-eligibility'] });
+      queryClient.invalidateQueries({ queryKey: ['all-teams-preferences', eventId] });
       toast.success('Preferencias actualizadas');
     },
     onError: (error) => {
