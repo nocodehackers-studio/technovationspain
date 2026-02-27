@@ -13,7 +13,7 @@ import { useAdminPromoteWaitlist, checkWaitlistCapacity } from "@/hooks/useAdmin
 import { useEventTeamStats } from "@/hooks/useEventTeamStats";
 import { TeamRegistrationSummary } from "./TeamRegistrationSummary";
 import { isMinor } from "@/lib/age-utils";
-import { Users, Users2, UserPlus, GraduationCap, Ticket, UsersRound, XCircle, FileCheck, Mail, Loader2, AlertTriangle, Clock } from "lucide-react";
+import { Users, Users2, UserPlus, GraduationCap, Ticket, UsersRound, XCircle, FileCheck, Mail, Loader2, AlertTriangle, Clock, Send } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "@/hooks/use-toast";
@@ -68,6 +68,8 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
   const [promotingIds, setPromotingIds] = useState<Set<string>>(new Set());
   const [hiddenColumns] = useState<string[]>(["dni", "phone"]);
   const [sendingConsentIds, setSendingConsentIds] = useState<Set<string>>(new Set());
+  const [resendingEntryIds, setResendingEntryIds] = useState<Set<string>>(new Set());
+  const [registrationToResend, setRegistrationToResend] = useState<RegistrationWithCompanions | null>(null);
   const [activeFilters, setActiveFilters] = useState<Record<string, string[]>>({});
   const [bulkConsentSending, setBulkConsentSending] = useState(false);
   const [bulkConsentProgress, setBulkConsentProgress] = useState<{ sent: number; failed: number; total: number } | null>(null);
@@ -115,6 +117,37 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
       });
     } finally {
       setSendingConsentIds((prev) => {
+        const next = new Set(prev);
+        next.delete(registration.id);
+        return next;
+      });
+    }
+  };
+
+  const handleResendEntry = async (registration: RegistrationWithCompanions) => {
+    if (registration.registration_status !== "confirmed") return;
+    if (resendingEntryIds.has(registration.id)) return;
+    setResendingEntryIds((prev) => new Set(prev).add(registration.id));
+    try {
+      const { data, error } = await supabase.functions.invoke("send-registration-confirmation", {
+        body: { registrationId: registration.id },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      const name = `${registration.first_name || ""} ${registration.last_name || ""}`.trim();
+      toast({
+        title: "Email enviado",
+        description: `Entrada reenviada a ${name || registration.email || "(sin nombre)"}`,
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "No se pudo enviar el email";
+      toast({
+        title: "Error al enviar",
+        description: message,
+        variant: "destructive",
+      });
+    } finally {
+      setResendingEntryIds((prev) => {
         const next = new Set(prev);
         next.delete(registration.id);
         return next;
@@ -745,23 +778,54 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
         cell: ({ row }) => {
           if (row.original.registration_status === "cancelled") return null;
           return (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={(e) => {
-                e.stopPropagation();
-                setRegistrationToCancel(row.original);
-              }}
-              title="Cancelar inscripción"
-            >
-              <XCircle className="h-4 w-4 text-destructive" />
-            </Button>
+            <div className="flex items-center gap-2">
+              {row.original.registration_status === "confirmed" && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      aria-label="Reenviar email de entrada"
+                      disabled={resendingEntryIds.has(row.original.id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setRegistrationToResend(row.original);
+                      }}
+                    >
+                      {resendingEntryIds.has(row.original.id) ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Send className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Reenviar email de entrada</TooltipContent>
+                </Tooltip>
+              )}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Cancelar inscripción"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setRegistrationToCancel(row.original);
+                    }}
+                  >
+                    <XCircle className="h-4 w-4 text-destructive" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Cancelar inscripción</TooltipContent>
+              </Tooltip>
+            </div>
           );
         },
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [sendingConsentIds]
+    [sendingConsentIds, resendingEntryIds]
   );
 
   // Waitlist data: filtered and sorted FIFO
@@ -1101,6 +1165,26 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
             registrationStatus: registrationToCancel.registration_status || "confirmed",
           });
           setRegistrationToCancel(null);
+        }}
+      />
+
+      {/* Resend Entry Email Confirmation Dialog */}
+      <ConfirmDialog
+        open={!!registrationToResend}
+        onOpenChange={(open) => !open && setRegistrationToResend(null)}
+        title="¿Reenviar email de entrada?"
+        description={
+          registrationToResend
+            ? `Se reenviará el email de confirmación con la entrada y código QR a ${registrationToResend.first_name || ""} ${registrationToResend.last_name || ""} (${registrationToResend.email || "sin email"})${registrationToResend.companions_count > 0 ? `. Incluye ${registrationToResend.companions_count} acompañante(s).` : "."}`.trim()
+            : ""
+        }
+        confirmText="Reenviar entrada"
+        variant="info"
+        loading={resendingEntryIds.has(registrationToResend?.id || "")}
+        onConfirm={async () => {
+          if (!registrationToResend) return;
+          await handleResendEntry(registrationToResend);
+          setRegistrationToResend(null);
         }}
       />
 
