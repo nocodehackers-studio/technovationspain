@@ -27,32 +27,57 @@ export function useEventTeamStats(eventId: string) {
   return useQuery({
     queryKey: ["event-team-stats", eventId],
     queryFn: async (): Promise<TeamEventStats[]> => {
-      // 1. Fetch ALL teams with their members (source of truth for roster)
-      const [membersResult, registrationsResult] = await Promise.all([
-        supabase
+      // 1. Fetch registrations for this event (including cancelled — needed for cancelledUserIds)
+      const { data: registrations, error: regError } = await supabase
+        .from("event_registrations")
+        .select("team_id, user_id, registration_status")
+        .eq("event_id", eventId)
+        .eq("is_companion", false);
+
+      if (regError) throw regError;
+      if (!registrations || registrations.length === 0) return [];
+
+      // 2. Extract team_ids directly from registrations
+      const directTeamIds = new Set(
+        registrations.map(r => r.team_id).filter((id): id is string => !!id)
+      );
+
+      // 3. Fallback: resolve team_ids for registrations with null team_id
+      const userIdsWithoutTeam = registrations
+        .filter(r => !r.team_id && r.user_id)
+        .map(r => r.user_id)
+        .filter((id): id is string => !!id);
+
+      if (userIdsWithoutTeam.length > 0) {
+        const { data: memberships, error: memError } = await supabase
           .from("team_members")
-          .select(
-            `team_id, user_id, member_type,
-             team:teams!team_members_team_id_fkey(id, name, category, validated),
-             user:profiles!team_members_user_id_fkey(first_name, last_name, email)`
-          ),
-        // 2. Fetch ALL registrations for this event (including cancelled)
-        supabase
-          .from("event_registrations")
-          .select("user_id, registration_status")
-          .eq("event_id", eventId)
-          .eq("is_companion", false),
-      ]);
+          .select("team_id")
+          .in("user_id", userIdsWithoutTeam)
+          .not("team_id", "is", null);
 
-      if (membersResult.error) throw membersResult.error;
-      if (registrationsResult.error) throw registrationsResult.error;
+        if (memError) throw memError;
+        memberships?.forEach(m => {
+          if (m.team_id) directTeamIds.add(m.team_id);
+        });
+      }
 
-      const members = membersResult.data || [];
-      const registrations = registrationsResult.data || [];
+      const allTeamIds = [...directTeamIds];
+      if (allTeamIds.length === 0) return [];
 
-      if (members.length === 0) return [];
+      // 4. Fetch scoped team_members (only teams relevant to this event)
+      const { data: members, error: membersError } = await supabase
+        .from("team_members")
+        .select(
+          `team_id, user_id, member_type,
+           team:teams!team_members_team_id_fkey(id, name, category, validated),
+           user:profiles!team_members_user_id_fkey(first_name, last_name, email)`
+        )
+        .in("team_id", allTeamIds);
 
-      // 3. Build sets of registered and cancelled user_ids (event-wide)
+      if (membersError) throw membersError;
+      if (!members || members.length === 0) return [];
+
+      // 5. Build sets of registered and cancelled user_ids (event-wide)
       const registeredUserIds = new Set(
         registrations
           .filter((r) => r.registration_status !== "cancelled")
@@ -66,7 +91,7 @@ export function useEventTeamStats(eventId: string) {
           .filter((id): id is string => !!id)
       );
 
-      // 4. Build team stats from team_members
+      // 6. Build team stats from team_members
       const teamStatsMap = new Map<string, TeamEventStats>();
 
       members.forEach((m) => {
@@ -123,12 +148,12 @@ export function useEventTeamStats(eventId: string) {
         stats.members.push({ userId: m.user_id, name, email: user?.email || "", memberType, isRegistered, isCancelled });
       });
 
-      // 5. Filter: only teams with at least 1 registered member
+      // 7. Filter: only teams with at least 1 registered member
       const result = Array.from(teamStatsMap.values()).filter(
         (s) => s.registeredParticipants + s.registeredMentors > 0
       );
 
-      // 6. Calculate completion and sort
+      // 8. Calculate completion and sort
       result.forEach((s) => {
         const total = s.totalParticipants + s.totalMentors;
         const registered = s.registeredParticipants + s.registeredMentors;
@@ -147,5 +172,6 @@ export function useEventTeamStats(eventId: string) {
 
       return result;
     },
+    enabled: !!eventId,
   });
 }
