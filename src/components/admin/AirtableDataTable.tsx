@@ -84,6 +84,7 @@ interface AirtableDataTableProps<TData, TValue> {
   onHiddenColumnsChange?: (columns: string[]) => void;
   onRowClick?: (row: TData) => void;
   onActiveFiltersChange?: (filters: Record<string, string[]>) => void;
+  filterBarContent?: React.ReactNode;
 }
 
 export function AirtableDataTable<TData, TValue>({
@@ -99,6 +100,7 @@ export function AirtableDataTable<TData, TValue>({
   onHiddenColumnsChange,
   onRowClick,
   onActiveFiltersChange,
+  filterBarContent,
 }: AirtableDataTableProps<TData, TValue>) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
@@ -348,6 +350,8 @@ export function AirtableDataTable<TData, TValue>({
                 </Popover>
               );
             })}
+
+            {filterBarContent}
 
             {/* Active Filter Tags */}
             {Object.entries(activeFilters).flatMap(([key, values]) => {

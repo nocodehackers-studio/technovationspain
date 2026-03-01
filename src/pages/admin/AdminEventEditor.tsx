@@ -210,6 +210,23 @@ export default function AdminEventEditor() {
     },
   });
 
+  const deleteEventMutation = useMutation({
+    mutationFn: async () => {
+      if (!eventId) throw new Error("No event ID");
+      const { error } = await supabase.from("events").delete().eq("id", eventId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin-events"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-event", eventId] });
+      toast.success("Evento eliminado correctamente");
+      navigate("/admin/events");
+    },
+    onError: (error) => {
+      toast.error(`Error al eliminar: ${error.message}`);
+    },
+  });
+
   const handleUpdateField = (field: string, value: string | number | null) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
     setHasUnsavedChanges(true);
@@ -412,6 +429,8 @@ export default function AdminEventEditor() {
                   onPublish={handlePublish}
                   onUnpublish={handleUnpublish}
                   isPublishing={updateMutation.isPending}
+                  onDelete={() => deleteEventMutation.mutate()}
+                  isDeleting={deleteEventMutation.isPending}
                 />
               )}
             </TabsContent>

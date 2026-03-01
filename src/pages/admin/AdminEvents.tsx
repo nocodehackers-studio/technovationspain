@@ -1,24 +1,13 @@
-import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { ColumnDef } from "@tanstack/react-table";
 import { supabase } from "@/integrations/supabase/client";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { DataTable } from "@/components/admin/DataTable";
 import { CapacityBar } from "@/components/admin/CapacityBar";
-import { ConfirmDialog } from "@/components/admin/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { toast } from "sonner";
-import { MoreHorizontal, Plus, Edit, Trash2, Users, GraduationCap, Eye, EyeOff } from "lucide-react";
+import { Plus } from "lucide-react";
 import { Event } from "@/types/database";
 
 interface EventWithRealCount extends Event {
@@ -27,9 +16,6 @@ interface EventWithRealCount extends Event {
 
 export default function AdminEvents() {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
-  const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   // Fetch events with real attendee counts
   const { data: events, isLoading } = useQuery({
@@ -86,47 +72,6 @@ export default function AdminEvents() {
         ...event,
         realAttendees: (regCounts.get(event.id) || 0) + (companionCounts.get(event.id) || 0),
       })) as EventWithRealCount[];
-    },
-  });
-
-  // Update event mutation (for publish/unpublish)
-  const updateEventMutation = useMutation({
-    mutationFn: async ({
-      eventId,
-      updates,
-    }: {
-      eventId: string;
-      updates: Record<string, unknown>;
-    }) => {
-      const { error } = await supabase
-        .from("events")
-        .update(updates as any)
-        .eq("id", eventId);
-      
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["admin-events"] });
-      toast.success("Evento actualizado correctamente");
-    },
-    onError: (error) => {
-      toast.error(`Error: ${error.message}`);
-    },
-  });
-
-  // Delete event mutation
-  const deleteEventMutation = useMutation({
-    mutationFn: async (eventId: string) => {
-      const { error } = await supabase.from("events").delete().eq("id", eventId);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["admin-events"] });
-      toast.success("Evento eliminado correctamente");
-      setDeleteDialogOpen(false);
-    },
-    onError: (error) => {
-      toast.error(`Error: ${error.message}`);
     },
   });
 
@@ -211,69 +156,6 @@ export default function AdminEvents() {
         return <Badge variant={status.variant}>{status.label}</Badge>;
       },
     },
-    {
-      id: "actions",
-      cell: ({ row }) => {
-        const event = row.original;
-        const isPublished = event.status === 'published';
-        return (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="h-8 w-8 p-0">
-                <MoreHorizontal className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuLabel>Acciones</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={() => {
-                  updateEventMutation.mutate({
-                    eventId: event.id,
-                    updates: { status: isPublished ? 'draft' : 'published' },
-                  });
-                }}
-              >
-                {isPublished ? (
-                  <>
-                    <EyeOff className="mr-2 h-4 w-4" />
-                    Despublicar
-                  </>
-                ) : (
-                  <>
-                    <Eye className="mr-2 h-4 w-4" />
-                    Publicar
-                  </>
-                )}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => navigate(`/admin/events/${event.id}/edit`)}
-              >
-                <Edit className="mr-2 h-4 w-4" />
-                Editar
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => navigate(`/admin/events/${event.id}/workshops/capacity`)}
-              >
-                <GraduationCap className="mr-2 h-4 w-4" />
-                Talleres
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                className="text-destructive"
-                onClick={() => {
-                  setSelectedEvent(event);
-                  setDeleteDialogOpen(true);
-                }}
-              >
-                <Trash2 className="mr-2 h-4 w-4" />
-                Eliminar
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        );
-      },
-    },
   ];
 
   return (
@@ -298,20 +180,9 @@ export default function AdminEvents() {
           data={events || []}
           searchPlaceholder="Buscar eventos..."
           loading={isLoading}
+          onRowClick={(event) => navigate(`/admin/events/${event.id}/edit`)}
         />
       </div>
-
-      {/* Delete Confirmation */}
-      <ConfirmDialog
-        open={deleteDialogOpen}
-        onOpenChange={setDeleteDialogOpen}
-        title="¿Eliminar evento?"
-        description={`Esta acción eliminará permanentemente "${selectedEvent?.name}" y todos sus registros asociados. Esta acción no se puede deshacer.`}
-        confirmText="Eliminar"
-        variant="danger"
-        onConfirm={() => selectedEvent && deleteEventMutation.mutate(selectedEvent.id)}
-        loading={deleteEventMutation.isPending}
-      />
     </AdminLayout>
   );
 }

@@ -14,6 +14,8 @@ import { useEventTeamStats } from "@/hooks/useEventTeamStats";
 import { TeamRegistrationSummary } from "./TeamRegistrationSummary";
 import { isMinor } from "@/lib/age-utils";
 import { Users, Users2, UserPlus, GraduationCap, Ticket, UsersRound, XCircle, FileCheck, Mail, Loader2, AlertTriangle, Clock, Send } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "@/hooks/use-toast";
@@ -71,6 +73,7 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
   const [resendingEntryIds, setResendingEntryIds] = useState<Set<string>>(new Set());
   const [registrationToResend, setRegistrationToResend] = useState<RegistrationWithCompanions | null>(null);
   const [activeFilters, setActiveFilters] = useState<Record<string, string[]>>({});
+  const [showCancelled, setShowCancelled] = useState(false);
   const [bulkConsentSending, setBulkConsentSending] = useState(false);
   const [bulkConsentProgress, setBulkConsentProgress] = useState<{ sent: number; failed: number; total: number } | null>(null);
   const [showBulkConsentConfirm, setShowBulkConsentConfirm] = useState(false);
@@ -340,8 +343,11 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
     if (statusFilters && statusFilters.length > 0) {
       return regs;
     }
+    if (showCancelled) {
+      return regs;
+    }
     return regs.filter((r) => r.registration_status !== "cancelled");
-  }, [registrations, activeFilters]);
+  }, [registrations, activeFilters, showCancelled]);
 
   const isPendingMinorFilterActive = activeFilters["consent_status"]?.includes("pending_minor") && activeFilters["consent_status"]?.length === 1;
 
@@ -1123,6 +1129,18 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
             hiddenColumns={hiddenColumns}
             onExport={handleExport}
             onActiveFiltersChange={setActiveFilters}
+            filterBarContent={
+              <div className="flex items-center gap-2">
+                <Switch
+                  id="show-cancelled"
+                  checked={showCancelled}
+                  onCheckedChange={setShowCancelled}
+                />
+                <Label htmlFor="show-cancelled" className="text-sm font-medium cursor-pointer">
+                  Mostrar canceladas
+                </Label>
+              </div>
+            }
           />
         </TabsContent>
 
