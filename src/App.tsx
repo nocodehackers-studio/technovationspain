@@ -37,6 +37,7 @@ import AdminReports from "./pages/admin/AdminReports";
 import AdminSettings from "./pages/admin/AdminSettings";
 import AdminTickets from "./pages/admin/AdminTickets";
 import AdminImportBatch from "./pages/admin/AdminImportBatch";
+import AdminEventAccreditations from "./pages/admin/AdminEventAccreditations";
 
 // Event Pages
 import EventsListPage from "./pages/events/EventsListPage";
@@ -121,6 +122,11 @@ const App = () => (
             <Route path="/admin/events/new" element={
               <ProtectedRoute requiredRoles={["admin", "chapter_ambassador"]}>
                 <AdminEventEditor />
+              </ProtectedRoute>
+            } />
+            <Route path="/admin/events/:eventId/accreditations" element={
+              <ProtectedRoute requiredRoles={["admin"]}>
+                <AdminEventAccreditations />
               </ProtectedRoute>
             } />
             <Route path="/admin/events/:eventId/edit" element={
