@@ -86,7 +86,7 @@ export function ConsentModal({
 
           {/* DNI field */}
           <div className="space-y-2">
-            <Label htmlFor="consent-dni">DNI/NIE del Padre/Madre o Tutor legal (o del Titular para mayores de 14 años) *</Label>
+            <Label htmlFor="consent-dni">DNI/NIE del Padre/Madre o Tutor legal (o del Titular si tiene 14 años o más según el ciclo en curso) *</Label>
             <Input
               id="consent-dni"
               placeholder="12345678A"
@@ -100,7 +100,7 @@ export function ConsentModal({
 
           {/* Signature */}
           <div className="space-y-2">
-            <Label htmlFor="consent-signature">Nombre y apellidos del Padre/Madre o Tutor legal (o del Titular para mayores de 14 años) *</Label>
+            <Label htmlFor="consent-signature">Nombre y apellidos del Padre/Madre o Tutor legal (o del Titular si tiene 14 años o más según el ciclo en curso) *</Label>
             <Input
               id="consent-signature"
               placeholder="Nombre Apellido1 Apellido2"

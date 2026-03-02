@@ -1,5 +1,6 @@
 import { useParams, Link } from 'react-router-dom';
-import { useAllTeamsPreferences } from '@/hooks/useWorkshopPreferences';
+import { useAllTeamsPreferences, useWorkshopPreferences } from '@/hooks/useWorkshopPreferences';
+import { useAuth } from '@/hooks/useAuth';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { AdminLayout } from '@/components/admin/AdminLayout';
@@ -20,19 +21,139 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { ArrowLeft, ClipboardList, Check, Clock, Download } from 'lucide-react';
+import {
+  ArrowLeft,
+  ClipboardList,
+  Check,
+  Clock,
+  Download,
+  Pencil,
+  GripVertical,
+  ChevronUp,
+  ChevronDown,
+} from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { Workshop } from '@/types/database';
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+
+// Sortable workshop item for admin preferences dialog
+function SortableWorkshopItem({
+  workshop,
+  index,
+  onMoveUp,
+  onMoveDown,
+  isFirst,
+  isLast,
+}: {
+  workshop: Workshop;
+  index: number;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  isFirst: boolean;
+  isLast: boolean;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: workshop.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`flex items-center gap-3 p-3 bg-card border rounded-lg ${
+        isDragging ? 'shadow-lg ring-2 ring-primary' : ''
+      }`}
+    >
+      <div
+        {...attributes}
+        {...listeners}
+        className="cursor-grab active:cursor-grabbing p-1 rounded hover:bg-muted"
+      >
+        <GripVertical className="h-4 w-4 text-muted-foreground" />
+      </div>
+      <Badge variant="secondary" className="w-7 h-7 flex items-center justify-center shrink-0 text-xs">
+        {index + 1}
+      </Badge>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium truncate">{workshop.name}</p>
+        {workshop.description && (
+          <p className="text-xs text-muted-foreground truncate">{workshop.description}</p>
+        )}
+      </div>
+      <div className="flex flex-col gap-0.5">
+        <Button variant="ghost" size="icon" className="h-5 w-5" onClick={onMoveUp} disabled={isFirst}>
+          <ChevronUp className="h-3 w-3" />
+        </Button>
+        <Button variant="ghost" size="icon" className="h-5 w-5" onClick={onMoveDown} disabled={isLast}>
+          <ChevronDown className="h-3 w-3" />
+        </Button>
+      </div>
+    </div>
+  );
+}
 
 export default function AdminWorkshopPreferences() {
   const { eventId } = useParams();
+  const { user } = useAuth();
   const { data: teamsData, isLoading } = useAllTeamsPreferences(eventId || '');
   const [selectedTeam, setSelectedTeam] = useState<any>(null);
   const [detailDialogOpen, setDetailDialogOpen] = useState(false);
+
+  // Edit preferences state
+  const [editingTeamId, setEditingTeamId] = useState<string | null>(null);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editOrderedWorkshops, setEditOrderedWorkshops] = useState<Workshop[]>([]);
+
+  const {
+    workshops,
+    teamPreferences,
+    isLoading: prefsLoading,
+    submitPreferences,
+    updatePreferences,
+    isSubmitting,
+    isUpdating,
+  } = useWorkshopPreferences(eventId || '', editingTeamId || undefined);
+
+  // DnD sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
 
   // Fetch event
   const { data: event } = useQuery({
@@ -49,6 +170,24 @@ export default function AdminWorkshopPreferences() {
     enabled: !!eventId,
   });
 
+  // Initialize ordered workshops when edit dialog opens and data loads
+  useEffect(() => {
+    if (!editDialogOpen || !workshops || workshops.length === 0) return;
+
+    if (teamPreferences && teamPreferences.length > 0) {
+      // Sort workshops by existing preference order
+      const prefsMap = new Map(teamPreferences.map(p => [p.workshop_id, p.preference_order]));
+      const sorted = [...workshops].sort((a, b) => {
+        const orderA = prefsMap.get(a.id) ?? 999;
+        const orderB = prefsMap.get(b.id) ?? 999;
+        return orderA - orderB;
+      });
+      setEditOrderedWorkshops(sorted);
+    } else {
+      setEditOrderedWorkshops([...workshops]);
+    }
+  }, [editDialogOpen, workshops, teamPreferences]);
+
   const teamsWithPrefs = teamsData?.filter(t => t.hasPreferences).length || 0;
   const totalTeams = teamsData?.length || 0;
   const progressPercentage = totalTeams > 0 ? (teamsWithPrefs / totalTeams) * 100 : 0;
@@ -64,24 +203,33 @@ export default function AdminWorkshopPreferences() {
         const pref = prefs.find(p => p.order === i);
         prefNames.push(pref?.workshopName || '');
       }
-      
+
       return [
         team.name,
         team.category || '',
         team.hasPreferences ? 'Enviado' : 'Pendiente',
         team.preferencesData?.submittedBy || '',
-        team.preferencesData?.submittedAt 
+        team.preferencesData?.submittedAt
           ? format(new Date(team.preferencesData.submittedAt), 'dd/MM/yyyy HH:mm')
           : '',
         ...prefNames,
       ];
     });
 
-    const csvContent = [headers, ...rows]
-      .map(row => row.map(cell => `"${cell}"`).join(','))
-      .join('\n');
+    const csvRows = [
+      headers.join(','),
+      ...rows.map(row =>
+        row.map(val => {
+          const strVal = String(val);
+          if (strVal.includes(',') || strVal.includes('"') || strVal.includes('\n')) {
+            return `"${strVal.replace(/"/g, '""')}"`;
+          }
+          return strVal;
+        }).join(',')
+      ),
+    ];
 
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const blob = new Blob(['\ufeff' + csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
@@ -89,6 +237,61 @@ export default function AdminWorkshopPreferences() {
     link.click();
     URL.revokeObjectURL(url);
   };
+
+  const handleOpenEditDialog = (teamId: string) => {
+    setEditingTeamId(teamId);
+    setEditOrderedWorkshops([]);
+    setEditDialogOpen(true);
+  };
+
+  const handleCloseEditDialog = () => {
+    setEditDialogOpen(false);
+    setEditingTeamId(null);
+    setEditOrderedWorkshops([]);
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+      setEditOrderedWorkshops((items) => {
+        const oldIndex = items.findIndex((i) => i.id === active.id);
+        const newIndex = items.findIndex((i) => i.id === over.id);
+        return arrayMove(items, oldIndex, newIndex);
+      });
+    }
+  };
+
+  const handleMoveUp = (index: number) => {
+    if (index > 0) {
+      setEditOrderedWorkshops((items) => arrayMove(items, index, index - 1));
+    }
+  };
+
+  const handleMoveDown = (index: number) => {
+    if (index < editOrderedWorkshops.length - 1) {
+      setEditOrderedWorkshops((items) => arrayMove(items, index, index + 1));
+    }
+  };
+
+  const handleSavePreferences = async () => {
+    if (!editingTeamId || !user?.id || editOrderedWorkshops.length === 0) return;
+
+    const orderedWorkshopIds = editOrderedWorkshops.map(w => w.id);
+    const teamData = teamsData?.find(t => t.id === editingTeamId);
+
+    try {
+      if (teamData?.hasPreferences) {
+        await updatePreferences({ orderedWorkshopIds, userId: user.id });
+      } else {
+        await submitPreferences({ orderedWorkshopIds, userId: user.id });
+      }
+      handleCloseEditDialog();
+    } catch (error) {
+      // Error handled in hook via toast
+    }
+  };
+
+  const editingTeamData = teamsData?.find(t => t.id === editingTeamId);
 
   return (
     <AdminLayout title="Estado de Preferencias">
@@ -137,7 +340,7 @@ export default function AdminWorkshopPreferences() {
           <CardHeader className="pb-3">
             <CardTitle className="text-lg">Equipos</CardTitle>
             <CardDescription>
-              Click en un equipo para ver sus preferencias detalladas
+              Click en un equipo para ver sus preferencias detalladas, o usa el botón de edición para gestionar preferencias
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -156,19 +359,21 @@ export default function AdminWorkshopPreferences() {
                     <TableHead>Participantes</TableHead>
                     <TableHead>Estado</TableHead>
                     <TableHead>Enviado</TableHead>
+                    <TableHead className="w-[60px]">Acciones</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {teamsData.map((team) => (
-                    <TableRow 
-                      key={team.id}
-                      className="cursor-pointer hover:bg-muted/50"
-                      onClick={() => {
-                        setSelectedTeam(team);
-                        setDetailDialogOpen(true);
-                      }}
-                    >
-                      <TableCell className="font-medium">{team.name}</TableCell>
+                    <TableRow key={team.id}>
+                      <TableCell
+                        className="font-medium cursor-pointer hover:underline"
+                        onClick={() => {
+                          setSelectedTeam(team);
+                          setDetailDialogOpen(true);
+                        }}
+                      >
+                        {team.name}
+                      </TableCell>
                       <TableCell>
                         {team.category ? (
                           <Badge variant="outline">{team.category}</Badge>
@@ -199,6 +404,19 @@ export default function AdminWorkshopPreferences() {
                           <span className="text-muted-foreground">—</span>
                         )}
                       </TableCell>
+                      <TableCell>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenEditDialog(team.id);
+                          }}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -211,7 +429,7 @@ export default function AdminWorkshopPreferences() {
           </CardContent>
         </Card>
 
-        {/* Detail Dialog */}
+        {/* Detail Dialog (read-only view) */}
         <Dialog open={detailDialogOpen} onOpenChange={setDetailDialogOpen}>
           <DialogContent className="max-w-md">
             <DialogHeader>
@@ -221,7 +439,7 @@ export default function AdminWorkshopPreferences() {
                   <>
                     Enviado por: {selectedTeam.preferencesData?.submittedBy}
                     <br />
-                    Fecha: {selectedTeam.preferencesData?.submittedAt && 
+                    Fecha: {selectedTeam.preferencesData?.submittedAt &&
                       format(new Date(selectedTeam.preferencesData.submittedAt), "d 'de' MMMM 'de' yyyy 'a las' HH:mm", { locale: es })}
                   </>
                 ) : (
@@ -229,7 +447,7 @@ export default function AdminWorkshopPreferences() {
                 )}
               </DialogDescription>
             </DialogHeader>
-            
+
             {selectedTeam?.hasPreferences && selectedTeam.preferencesData?.preferences && (
               <div className="space-y-2">
                 <p className="text-sm font-medium text-muted-foreground">Orden de preferencia:</p>
@@ -237,7 +455,7 @@ export default function AdminWorkshopPreferences() {
                   {selectedTeam.preferencesData.preferences
                     .sort((a: any, b: any) => a.order - b.order)
                     .map((pref: any) => (
-                      <div 
+                      <div
                         key={pref.order}
                         className="flex items-center gap-3 p-2 bg-muted/50 rounded-lg"
                       >
@@ -250,6 +468,67 @@ export default function AdminWorkshopPreferences() {
                 </div>
               </div>
             )}
+          </DialogContent>
+        </Dialog>
+
+        {/* Edit Preferences Dialog */}
+        <Dialog open={editDialogOpen} onOpenChange={(open) => { if (!open) handleCloseEditDialog(); }}>
+          <DialogContent className="max-w-lg max-h-[85vh] flex flex-col">
+            <DialogHeader>
+              <DialogTitle>
+                {editingTeamData?.hasPreferences ? 'Editar' : 'Enviar'} Preferencias: {editingTeamData?.name}
+              </DialogTitle>
+              <DialogDescription>
+                Ordena los talleres arrastrando o usando las flechas. El orden 1 es el más prioritario.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="flex-1 overflow-y-auto py-2">
+              {prefsLoading || editOrderedWorkshops.length === 0 ? (
+                <div className="space-y-3">
+                  {[1, 2, 3, 4, 5].map((i) => (
+                    <Skeleton key={i} className="h-14 w-full" />
+                  ))}
+                </div>
+              ) : (
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={handleDragEnd}
+                >
+                  <SortableContext
+                    items={editOrderedWorkshops.map(w => w.id)}
+                    strategy={verticalListSortingStrategy}
+                  >
+                    <div className="space-y-2">
+                      {editOrderedWorkshops.map((workshop, index) => (
+                        <SortableWorkshopItem
+                          key={workshop.id}
+                          workshop={workshop}
+                          index={index}
+                          onMoveUp={() => handleMoveUp(index)}
+                          onMoveDown={() => handleMoveDown(index)}
+                          isFirst={index === 0}
+                          isLast={index === editOrderedWorkshops.length - 1}
+                        />
+                      ))}
+                    </div>
+                  </SortableContext>
+                </DndContext>
+              )}
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={handleCloseEditDialog}>
+                Cancelar
+              </Button>
+              <Button
+                onClick={handleSavePreferences}
+                disabled={isSubmitting || isUpdating || editOrderedWorkshops.length === 0}
+              >
+                {isSubmitting || isUpdating ? 'Guardando...' : 'Guardar Preferencias'}
+              </Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
       </div>

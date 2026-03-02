@@ -34,7 +34,7 @@ export function ConsentLegalText({
       </p>
 
       <p className="text-muted-foreground leading-relaxed">
-        De acuerdo con la actual legislación, el Titular queda informado y, si es mayor de 14 años, otorga su consentimiento expreso para el tratamiento de sus datos personales con la finalidad descrita a continuación. Si el Titular es menor de 14 años, dicho consentimiento expreso es otorgado por su padre, madre o tutor legal.
+        De acuerdo con la actual legislación, el Titular queda informado y, si tiene 14 años o más cumplidos antes del 1 de agosto del ciclo en curso (el ciclo comprende del 1 de agosto al 31 de julio del año siguiente), otorga su consentimiento expreso para el tratamiento de sus datos personales con la finalidad descrita a continuación. Si el Titular no ha cumplido 14 años antes del 1 de agosto del ciclo en curso, dicho consentimiento expreso es otorgado por su padre, madre o tutor legal.
       </p>
 
       {/* Table 1: Data Protection Information */}
@@ -164,7 +164,7 @@ export function ConsentLegalText({
 
       {signerName && (
         <p className="text-muted-foreground leading-relaxed">
-          Nombre y apellidos del Padre/Madre o Tutor legal (o del Titular para mayores de 14 años): <strong>{signerName}</strong>
+          Nombre y apellidos del Padre/Madre o Tutor legal (o del Titular si tiene 14 años o más según el ciclo en curso): <strong>{signerName}</strong>
         </p>
       )}
     </div>

@@ -1,8 +1,10 @@
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { AlertCircle, CheckCircle2, Eye, EyeOff, ExternalLink } from "lucide-react";
+import { AlertCircle, CheckCircle2, Eye, EyeOff, ExternalLink, Trash2 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { ConfirmDialog } from "@/components/admin/ConfirmDialog";
 
 interface EventPublishSectionProps {
   eventId: string;
@@ -13,6 +15,8 @@ interface EventPublishSectionProps {
   onPublish: () => void;
   onUnpublish: () => void;
   isPublishing: boolean;
+  onDelete?: () => void;
+  isDeleting?: boolean;
 }
 
 export function EventPublishSection({
@@ -24,7 +28,10 @@ export function EventPublishSection({
   onPublish,
   onUnpublish,
   isPublishing,
+  onDelete,
+  isDeleting,
 }: EventPublishSectionProps) {
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const isPublished = status === "published";
   const canPublish = name && date && hasTicketTypes;
 
@@ -34,6 +41,7 @@ export function EventPublishSection({
   if (!hasTicketTypes) issues.push("El evento no tiene tipos de entrada configurados");
 
   return (
+    <>
     <div className="space-y-6">
       <Card>
         <CardHeader>
@@ -168,6 +176,55 @@ export function EventPublishSection({
           </dl>
         </CardContent>
       </Card>
+
+      {/* Danger Zone */}
+      {onDelete && (
+        <Card className="border-destructive/50">
+          <CardHeader>
+            <CardTitle className="text-destructive">Zona de Peligro</CardTitle>
+            <CardDescription>
+              Acciones irreversibles sobre este evento
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between p-4 border border-destructive/30 rounded-lg">
+              <div>
+                <h4 className="font-medium">Eliminar evento</h4>
+                <p className="text-sm text-muted-foreground">
+                  Se eliminarán permanentemente el evento y todos sus registros asociados.
+                  {status === "published" && (
+                    <span className="block mt-1 text-destructive font-medium">
+                      Este evento está publicado y visible para los usuarios.
+                    </span>
+                  )}
+                </p>
+              </div>
+              <Button
+                variant="destructive"
+                onClick={() => setDeleteDialogOpen(true)}
+                disabled={isDeleting}
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Eliminar
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
+
+    {onDelete && (
+      <ConfirmDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        title="¿Eliminar evento?"
+        description={`Esta acción eliminará permanentemente "${name}" y todos sus registros asociados. Esta acción no se puede deshacer.${status === "published" ? " ⚠️ Este evento está actualmente publicado y visible para los usuarios." : ""}`}
+        confirmText="Eliminar"
+        variant="danger"
+        onConfirm={() => onDelete()}
+        loading={isDeleting}
+      />
+    )}
+    </>
   );
 }
