@@ -1,4 +1,6 @@
 import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/hooks/useAuth";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { MetricCard } from "@/components/admin/MetricCard";
@@ -13,7 +15,7 @@ import { useAdminPromoteWaitlist, checkWaitlistCapacity } from "@/hooks/useAdmin
 import { useEventTeamStats } from "@/hooks/useEventTeamStats";
 import { TeamRegistrationSummary } from "./TeamRegistrationSummary";
 import { isMinor } from "@/lib/age-utils";
-import { Users, Users2, UserPlus, GraduationCap, Ticket, UsersRound, XCircle, FileCheck, Mail, Loader2, AlertTriangle, Clock, Send } from "lucide-react";
+import { Users, Users2, UserPlus, GraduationCap, Ticket, UsersRound, XCircle, FileCheck, Mail, Loader2, AlertTriangle, Clock, Send, ScanLine } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -64,6 +66,8 @@ interface RegistrationWithCompanions {
 }
 
 export function EventStatsView({ eventId }: EventStatsViewProps) {
+  const navigate = useNavigate();
+  const { role } = useAuth();
   const [registrationToCancel, setRegistrationToCancel] = useState<RegistrationWithCompanions | null>(null);
   const [registrationToPromote, setRegistrationToPromote] = useState<RegistrationWithCompanions | null>(null);
   const [promoteCapacityWarning, setPromoteCapacityWarning] = useState<{ currentCount: number; maxCapacity: number } | null>(null);
@@ -1073,6 +1077,20 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
           color={metrics.waitlistedCount > 0 ? "warning" : "accent"}
         />
       </div>
+
+      {/* Accreditation Live Dashboard Button (admin only) */}
+      {role === "admin" && (
+        <div className="flex">
+          <Button
+            variant="outline"
+            className="flex items-center gap-2"
+            onClick={() => navigate(`/admin/events/${eventId}/accreditations`)}
+          >
+            <ScanLine className="h-4 w-4" />
+            Acreditaciones en Vivo
+          </Button>
+        </div>
+      )}
 
       {/* Tabs: Equipos / Usuarios / Lista de espera */}
       <Tabs defaultValue="equipos">

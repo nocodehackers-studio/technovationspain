@@ -7,6 +7,7 @@ interface TeamMemberDetail {
   email: string;
   memberType: "participant" | "mentor";
   isRegistered: boolean;
+  isWaitlisted: boolean;
   isCancelled: boolean;
 }
 
@@ -19,6 +20,8 @@ export interface TeamEventStats {
   registeredParticipants: number;
   totalMentors: number;
   registeredMentors: number;
+  waitlistedParticipants: number;
+  waitlistedMentors: number;
   completionPercentage: number;
   members: TeamMemberDetail[];
 }
@@ -77,10 +80,16 @@ export function useEventTeamStats(eventId: string) {
       if (membersError) throw membersError;
       if (!members || members.length === 0) return [];
 
-      // 5. Build sets of registered and cancelled user_ids (event-wide)
+      // 5. Build sets of registered, waitlisted, and cancelled user_ids (event-wide)
       const registeredUserIds = new Set(
         registrations
-          .filter((r) => r.registration_status !== "cancelled")
+          .filter((r) => r.registration_status === "confirmed" || r.registration_status === "checked_in")
+          .map((r) => r.user_id)
+          .filter((id): id is string => !!id)
+      );
+      const waitlistedUserIds = new Set(
+        registrations
+          .filter((r) => r.registration_status === "waitlisted")
           .map((r) => r.user_id)
           .filter((id): id is string => !!id)
       );
@@ -116,6 +125,8 @@ export function useEventTeamStats(eventId: string) {
             registeredParticipants: 0,
             totalMentors: 0,
             registeredMentors: 0,
+            waitlistedParticipants: 0,
+            waitlistedMentors: 0,
             completionPercentage: 0,
             members: [],
           });
@@ -123,15 +134,19 @@ export function useEventTeamStats(eventId: string) {
 
         const stats = teamStatsMap.get(m.team_id)!;
         const isRegistered = registeredUserIds.has(m.user_id);
+        const isWaitlisted = waitlistedUserIds.has(m.user_id);
+        const isCancelled = cancelledUserIds.has(m.user_id);
         const memberType: "participant" | "mentor" =
           m.member_type === "mentor" ? "mentor" : "participant";
 
         if (memberType === "participant") {
           stats.totalParticipants++;
-          if (isRegistered) stats.registeredParticipants++;
+          if (isRegistered && !isCancelled) stats.registeredParticipants++;
+          if (isWaitlisted && !isCancelled) stats.waitlistedParticipants++;
         } else {
           stats.totalMentors++;
-          if (isRegistered) stats.registeredMentors++;
+          if (isRegistered && !isCancelled) stats.registeredMentors++;
+          if (isWaitlisted && !isCancelled) stats.waitlistedMentors++;
         }
 
         const user = m.user as {
@@ -143,20 +158,18 @@ export function useEventTeamStats(eventId: string) {
           user?.first_name && user?.last_name
             ? `${user.first_name} ${user.last_name}`
             : user?.email || "Desconocido";
-
-        const isCancelled = cancelledUserIds.has(m.user_id);
-        stats.members.push({ userId: m.user_id, name, email: user?.email || "", memberType, isRegistered, isCancelled });
+        stats.members.push({ userId: m.user_id, name, email: user?.email || "", memberType, isRegistered, isWaitlisted, isCancelled });
       });
 
-      // 7. Filter: only teams with at least 1 registered member
+      // 7. Filter: only teams with at least 1 registered or waitlisted member
       const result = Array.from(teamStatsMap.values()).filter(
-        (s) => s.registeredParticipants + s.registeredMentors > 0
+        (s) => s.registeredParticipants + s.registeredMentors + s.waitlistedParticipants + s.waitlistedMentors > 0
       );
 
       // 8. Calculate completion and sort
       result.forEach((s) => {
         const total = s.totalParticipants + s.totalMentors;
-        const registered = s.registeredParticipants + s.registeredMentors;
+        const registered = s.registeredParticipants + s.registeredMentors + s.waitlistedParticipants + s.waitlistedMentors;
         s.completionPercentage =
           total > 0 ? Math.round((registered / total) * 100) : 0;
       });

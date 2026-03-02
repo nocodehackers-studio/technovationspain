@@ -2,6 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const ALLOWED_ORIGINS = [
   "https://app.powertocode.org",
+  "https://powertocode.vercel.app",
   "http://localhost:5173",
   "http://localhost:8080",
 ];
@@ -17,6 +18,7 @@ function getCorsHeaders(req: Request) {
 interface ValidationResponse {
   valid: boolean;
   error?: 'not_found' | 'already_checked_in' | 'wrong_date' | 'cancelled' | 'waitlisted' | 'consent_not_given';
+  is_minor?: boolean;
   registration?: {
     id: string;
     display_name: string;
@@ -25,6 +27,31 @@ interface ValidationResponse {
     team_name?: string;
     is_companion?: boolean;
   };
+}
+
+// Age utilities — mirrors src/lib/age-utils.ts logic exactly
+function calculateAge(birthDate: string | null | undefined, referenceDate?: string): number {
+  if (!birthDate) return -1;
+  const birth = new Date(birthDate);
+  if (isNaN(birth.getTime())) return -1;
+  const ref = referenceDate ? new Date(referenceDate) : new Date();
+  let age = ref.getUTCFullYear() - birth.getUTCFullYear();
+  const monthDiff = ref.getUTCMonth() - birth.getUTCMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && ref.getUTCDate() < birth.getUTCDate())) {
+    age--;
+  }
+  return age;
+}
+
+function getCycleReferenceDate(): string {
+  const d = new Date();
+  const month = d.getUTCMonth(); // 0-indexed, August = 7
+  const year = month >= 7 ? d.getUTCFullYear() : d.getUTCFullYear() - 1;
+  return `${year}-08-01`;
+}
+
+function isMinor(birthDate: string | null | undefined): boolean {
+  return calculateAge(birthDate, getCycleReferenceDate()) <= 13;
 }
 
 // Get today's date in Madrid timezone
@@ -131,7 +158,7 @@ Deno.serve(async (req) => {
     const { data: registration, error: regError } = await supabaseAdmin
       .from("event_registrations")
       .select(`
-        id, qr_code, first_name, last_name, team_name,
+        id, qr_code, first_name, last_name, team_name, user_id,
         checked_in_at, registration_status,
         event:events(id, name, date),
         ticket_type:event_ticket_types(name)
@@ -199,7 +226,18 @@ Deno.serve(async (req) => {
       }
 
       if (companionData.checked_in_at) {
-        return new Response(JSON.stringify({ valid: false, error: "already_checked_in" }), {
+        return new Response(JSON.stringify({
+          valid: false,
+          error: "already_checked_in",
+          registration: {
+            id: companionData.id,
+            display_name: [companionData.first_name, companionData.last_name]
+              .filter(Boolean).join(" ") || "Acompañante",
+            ticket_type: companionData.relationship || "Acompañante",
+            event_name: eventReg?.event?.name || "Evento",
+            is_companion: true,
+          }
+        }), {
           status: 200,
           headers: { ...corsHeaders, "Content-Type": "application/json" }
         });
@@ -266,12 +304,14 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Extract event data early so it's available for all responses
+    const eventData = reg.event;
+    const event = Array.isArray(eventData) ? eventData[0] : eventData;
+
     // Check waitlisted status — waitlisted tickets should not be checked in
     if (reg.registration_status === "waitlisted") {
       const ticketTypeData = reg.ticket_type;
       const ticketType = Array.isArray(ticketTypeData) ? ticketTypeData[0] : ticketTypeData;
-      const eventData = reg.event;
-      const event = Array.isArray(eventData) ? eventData[0] : eventData;
       console.log("Waitlisted registration attempted check-in:", reg.id);
       return new Response(JSON.stringify({
         valid: false,
@@ -291,15 +331,24 @@ Deno.serve(async (req) => {
     }
 
     if (reg.checked_in_at || reg.registration_status === "checked_in") {
-      return new Response(JSON.stringify({ valid: false, error: "already_checked_in" }), {
+      const ticketTypeData = reg.ticket_type;
+      const ticketType = Array.isArray(ticketTypeData) ? ticketTypeData[0] : ticketTypeData;
+      return new Response(JSON.stringify({
+        valid: false,
+        error: "already_checked_in",
+        registration: {
+          id: reg.id,
+          display_name: [reg.first_name, reg.last_name].filter(Boolean).join(" ") || "Asistente",
+          ticket_type: ticketType?.name || "General",
+          event_name: event?.name || "Evento",
+          team_name: reg.team_name || undefined,
+          is_companion: false,
+        }
+      }), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" }
       });
     }
-
-    // Check event date - handle both single object and array from join
-    const eventData = reg.event;
-    const event = Array.isArray(eventData) ? eventData[0] : eventData;
     const eventDate = event?.date;
     if (eventDate && eventDate !== todayMadrid) {
       console.log("Wrong date. Event:", eventDate, "Today:", todayMadrid);
@@ -318,24 +367,44 @@ Deno.serve(async (req) => {
         .maybeSingle();
 
       if (!consent) {
-        const ticketTypeData = reg.ticket_type;
-        const ticketType = Array.isArray(ticketTypeData) ? ticketTypeData[0] : ticketTypeData;
-        console.log("Consent not given for registration:", reg.id);
-        return new Response(JSON.stringify({
-          valid: false,
-          error: "consent_not_given",
-          registration: {
-            id: reg.id,
-            display_name: [reg.first_name, reg.last_name].filter(Boolean).join(" ") || "Asistente",
-            ticket_type: ticketType?.name || "General",
-            event_name: event?.name || "Evento",
-            team_name: reg.team_name || undefined,
-            is_companion: false,
-          }
-        }), {
-          status: 200,
-          headers: { ...corsHeaders, "Content-Type": "application/json" }
-        });
+        // Determine if registrant is a minor for consent gating
+        let registrantIsMinor = true; // default: treat as minor (safest)
+        if (reg.user_id) {
+          const { data: profile } = await supabaseAdmin
+            .from("profiles")
+            .select("date_of_birth")
+            .eq("id", reg.user_id)
+            .maybeSingle();
+          registrantIsMinor = isMinor(profile?.date_of_birth ?? null);
+        }
+
+        // Adults (>=14) self-consented during registration — allow check-in without explicit record
+        if (!registrantIsMinor) {
+          console.log("Adult without explicit consent record, allowing check-in:", reg.id);
+          // Fall through to check-in below
+        } else {
+          // Minor without parental consent — block check-in
+          const ticketTypeData = reg.ticket_type;
+          const ticketType = Array.isArray(ticketTypeData) ? ticketTypeData[0] : ticketTypeData;
+
+          console.log("Minor without parental consent, blocking check-in:", reg.id);
+          return new Response(JSON.stringify({
+            valid: false,
+            error: "consent_not_given",
+            is_minor: true,
+            registration: {
+              id: reg.id,
+              display_name: [reg.first_name, reg.last_name].filter(Boolean).join(" ") || "Asistente",
+              ticket_type: ticketType?.name || "General",
+              event_name: event?.name || "Evento",
+              team_name: reg.team_name || undefined,
+              is_companion: false,
+            }
+          }), {
+            status: 200,
+            headers: { ...corsHeaders, "Content-Type": "application/json" }
+          });
+        }
       }
     }
 

@@ -332,8 +332,8 @@ function ResultMode({ code }: { code: string }) {
         {config.title}
       </h1>
 
-      {/* Show participant info for consent_not_given and waitlisted */}
-      {errorRegistration && (validationError === 'consent_not_given' || validationError === 'waitlisted') && (
+      {/* Show participant info when available */}
+      {errorRegistration && (validationError === 'consent_not_given' || validationError === 'waitlisted' || validationError === 'already_checked_in') && (
         <div className="w-full max-w-sm mb-4 text-center">
           <p className={`text-lg font-medium ${config.textClass}`}>
             {errorRegistration.display_name}
@@ -345,7 +345,9 @@ function ResultMode({ code }: { code: string }) {
       )}
 
       <p className={`${config.textClass.replace('-700', '-600')} mb-8 text-center max-w-sm`}>
-        {config.description}
+        {validationError === 'consent_not_given' && data?.is_minor
+          ? 'Este menor necesita que su padre/madre/tutor firme el consentimiento en papel antes de poder acceder al evento.'
+          : config.description}
       </p>
       <Button
         variant="outline"
