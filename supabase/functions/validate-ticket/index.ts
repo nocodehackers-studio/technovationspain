@@ -345,10 +345,7 @@ Deno.serve(async (req) => {
         .maybeSingle();
 
       if (!consent) {
-        const ticketTypeData = reg.ticket_type;
-        const ticketType = Array.isArray(ticketTypeData) ? ticketTypeData[0] : ticketTypeData;
-
-        // Determine if registrant is a minor for differentiated consent messaging
+        // Determine if registrant is a minor for consent gating
         let registrantIsMinor = true; // default: treat as minor (safest)
         if (reg.user_id) {
           const { data: profile } = await supabaseAdmin
@@ -359,23 +356,33 @@ Deno.serve(async (req) => {
           registrantIsMinor = isMinor(profile?.date_of_birth ?? null);
         }
 
-        console.log("Consent not given for registration:", reg.id, "isMinor:", registrantIsMinor);
-        return new Response(JSON.stringify({
-          valid: false,
-          error: "consent_not_given",
-          is_minor: registrantIsMinor,
-          registration: {
-            id: reg.id,
-            display_name: [reg.first_name, reg.last_name].filter(Boolean).join(" ") || "Asistente",
-            ticket_type: ticketType?.name || "General",
-            event_name: event?.name || "Evento",
-            team_name: reg.team_name || undefined,
-            is_companion: false,
-          }
-        }), {
-          status: 200,
-          headers: { ...corsHeaders, "Content-Type": "application/json" }
-        });
+        // Adults (>=14) self-consented during registration — allow check-in without explicit record
+        if (!registrantIsMinor) {
+          console.log("Adult without explicit consent record, allowing check-in:", reg.id);
+          // Fall through to check-in below
+        } else {
+          // Minor without parental consent — block check-in
+          const ticketTypeData = reg.ticket_type;
+          const ticketType = Array.isArray(ticketTypeData) ? ticketTypeData[0] : ticketTypeData;
+
+          console.log("Minor without parental consent, blocking check-in:", reg.id);
+          return new Response(JSON.stringify({
+            valid: false,
+            error: "consent_not_given",
+            is_minor: true,
+            registration: {
+              id: reg.id,
+              display_name: [reg.first_name, reg.last_name].filter(Boolean).join(" ") || "Asistente",
+              ticket_type: ticketType?.name || "General",
+              event_name: event?.name || "Evento",
+              team_name: reg.team_name || undefined,
+              is_companion: false,
+            }
+          }), {
+            status: 200,
+            headers: { ...corsHeaders, "Content-Type": "application/json" }
+          });
+        }
       }
     }
 
