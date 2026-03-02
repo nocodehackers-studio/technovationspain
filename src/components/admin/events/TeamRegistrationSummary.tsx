@@ -54,9 +54,9 @@ type TeamStatus = "sin_mentor" | "parcial" | "completo" | "validado";
 function getTeamStatus(team: TeamEventStats): TeamStatus {
   if (team.validated) return "validado";
   const total = team.totalParticipants + team.totalMentors;
-  const registered = team.registeredParticipants + team.registeredMentors;
+  const registered = team.registeredParticipants + team.registeredMentors + team.waitlistedParticipants + team.waitlistedMentors;
   if (registered === total && total > 0) return "completo";
-  if (team.registeredMentors === 0 && team.totalMentors > 0) return "sin_mentor";
+  if ((team.registeredMentors + team.waitlistedMentors) === 0 && team.totalMentors > 0) return "sin_mentor";
   return "parcial";
 }
 
@@ -116,9 +116,11 @@ function handleExportTeamsCSV(teams: TeamEventStats[]) {
   const headers = [
     "Equipo",
     "Categoría",
-    "Participantes registrados",
+    "Participantes confirmados",
+    "Participantes en espera",
     "Total participantes",
-    "Mentores registrados",
+    "Mentores confirmados",
+    "Mentores en espera",
     "Total mentores",
     "Completitud (%)",
     "Estado",
@@ -141,8 +143,10 @@ function handleExportTeamsCSV(teams: TeamEventStats[]) {
       team.teamName,
       team.category ?? "",
       String(team.registeredParticipants),
+      String(team.waitlistedParticipants),
       String(team.totalParticipants),
       String(team.registeredMentors),
+      String(team.waitlistedMentors),
       String(team.totalMentors),
       String(team.completionPercentage),
       statusLabels[getTeamStatus(team)],
@@ -150,7 +154,7 @@ function handleExportTeamsCSV(teams: TeamEventStats[]) {
     ];
     for (let i = 0; i < maxMentors; i++) {
       const m = mentors[i];
-      row.push(m?.name ?? "", m?.email ?? "", m ? (m.isRegistered ? "Sí" : "No") : "");
+      row.push(m?.name ?? "", m?.email ?? "", m ? (m.isRegistered ? "Sí" : m.isWaitlisted ? "En espera" : "No") : "");
     }
     return row;
   });
@@ -241,9 +245,10 @@ export function TeamRegistrationSummary({
           </TableHeader>
           <TableBody>
             {filteredTeams.map((team) => {
-              const registered = team.members.filter((m) => m.isRegistered && !m.isCancelled);
+              const confirmed = team.members.filter((m) => m.isRegistered && !m.isCancelled);
+              const waitlisted = team.members.filter((m) => m.isWaitlisted && !m.isCancelled);
               const cancelled = team.members.filter((m) => m.isCancelled);
-              const missing = team.members.filter((m) => !m.isRegistered && !m.isCancelled);
+              const missing = team.members.filter((m) => !m.isRegistered && !m.isWaitlisted && !m.isCancelled);
 
               return (
                 <TooltipProvider key={team.teamId}>
@@ -269,13 +274,20 @@ export function TeamRegistrationSummary({
                         </TableCell>
                         <TableCell>
                           <span className="font-mono text-sm">
-                            {team.registeredParticipants}/
-                            {team.totalParticipants}
+                            {team.registeredParticipants}
+                            {team.waitlistedParticipants > 0 && (
+                              <span className="text-amber-500">+{team.waitlistedParticipants}</span>
+                            )}
+                            /{team.totalParticipants}
                           </span>
                         </TableCell>
                         <TableCell>
                           <span className="font-mono text-sm">
-                            {team.registeredMentors}/{team.totalMentors}
+                            {team.registeredMentors}
+                            {team.waitlistedMentors > 0 && (
+                              <span className="text-amber-500">+{team.waitlistedMentors}</span>
+                            )}
+                            /{team.totalMentors}
                           </span>
                         </TableCell>
                         <TableCell>
@@ -308,12 +320,12 @@ export function TeamRegistrationSummary({
                         side="bottom"
                         className="max-w-[300px]"
                       >
-                        {registered.length > 0 && (
+                        {confirmed.length > 0 && (
                           <>
                             <p className="font-medium text-sm mb-1">
                               Inscritos:
                             </p>
-                            {registered.map((m) => (
+                            {confirmed.map((m) => (
                               <p
                                 key={m.userId}
                                 className="text-xs flex items-center gap-1"
@@ -329,9 +341,30 @@ export function TeamRegistrationSummary({
                             ))}
                           </>
                         )}
+                        {waitlisted.length > 0 && (
+                          <>
+                            <p className={`font-medium text-sm mb-1${confirmed.length > 0 ? " mt-2" : ""}`}>
+                              En lista de espera:
+                            </p>
+                            {waitlisted.map((m) => (
+                              <p
+                                key={m.userId}
+                                className="text-xs flex items-center gap-1"
+                              >
+                                <Clock className="h-3 w-3 text-amber-500 shrink-0" />
+                                {m.name}
+                                <span className="text-muted-foreground">
+                                  ({m.memberType === "mentor"
+                                    ? "Mentor"
+                                    : "Participante"})
+                                </span>
+                              </p>
+                            ))}
+                          </>
+                        )}
                         {missing.length > 0 && (
                           <>
-                            <p className={`font-medium text-sm mb-1${registered.length > 0 ? " mt-2" : ""}`}>
+                            <p className={`font-medium text-sm mb-1${confirmed.length > 0 || waitlisted.length > 0 ? " mt-2" : ""}`}>
                               Faltan por registrarse:
                             </p>
                             {missing.map((m) => (
@@ -352,7 +385,7 @@ export function TeamRegistrationSummary({
                         )}
                         {cancelled.length > 0 && (
                           <>
-                            <p className={`font-medium text-sm mb-1${registered.length > 0 || missing.length > 0 ? " mt-2" : ""}`}>
+                            <p className={`font-medium text-sm mb-1${confirmed.length > 0 || waitlisted.length > 0 || missing.length > 0 ? " mt-2" : ""}`}>
                               Cancelados:
                             </p>
                             {cancelled.map((m) => (
