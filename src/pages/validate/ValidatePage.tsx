@@ -332,8 +332,8 @@ function ResultMode({ code }: { code: string }) {
         {config.title}
       </h1>
 
-      {/* Show participant info for consent_not_given and waitlisted */}
-      {errorRegistration && (validationError === 'consent_not_given' || validationError === 'waitlisted') && (
+      {/* Show participant info when available */}
+      {errorRegistration && (validationError === 'consent_not_given' || validationError === 'waitlisted' || validationError === 'already_checked_in') && (
         <div className="w-full max-w-sm mb-4 text-center">
           <p className={`text-lg font-medium ${config.textClass}`}>
             {errorRegistration.display_name}

@@ -226,7 +226,18 @@ Deno.serve(async (req) => {
       }
 
       if (companionData.checked_in_at) {
-        return new Response(JSON.stringify({ valid: false, error: "already_checked_in" }), {
+        return new Response(JSON.stringify({
+          valid: false,
+          error: "already_checked_in",
+          registration: {
+            id: companionData.id,
+            display_name: [companionData.first_name, companionData.last_name]
+              .filter(Boolean).join(" ") || "Acompañante",
+            ticket_type: companionData.relationship || "Acompañante",
+            event_name: eventReg?.event?.name || "Evento",
+            is_companion: true,
+          }
+        }), {
           status: 200,
           headers: { ...corsHeaders, "Content-Type": "application/json" }
         });
@@ -293,12 +304,14 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Extract event data early so it's available for all responses
+    const eventData = reg.event;
+    const event = Array.isArray(eventData) ? eventData[0] : eventData;
+
     // Check waitlisted status — waitlisted tickets should not be checked in
     if (reg.registration_status === "waitlisted") {
       const ticketTypeData = reg.ticket_type;
       const ticketType = Array.isArray(ticketTypeData) ? ticketTypeData[0] : ticketTypeData;
-      const eventData = reg.event;
-      const event = Array.isArray(eventData) ? eventData[0] : eventData;
       console.log("Waitlisted registration attempted check-in:", reg.id);
       return new Response(JSON.stringify({
         valid: false,
@@ -318,15 +331,24 @@ Deno.serve(async (req) => {
     }
 
     if (reg.checked_in_at || reg.registration_status === "checked_in") {
-      return new Response(JSON.stringify({ valid: false, error: "already_checked_in" }), {
+      const ticketTypeData = reg.ticket_type;
+      const ticketType = Array.isArray(ticketTypeData) ? ticketTypeData[0] : ticketTypeData;
+      return new Response(JSON.stringify({
+        valid: false,
+        error: "already_checked_in",
+        registration: {
+          id: reg.id,
+          display_name: [reg.first_name, reg.last_name].filter(Boolean).join(" ") || "Asistente",
+          ticket_type: ticketType?.name || "General",
+          event_name: event?.name || "Evento",
+          team_name: reg.team_name || undefined,
+          is_companion: false,
+        }
+      }), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" }
       });
     }
-
-    // Check event date - handle both single object and array from join
-    const eventData = reg.event;
-    const event = Array.isArray(eventData) ? eventData[0] : eventData;
     const eventDate = event?.date;
     if (eventDate && eventDate !== todayMadrid) {
       console.log("Wrong date. Event:", eventDate, "Today:", todayMadrid);
