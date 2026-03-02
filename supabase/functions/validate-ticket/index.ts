@@ -2,6 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const ALLOWED_ORIGINS = [
   "https://app.powertocode.org",
+  "https://powertocode.vercel.app",
   "http://localhost:5173",
   "http://localhost:8080",
 ];
@@ -17,6 +18,7 @@ function getCorsHeaders(req: Request) {
 interface ValidationResponse {
   valid: boolean;
   error?: 'not_found' | 'already_checked_in' | 'wrong_date' | 'cancelled' | 'waitlisted' | 'consent_not_given';
+  is_minor?: boolean;
   registration?: {
     id: string;
     display_name: string;
@@ -25,6 +27,31 @@ interface ValidationResponse {
     team_name?: string;
     is_companion?: boolean;
   };
+}
+
+// Age utilities — mirrors src/lib/age-utils.ts logic exactly
+function calculateAge(birthDate: string | null | undefined, referenceDate?: string): number {
+  if (!birthDate) return -1;
+  const birth = new Date(birthDate);
+  if (isNaN(birth.getTime())) return -1;
+  const ref = referenceDate ? new Date(referenceDate) : new Date();
+  let age = ref.getUTCFullYear() - birth.getUTCFullYear();
+  const monthDiff = ref.getUTCMonth() - birth.getUTCMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && ref.getUTCDate() < birth.getUTCDate())) {
+    age--;
+  }
+  return age;
+}
+
+function getCycleReferenceDate(): string {
+  const d = new Date();
+  const month = d.getUTCMonth(); // 0-indexed, August = 7
+  const year = month >= 7 ? d.getUTCFullYear() : d.getUTCFullYear() - 1;
+  return `${year}-08-01`;
+}
+
+function isMinor(birthDate: string | null | undefined): boolean {
+  return calculateAge(birthDate, getCycleReferenceDate()) <= 13;
 }
 
 // Get today's date in Madrid timezone
@@ -131,7 +158,7 @@ Deno.serve(async (req) => {
     const { data: registration, error: regError } = await supabaseAdmin
       .from("event_registrations")
       .select(`
-        id, qr_code, first_name, last_name, team_name,
+        id, qr_code, first_name, last_name, team_name, user_id,
         checked_in_at, registration_status,
         event:events(id, name, date),
         ticket_type:event_ticket_types(name)
@@ -320,10 +347,23 @@ Deno.serve(async (req) => {
       if (!consent) {
         const ticketTypeData = reg.ticket_type;
         const ticketType = Array.isArray(ticketTypeData) ? ticketTypeData[0] : ticketTypeData;
-        console.log("Consent not given for registration:", reg.id);
+
+        // Determine if registrant is a minor for differentiated consent messaging
+        let registrantIsMinor = true; // default: treat as minor (safest)
+        if (reg.user_id) {
+          const { data: profile } = await supabaseAdmin
+            .from("profiles")
+            .select("date_of_birth")
+            .eq("id", reg.user_id)
+            .maybeSingle();
+          registrantIsMinor = isMinor(profile?.date_of_birth ?? null);
+        }
+
+        console.log("Consent not given for registration:", reg.id, "isMinor:", registrantIsMinor);
         return new Response(JSON.stringify({
           valid: false,
           error: "consent_not_given",
+          is_minor: registrantIsMinor,
           registration: {
             id: reg.id,
             display_name: [reg.first_name, reg.last_name].filter(Boolean).join(" ") || "Asistente",

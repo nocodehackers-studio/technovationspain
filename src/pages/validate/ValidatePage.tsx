@@ -345,7 +345,9 @@ function ResultMode({ code }: { code: string }) {
       )}
 
       <p className={`${config.textClass.replace('-700', '-600')} mb-8 text-center max-w-sm`}>
-        {config.description}
+        {validationError === 'consent_not_given' && data?.is_minor
+          ? 'Este menor necesita que su padre/madre/tutor firme el consentimiento en papel antes de poder acceder al evento.'
+          : config.description}
       </p>
       <Button
         variant="outline"

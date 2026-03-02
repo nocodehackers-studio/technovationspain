@@ -16,6 +16,7 @@ export interface ValidationRegistration {
 export interface TicketValidationResult {
   valid: boolean;
   error?: ValidationError;
+  is_minor?: boolean;
   registration?: ValidationRegistration;
 }
 
