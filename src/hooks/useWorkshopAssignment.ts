@@ -586,6 +586,46 @@ export function useWorkshopAssignment(eventId: string) {
       }
 
       // ============================================
+      // FASE 2d: Redistribución — reasignar parciales para maximizar completas
+      // ============================================
+      for (let teamIdx = 0; teamIdx < teams.length; teamIdx++) {
+        const result = results[teamIdx];
+        const team = teams[teamIdx];
+
+        // Solo equipos con A pero sin B
+        if (!result.workshopA || result.workshopB) continue;
+
+        // Guardar asignación original de A
+        const originalA = { ...result.workshopA };
+        const originalPrefA = result.preferenceMatchedA;
+
+        // Deshacer A temporalmente
+        occupancy[originalA.workshopId][originalA.slotNumber] -= team.participantCount;
+        result.workshopA = null;
+
+        // Buscar par completo sin restricción de A existente
+        const pair = findFallbackPair(team, null);
+
+        if (pair.workshopA && pair.workshopB) {
+          // Par encontrado — reasignar
+          occupancy[pair.workshopA.workshopId][pair.workshopA.slotNumber] += team.participantCount;
+          occupancy[pair.workshopB.workshopId][pair.workshopB.slotNumber] += team.participantCount;
+          result.workshopA = pair.workshopA;
+          result.workshopB = pair.workshopB;
+          result.preferenceMatchedA = null;
+          result.preferenceMatchedB = null;
+          result.assignmentNotes.push('Reasignado para completar ambos talleres');
+          // Limpiar razones de rechazo previas de B
+          rejectionReasonsB.delete(teamIdx);
+        } else {
+          // No hay par mejor — restaurar A original
+          occupancy[originalA.workshopId][originalA.slotNumber] += team.participantCount;
+          result.workshopA = originalA;
+          result.preferenceMatchedA = originalPrefA;
+        }
+      }
+
+      // ============================================
       // FASE 3: Validación con mensajes descriptivos
       // ============================================
       for (let i = 0; i < results.length; i++) {
