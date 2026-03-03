@@ -323,13 +323,17 @@ export function useWorkshopAssignment(eventId: string) {
         const reasonsA: string[] = [];
         const reasonsB: string[] = [];
 
-        // Calcular capacidad disponible total por taller
-        const getAvailableCapacity = (w: Workshop) =>
-          timeSlots.reduce((sum, s) => sum + (w.max_capacity - occupancy[w.id][s.slot_number]), 0);
+        // Calcular ratio de disponibilidad por taller (proporcional a su capacidad)
+        // Esto evita que talleres grandes (ej. Prompting) absorban todos los fallbacks
+        const getAvailableRatio = (w: Workshop) => {
+          const totalCapacity = timeSlots.length * w.max_capacity;
+          const totalOccupancy = timeSlots.reduce((sum, s) => sum + occupancy[w.id][s.slot_number], 0);
+          return totalCapacity > 0 ? (totalCapacity - totalOccupancy) / totalCapacity : 0;
+        };
 
-        // Si ya tiene A, solo buscar B (ordenando por capacidad desc → Prompting primero)
+        // Si ya tiene A, solo buscar B (ordenando por ratio de disponibilidad desc)
         if (existingA) {
-          const sortedForB = [...workshops].sort((a, b) => getAvailableCapacity(b) - getAvailableCapacity(a));
+          const sortedForB = [...workshops].sort((a, b) => getAvailableRatio(b) - getAvailableRatio(a));
           for (const workshop of sortedForB) {
             if (workshop.id === existingA.workshopId) continue;
             for (const slot of getSortedSlots(workshop.id)) {
@@ -351,8 +355,8 @@ export function useWorkshopAssignment(eventId: string) {
           return { workshopA: existingA, workshopB: null, reasonsA, reasonsB };
         }
 
-        // Necesita ambos: look-ahead. A por capacidad ASC (pequeños primero), B por capacidad DESC
-        const sortedForA = [...workshops].sort((a, b) => getAvailableCapacity(a) - getAvailableCapacity(b));
+        // Necesita ambos: look-ahead. A por ratio ASC (más llenos primero), B por ratio DESC
+        const sortedForA = [...workshops].sort((a, b) => getAvailableRatio(a) - getAvailableRatio(b));
 
         for (const workshopA of sortedForA) {
           for (const slotA of getSortedSlots(workshopA.id)) {
@@ -362,7 +366,7 @@ export function useWorkshopAssignment(eventId: string) {
               continue;
             }
             // Candidato A válido — buscar B con look-ahead
-            const sortedForB = [...workshops].sort((a, b) => getAvailableCapacity(b) - getAvailableCapacity(a));
+            const sortedForB = [...workshops].sort((a, b) => getAvailableRatio(b) - getAvailableRatio(a));
             for (const workshopB of sortedForB) {
               if (workshopB.id === workshopA.id) continue;
               for (const slotB of getSortedSlots(workshopB.id)) {
