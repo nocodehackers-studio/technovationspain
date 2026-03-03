@@ -310,6 +310,92 @@ export function useWorkshopAssignment(eventId: string) {
         });
       };
 
+      // Helper: buscar el mejor par (Taller A, Taller B) con look-ahead
+      const findFallbackPair = (
+        team: TeamForAssignment,
+        existingA: AssignmentResult['workshopA'],
+      ): {
+        workshopA: AssignmentResult['workshopA'];
+        workshopB: AssignmentResult['workshopB'];
+        reasonsA: string[];
+        reasonsB: string[];
+      } => {
+        const reasonsA: string[] = [];
+        const reasonsB: string[] = [];
+
+        // Calcular capacidad disponible total por taller
+        const getAvailableCapacity = (w: Workshop) =>
+          timeSlots.reduce((sum, s) => sum + (w.max_capacity - occupancy[w.id][s.slot_number]), 0);
+
+        // Si ya tiene A, solo buscar B (ordenando por capacidad desc → Prompting primero)
+        if (existingA) {
+          const sortedForB = [...workshops].sort((a, b) => getAvailableCapacity(b) - getAvailableCapacity(a));
+          for (const workshop of sortedForB) {
+            if (workshop.id === existingA.workshopId) continue;
+            for (const slot of getSortedSlots(workshop.id)) {
+              if (slot.slot_number === existingA.slotNumber) {
+                reasonsB.push(`${workshop.name} Turno ${slot.slot_number} conflicto con Taller A`);
+                continue;
+              }
+              const occ = occupancy[workshop.id][slot.slot_number];
+              if (occ + team.participantCount <= workshop.max_capacity) {
+                return {
+                  workshopA: existingA,
+                  workshopB: { workshopId: workshop.id, workshopName: workshop.name, slotNumber: slot.slot_number },
+                  reasonsA, reasonsB,
+                };
+              }
+              reasonsB.push(`${workshop.name} Turno ${slot.slot_number} lleno (${occ}/${workshop.max_capacity})`);
+            }
+          }
+          return { workshopA: existingA, workshopB: null, reasonsA, reasonsB };
+        }
+
+        // Necesita ambos: look-ahead. A por capacidad ASC (pequeños primero), B por capacidad DESC
+        const sortedForA = [...workshops].sort((a, b) => getAvailableCapacity(a) - getAvailableCapacity(b));
+
+        for (const workshopA of sortedForA) {
+          for (const slotA of getSortedSlots(workshopA.id)) {
+            const occA = occupancy[workshopA.id][slotA.slot_number];
+            if (occA + team.participantCount > workshopA.max_capacity) {
+              reasonsA.push(`${workshopA.name} Turno ${slotA.slot_number} lleno (${occA}/${workshopA.max_capacity})`);
+              continue;
+            }
+            // Candidato A válido — buscar B con look-ahead
+            const sortedForB = [...workshops].sort((a, b) => getAvailableCapacity(b) - getAvailableCapacity(a));
+            for (const workshopB of sortedForB) {
+              if (workshopB.id === workshopA.id) continue;
+              for (const slotB of getSortedSlots(workshopB.id)) {
+                if (slotB.slot_number === slotA.slot_number) continue;
+                const occB = occupancy[workshopB.id][slotB.slot_number];
+                if (occB + team.participantCount <= workshopB.max_capacity) {
+                  return {
+                    workshopA: { workshopId: workshopA.id, workshopName: workshopA.name, slotNumber: slotA.slot_number },
+                    workshopB: { workshopId: workshopB.id, workshopName: workshopB.name, slotNumber: slotB.slot_number },
+                    reasonsA, reasonsB,
+                  };
+                }
+              }
+            }
+          }
+        }
+
+        // No hay par válido — asignar solo A como fallback parcial
+        for (const workshop of sortedForA) {
+          for (const slot of getSortedSlots(workshop.id)) {
+            const occ = occupancy[workshop.id][slot.slot_number];
+            if (occ + team.participantCount <= workshop.max_capacity) {
+              return {
+                workshopA: { workshopId: workshop.id, workshopName: workshop.name, slotNumber: slot.slot_number },
+                workshopB: null, reasonsA, reasonsB,
+              };
+            }
+          }
+        }
+
+        return { workshopA: null, workshopB: null, reasonsA, reasonsB };
+      };
+
       // 4. Resultados de asignación
       const results: AssignmentResult[] = teams.map(t => ({
         teamId: t.id,
@@ -432,158 +518,70 @@ export function useWorkshopAssignment(eventId: string) {
       }
 
       // ============================================
-      // FASE 2b: Fallback — equipos con preferencias sin asignar
+      // FASE 2b: Fallback con look-ahead — equipos con preferencias sin asignar
       // ============================================
       for (let teamIdx = 0; teamIdx < teams.length; teamIdx++) {
         const team = teams[teamIdx];
         const result = results[teamIdx];
 
-        // Solo equipos CON preferencias que no consiguieron slot
         if (team.preferences.length === 0) continue;
+        if (result.workshopA && result.workshopB) continue;
 
-        // Intentar asignar Taller A si falta
-        if (!result.workshopA) {
-          const fallbackReasonsA: string[] = [];
-          for (const workshop of workshops) {
-            let workshopAssigned = false;
-            for (const slot of getSortedSlots(workshop.id)) {
-              const currentOcc = occupancy[workshop.id][slot.slot_number];
-              if (currentOcc + team.participantCount <= workshop.max_capacity) {
-                occupancy[workshop.id][slot.slot_number] += team.participantCount;
-                result.workshopA = {
-                  workshopId: workshop.id,
-                  workshopName: workshop.name,
-                  slotNumber: slot.slot_number,
-                };
-                result.preferenceMatchedA = null;
-                result.assignmentNotes.push('Taller A asignado por disponibilidad (preferencias llenas)');
-                workshopAssigned = true;
-                break;
-              } else {
-                fallbackReasonsA.push(`${workshop.name} Turno ${slot.slot_number} lleno (${currentOcc}/${workshop.max_capacity})`);
-              }
-            }
-            if (workshopAssigned) break;
-          }
-          if (!result.workshopA) {
-            if (!rejectionReasonsA.has(teamIdx)) rejectionReasonsA.set(teamIdx, []);
-            rejectionReasonsA.get(teamIdx)!.push(`Fallback Taller A: ${fallbackReasonsA.join(', ')}`);
-          }
+        const pair = findFallbackPair(team, result.workshopA);
+
+        if (!result.workshopA && pair.workshopA) {
+          occupancy[pair.workshopA.workshopId][pair.workshopA.slotNumber] += team.participantCount;
+          result.workshopA = pair.workshopA;
+          result.preferenceMatchedA = null;
+          result.assignmentNotes.push('Taller A asignado por disponibilidad (preferencias llenas)');
         }
-
-        // Intentar asignar Taller B si falta
-        if (!result.workshopB) {
-          const fallbackReasonsB: string[] = [];
-          for (const workshop of workshops) {
-            if (result.workshopA && workshop.id === result.workshopA.workshopId) continue;
-
-            let workshopAssigned = false;
-            for (const slot of getSortedSlots(workshop.id)) {
-              if (result.workshopA && slot.slot_number === result.workshopA.slotNumber) {
-                fallbackReasonsB.push(`${workshop.name} Turno ${slot.slot_number} conflicto con Taller A`);
-                continue;
-              }
-
-              const currentOcc = occupancy[workshop.id][slot.slot_number];
-              if (currentOcc + team.participantCount <= workshop.max_capacity) {
-                occupancy[workshop.id][slot.slot_number] += team.participantCount;
-                result.workshopB = {
-                  workshopId: workshop.id,
-                  workshopName: workshop.name,
-                  slotNumber: slot.slot_number,
-                };
-                result.preferenceMatchedB = null;
-                result.assignmentNotes.push('Taller B asignado por disponibilidad (preferencias llenas)');
-                workshopAssigned = true;
-                break;
-              } else {
-                fallbackReasonsB.push(`${workshop.name} Turno ${slot.slot_number} lleno (${currentOcc}/${workshop.max_capacity})`);
-              }
-            }
-            if (workshopAssigned) break;
-          }
-          if (!result.workshopB) {
-            if (!rejectionReasonsB.has(teamIdx)) rejectionReasonsB.set(teamIdx, []);
-            rejectionReasonsB.get(teamIdx)!.push(`Fallback Taller B: ${fallbackReasonsB.join(', ')}`);
-          }
+        if (!result.workshopB && pair.workshopB) {
+          occupancy[pair.workshopB.workshopId][pair.workshopB.slotNumber] += team.participantCount;
+          result.workshopB = pair.workshopB;
+          result.preferenceMatchedB = null;
+          result.assignmentNotes.push('Taller B asignado por disponibilidad (preferencias llenas)');
+        }
+        if (!result.workshopA && pair.reasonsA.length > 0) {
+          if (!rejectionReasonsA.has(teamIdx)) rejectionReasonsA.set(teamIdx, []);
+          rejectionReasonsA.get(teamIdx)!.push(`Fallback Taller A: ${pair.reasonsA.join(', ')}`);
+        }
+        if (!result.workshopB && pair.reasonsB.length > 0) {
+          if (!rejectionReasonsB.has(teamIdx)) rejectionReasonsB.set(teamIdx, []);
+          rejectionReasonsB.get(teamIdx)!.push(`Fallback Taller B: ${pair.reasonsB.join(', ')}`);
         }
       }
 
       // ============================================
-      // FASE 2c: Equipos sin preferencias — asignar por disponibilidad
+      // FASE 2c: Equipos sin preferencias — asignar con look-ahead
       // ============================================
       for (let teamIdx = 0; teamIdx < teams.length; teamIdx++) {
         const team = teams[teamIdx];
         const result = results[teamIdx];
 
-        // Solo equipos SIN preferencias
         if (team.preferences.length > 0) continue;
+        if (result.workshopA && result.workshopB) continue;
 
-        // Intentar asignar Taller A
-        if (!result.workshopA) {
-          const noPrefsReasonsA: string[] = [];
-          for (const workshop of workshops) {
-            let workshopAssigned = false;
-            for (const slot of getSortedSlots(workshop.id)) {
-              const currentOcc = occupancy[workshop.id][slot.slot_number];
-              if (currentOcc + team.participantCount <= workshop.max_capacity) {
-                occupancy[workshop.id][slot.slot_number] += team.participantCount;
-                result.workshopA = {
-                  workshopId: workshop.id,
-                  workshopName: workshop.name,
-                  slotNumber: slot.slot_number,
-                };
-                result.preferenceMatchedA = null;
-                result.assignmentNotes.push('Taller A asignado por disponibilidad (sin preferencias)');
-                workshopAssigned = true;
-                break;
-              } else {
-                noPrefsReasonsA.push(`${workshop.name} Turno ${slot.slot_number} lleno (${currentOcc}/${workshop.max_capacity})`);
-              }
-            }
-            if (workshopAssigned) break;
-          }
-          if (!result.workshopA) {
-            if (!rejectionReasonsA.has(teamIdx)) rejectionReasonsA.set(teamIdx, []);
-            rejectionReasonsA.get(teamIdx)!.push(`Sin preferencias — Taller A: ${noPrefsReasonsA.join(', ')}`);
-          }
+        const pair = findFallbackPair(team, result.workshopA);
+
+        if (!result.workshopA && pair.workshopA) {
+          occupancy[pair.workshopA.workshopId][pair.workshopA.slotNumber] += team.participantCount;
+          result.workshopA = pair.workshopA;
+          result.preferenceMatchedA = null;
+          result.assignmentNotes.push('Taller A asignado por disponibilidad (sin preferencias)');
         }
-
-        // Intentar asignar Taller B
-        if (!result.workshopB) {
-          const noPrefsReasonsB: string[] = [];
-          for (const workshop of workshops) {
-            if (result.workshopA && workshop.id === result.workshopA.workshopId) continue;
-
-            let workshopAssigned = false;
-            for (const slot of getSortedSlots(workshop.id)) {
-              if (result.workshopA && slot.slot_number === result.workshopA.slotNumber) {
-                noPrefsReasonsB.push(`${workshop.name} Turno ${slot.slot_number} conflicto con Taller A`);
-                continue;
-              }
-
-              const currentOcc = occupancy[workshop.id][slot.slot_number];
-              if (currentOcc + team.participantCount <= workshop.max_capacity) {
-                occupancy[workshop.id][slot.slot_number] += team.participantCount;
-                result.workshopB = {
-                  workshopId: workshop.id,
-                  workshopName: workshop.name,
-                  slotNumber: slot.slot_number,
-                };
-                result.preferenceMatchedB = null;
-                result.assignmentNotes.push('Taller B asignado por disponibilidad (sin preferencias)');
-                workshopAssigned = true;
-                break;
-              } else {
-                noPrefsReasonsB.push(`${workshop.name} Turno ${slot.slot_number} lleno (${currentOcc}/${workshop.max_capacity})`);
-              }
-            }
-            if (workshopAssigned) break;
-          }
-          if (!result.workshopB) {
-            if (!rejectionReasonsB.has(teamIdx)) rejectionReasonsB.set(teamIdx, []);
-            rejectionReasonsB.get(teamIdx)!.push(`Sin preferencias — Taller B: ${noPrefsReasonsB.join(', ')}`);
-          }
+        if (!result.workshopB && pair.workshopB) {
+          occupancy[pair.workshopB.workshopId][pair.workshopB.slotNumber] += team.participantCount;
+          result.workshopB = pair.workshopB;
+          result.preferenceMatchedB = null;
+          result.assignmentNotes.push('Taller B asignado por disponibilidad (sin preferencias)');
+        }
+        if (!result.workshopA && pair.reasonsA.length > 0) {
+          if (!rejectionReasonsA.has(teamIdx)) rejectionReasonsA.set(teamIdx, []);
+          rejectionReasonsA.get(teamIdx)!.push(`Sin preferencias — Taller A: ${pair.reasonsA.join(', ')}`);
+        }
+        if (!result.workshopB && pair.reasonsB.length > 0) {
+          if (!rejectionReasonsB.has(teamIdx)) rejectionReasonsB.set(teamIdx, []);
+          rejectionReasonsB.get(teamIdx)!.push(`Sin preferencias — Taller B: ${pair.reasonsB.join(', ')}`);
         }
       }
 
