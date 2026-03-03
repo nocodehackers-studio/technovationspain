@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { useWorkshopAssignment } from '@/hooks/useWorkshopAssignment';
+import { useWorkshopAssignment, AssignmentResult, AssignmentStats } from '@/hooks/useWorkshopAssignment';
 import { useAllTeamsPreferences } from '@/hooks/useWorkshopPreferences';
 import { useDemoData } from '@/hooks/useDemoData';
 import { useQuery } from '@tanstack/react-query';
@@ -13,6 +13,12 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ConfirmDialog } from '@/components/admin/ConfirmDialog';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import {
   Table,
   TableBody,
@@ -37,25 +43,6 @@ import {
   ExternalLink,
 } from 'lucide-react';
 
-interface AssignmentResult {
-  teamId: string;
-  teamName: string;
-  participantCount: number;
-  workshopA: { workshopId: string; workshopName: string; slotNumber: number } | null;
-  workshopB: { workshopId: string; workshopName: string; slotNumber: number } | null;
-  preferenceMatchedA: number | null;
-  preferenceMatchedB: number | null;
-  errors: string[];
-}
-
-interface AssignmentStats {
-  totalTeams: number;
-  fullyAssigned: number;
-  partiallyAssigned: number;
-  unassigned: number;
-  preferenceStats: { preference: number; count: number }[];
-}
-
 interface GroupedAssignment {
   teamId: string;
   teamName: string;
@@ -66,7 +53,7 @@ interface GroupedAssignment {
 
 export default function AdminWorkshopAssignment() {
   const { eventId } = useParams();
-  const [previewResults, setPreviewResults] = useState<{ results: AssignmentResult[]; stats: AssignmentStats } | null>(null);
+  const [previewResults, setPreviewResults] = useState<{ results: AssignmentResult[]; stats: AssignmentStats; occupancy?: Record<string, Record<number, number>> } | null>(null);
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
   const [clearDemoDialogOpen, setClearDemoDialogOpen] = useState(false);
 
@@ -164,6 +151,48 @@ export default function AdminWorkshopAssignment() {
     return Array.from(map.values()).sort((a, b) => a.teamName.localeCompare(b.teamName));
   }, [existingAssignments, validatedTeams]);
 
+  // Mini-tabla de capacidad
+  const capacityData = useMemo(() => {
+    if (!workshops || !timeSlots) return null;
+
+    const matrix: Record<string, Record<number, number>> = {};
+    workshops.forEach(w => {
+      matrix[w.id] = {};
+      timeSlots.forEach(s => {
+        matrix[w.id][s.slot_number] = 0;
+      });
+    });
+
+    // Si hay preview con occupancy, usar esos datos
+    if (previewResults?.occupancy) {
+      const occ = previewResults.occupancy;
+      workshops.forEach(w => {
+        timeSlots.forEach(s => {
+          matrix[w.id][s.slot_number] = occ[w.id]?.[s.slot_number] || 0;
+        });
+      });
+      return matrix;
+    }
+
+    // Si no, calcular desde existingAssignments
+    if (existingAssignments) {
+      const teamParticipants = new Map<string, number>();
+      validatedTeams.forEach(t => teamParticipants.set(t.id, t.participantCount));
+
+      existingAssignments.forEach(a => {
+        const team = a.team as any;
+        const timeSlot = a.time_slot as any;
+        if (!team?.id || !timeSlot?.slot_number) return;
+        const participants = teamParticipants.get(team.id) || 1;
+        if (matrix[a.workshop_id]?.[timeSlot.slot_number] !== undefined) {
+          matrix[a.workshop_id][timeSlot.slot_number] += participants;
+        }
+      });
+    }
+
+    return matrix;
+  }, [workshops, timeSlots, existingAssignments, previewResults, validatedTeams]);
+
   const handlePreview = async () => {
     try {
       const result = await runAssignment({ dryRun: true });
@@ -183,15 +212,23 @@ export default function AdminWorkshopAssignment() {
   };
 
   const handleClear = async () => {
-    await clearAssignments();
-    setClearDialogOpen(false);
-    setPreviewResults(null);
+    try {
+      await clearAssignments();
+      setClearDialogOpen(false);
+      setPreviewResults(null);
+    } catch (error) {
+      // Error handled in hook via toast
+    }
   };
 
   const handleClearDemo = async () => {
-    await clearDemoData();
-    setClearDemoDialogOpen(false);
-    setPreviewResults(null);
+    try {
+      await clearDemoData();
+      setClearDemoDialogOpen(false);
+      setPreviewResults(null);
+    } catch (error) {
+      // Error handled in hook via toast
+    }
   };
 
   // CSV export (read-only data)
@@ -419,6 +456,54 @@ export default function AdminWorkshopAssignment() {
           </CardContent>
         </Card>
 
+        {/* Mini Capacity Table */}
+        {capacityData && workshops && workshops.length > 0 && timeSlots && timeSlots.length > 0 && (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg">Capacidad por Taller</CardTitle>
+              <CardDescription>Participantes asignados / capacidad máxima por turno</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse text-sm">
+                  <thead>
+                    <tr>
+                      <th className="text-left p-2 border-b font-medium">Taller</th>
+                      {timeSlots.map(s => (
+                        <th key={s.id} className="text-center p-2 border-b font-medium">
+                          Turno {s.slot_number}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {workshops.map(w => (
+                      <tr key={w.id} className="border-b">
+                        <td className="p-2 font-medium">{w.name}</td>
+                        {timeSlots.map(s => {
+                          const current = capacityData[w.id]?.[s.slot_number] || 0;
+                          const max = w.max_capacity;
+                          const ratio = max > 0 ? current / max : 0;
+                          const colorClass = ratio >= 0.9
+                            ? 'text-red-700 bg-red-50'
+                            : ratio >= 0.7
+                              ? 'text-amber-700 bg-amber-50'
+                              : 'text-green-700 bg-green-50';
+                          return (
+                            <td key={s.id} className={`text-center p-2 font-mono ${colorClass}`}>
+                              {current}/{max}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Actions */}
         <div className="flex gap-3">
           <Button
@@ -484,8 +569,8 @@ export default function AdminWorkshopAssignment() {
                   <h4 className="font-medium mb-3">Satisfacción de preferencias:</h4>
                   <div className="space-y-2">
                     {previewResults.stats.preferenceStats.map(({ preference, count }) => {
-                      const total = previewResults.stats.preferenceStats.reduce((s, p) => s + p.count, 0);
-                      const percentage = total > 0 ? (count / total) * 100 : 0;
+                      const totalSlots = previewResults.stats.totalTeams * 2;
+                      const percentage = totalSlots > 0 ? (count / totalSlots) * 100 : 0;
                       return (
                         <div key={preference} className="flex items-center gap-3">
                           <span className="text-sm w-24">
@@ -527,8 +612,10 @@ export default function AdminWorkshopAssignment() {
                                 <span>{result.workshopA.workshopName}</span>
                                 <div className="text-xs text-muted-foreground">
                                   Turno {result.workshopA.slotNumber}
-                                  {result.preferenceMatchedA && (
+                                  {result.preferenceMatchedA ? (
                                     <> • Pref #{result.preferenceMatchedA}</>
+                                  ) : (
+                                    <> • <span className="text-amber-600">Disponibilidad</span></>
                                   )}
                                 </div>
                               </div>
@@ -542,8 +629,10 @@ export default function AdminWorkshopAssignment() {
                                 <span>{result.workshopB.workshopName}</span>
                                 <div className="text-xs text-muted-foreground">
                                   Turno {result.workshopB.slotNumber}
-                                  {result.preferenceMatchedB && (
+                                  {result.preferenceMatchedB ? (
                                     <> • Pref #{result.preferenceMatchedB}</>
+                                  ) : (
+                                    <> • <span className="text-amber-600">Disponibilidad</span></>
                                   )}
                                 </div>
                               </div>
@@ -553,9 +642,22 @@ export default function AdminWorkshopAssignment() {
                           </TableCell>
                           <TableCell>
                             {result.errors.length > 0 ? (
-                              <Badge variant="destructive" className="text-xs">
-                                {result.errors.length} error(es)
-                              </Badge>
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Badge variant="destructive" className="text-xs cursor-help">
+                                      {result.errors.length} error(es)
+                                    </Badge>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="left" className="max-w-xs">
+                                    <ul className="text-xs space-y-1">
+                                      {result.errors.map((err, i) => (
+                                        <li key={i}>• {err}</li>
+                                      ))}
+                                    </ul>
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
                             ) : result.workshopA && result.workshopB ? (
                               <Badge className="bg-green-100 text-green-800">OK</Badge>
                             ) : (
