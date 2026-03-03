@@ -61,18 +61,30 @@ export function useEventTeams(eventId: string) {
       // 5. Obtener info de equipos y miembros en paralelo
       const [teamsResult, membersResult] = await Promise.all([
         supabase.from('teams').select('id, name, category, validated').in('id', allTeamIds),
-        supabase.from('team_members').select('team_id, user_id').in('team_id', allTeamIds),
+        supabase.from('team_members').select('team_id, member_type').in('team_id', allTeamIds),
       ]);
 
       if (teamsResult.error) throw teamsResult.error;
       if (membersResult.error) throw membersResult.error;
 
-      // 6. Contar participantes por equipo
-      const participantCountByTeam = new Map<string, number>();
+      // 6. Contar participantes por equipo: participant + min(1, mentor)
+      const participantCounts = new Map<string, number>();
+      const mentorCounts = new Map<string, number>();
       membersResult.data?.forEach(m => {
         if (!m.team_id) return;
-        participantCountByTeam.set(m.team_id, (participantCountByTeam.get(m.team_id) || 0) + 1);
+        if (m.member_type === 'mentor') {
+          mentorCounts.set(m.team_id, (mentorCounts.get(m.team_id) || 0) + 1);
+        } else if (m.member_type === 'participant') {
+          participantCounts.set(m.team_id, (participantCounts.get(m.team_id) || 0) + 1);
+        }
       });
+
+      const participantCountByTeam = new Map<string, number>();
+      for (const teamId of allTeamIds) {
+        const p = participantCounts.get(teamId) || 0;
+        const m = mentorCounts.get(teamId) || 0;
+        participantCountByTeam.set(teamId, Math.max(1, p + Math.min(1, m)));
+      }
 
       // 7. Construir array de equipos
       return (teamsResult.data || []).map(team => ({
