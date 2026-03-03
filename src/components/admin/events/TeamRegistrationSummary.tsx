@@ -25,7 +25,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
-import { CheckCircle2, Clock, AlertCircle, ShieldCheck, Download, XCircle } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { CheckCircle2, Clock, AlertCircle, ShieldCheck, Download, XCircle, Search } from "lucide-react";
 import { TeamCategory } from "@/types/database";
 
 interface TeamRegistrationSummaryProps {
@@ -180,6 +181,7 @@ export function TeamRegistrationSummary({
   onToggleValidated,
 }: TeamRegistrationSummaryProps) {
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [searchQuery, setSearchQuery] = useState("");
 
   if (isLoading) {
     return (
@@ -198,15 +200,26 @@ export function TeamRegistrationSummary({
     );
   }
 
-  const filteredTeams = statusFilter === "all"
-    ? teams
-    : teams.filter((team) => getTeamStatus(team) === statusFilter);
+  const filteredTeams = teams.filter((team) => {
+    const matchesStatus = statusFilter === "all" || getTeamStatus(team) === statusFilter;
+    const matchesSearch = !searchQuery || team.teamName.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesStatus && matchesSearch;
+  });
 
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-semibold">Registro por Equipos</h3>
         <div className="flex items-center gap-2">
+        <div className="relative">
+          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Buscar equipo..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-9 w-[220px] h-9"
+          />
+        </div>
         <Button
           variant="outline"
           size="sm"
