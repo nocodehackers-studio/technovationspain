@@ -26,6 +26,7 @@ export interface AssignmentResult {
 
 export interface AssignmentStats {
   totalTeams: number;
+  excludedTeams: number;
   fullyAssigned: number;
   partiallyAssigned: number;
   unassigned: number;
@@ -197,7 +198,7 @@ export function useWorkshopAssignment(eventId: string) {
 
         for (const teamId of allTeamIds) {
           const registeredParticipants = registeredParticipantCounts.get(teamId) || 0;
-          participantsByTeam.set(teamId, registeredParticipants + 1);
+          participantsByTeam.set(teamId, registeredParticipants > 0 ? registeredParticipants + 1 : 0);
         }
       }
 
@@ -210,7 +211,7 @@ export function useWorkshopAssignment(eventId: string) {
             teamsMap.set(reg.team_id, {
               id: reg.team_id,
               name: (reg.team as any).name,
-              participantCount: participantsByTeam.get(reg.team_id) || reg.participant_count || 1,
+              participantCount: participantsByTeam.get(reg.team_id) ?? reg.participant_count ?? 0,
               registrationDate: reg.created_at,
               preferencesSubmittedAt: null,
               preferences: [],
@@ -229,7 +230,7 @@ export function useWorkshopAssignment(eventId: string) {
           teamsMap.set(team.id, {
             id: team.id,
             name: team.name,
-            participantCount: participantsByTeam.get(team.id) || 1,
+            participantCount: participantsByTeam.get(team.id) ?? 0,
             registrationDate: earliestReg,
             preferencesSubmittedAt: null,
             preferences: [],
@@ -269,7 +270,10 @@ export function useWorkshopAssignment(eventId: string) {
         team.preferencesSubmittedAt = submittedAtByTeam.get(team.id) || null;
       }
 
-      const teams = Array.from(teamsMap.values());
+      const teamsAll = Array.from(teamsMap.values());
+
+      // Filtrar equipos con 0 participantes — no participan en el algoritmo
+      const teams = teamsAll.filter(t => t.participantCount > 0);
 
       // Ordenar por fecha de registro de preferencias (ASC), nulls al final, nombre como tiebreaker
       teams.sort((a, b) => {
@@ -294,6 +298,17 @@ export function useWorkshopAssignment(eventId: string) {
           occupancy[w.id][s.slot_number] = 0;
         });
       });
+
+      // Helper: ordenar turnos por menor ocupación relativa para distribución equilibrada
+      const getSortedSlots = (workshopId: string) => {
+        const workshop = workshopsMap.get(workshopId);
+        if (!workshop || workshop.max_capacity <= 0) return [...timeSlots];
+        return [...timeSlots].sort((a, b) => {
+          const ratioA = occupancy[workshopId][a.slot_number] / workshop.max_capacity;
+          const ratioB = occupancy[workshopId][b.slot_number] / workshop.max_capacity;
+          return ratioA !== ratioB ? ratioA - ratioB : a.slot_number - b.slot_number;
+        });
+      };
 
       // 4. Resultados de asignación
       const results: AssignmentResult[] = teams.map(t => ({
@@ -331,10 +346,10 @@ export function useWorkshopAssignment(eventId: string) {
           const workshop = workshopsMap.get(pref.workshopId);
           if (!workshop) continue;
 
-          // Intentar asignar en algún turno
+          // Intentar asignar en algún turno (ordenados por menor ocupación)
           let assigned = false;
           const slotReasons: string[] = [];
-          for (const slot of timeSlots) {
+          for (const slot of getSortedSlots(pref.workshopId)) {
             const currentOccupancy = occupancy[pref.workshopId][slot.slot_number];
             if (currentOccupancy + team.participantCount <= workshop.max_capacity) {
               occupancy[pref.workshopId][slot.slot_number] += team.participantCount;
@@ -384,10 +399,10 @@ export function useWorkshopAssignment(eventId: string) {
             continue;
           }
 
-          // Intentar asignar en turno DIFERENTE al de Taller A
+          // Intentar asignar en turno DIFERENTE al de Taller A (ordenados por menor ocupación)
           let assigned = false;
           const slotReasons: string[] = [];
-          for (const slot of timeSlots) {
+          for (const slot of getSortedSlots(pref.workshopId)) {
             // Evitar mismo turno que A
             if (result.workshopA && slot.slot_number === result.workshopA.slotNumber) {
               slotReasons.push(`Turno ${slot.slot_number} descartado — coincide con Taller A`);
@@ -431,7 +446,7 @@ export function useWorkshopAssignment(eventId: string) {
           const fallbackReasonsA: string[] = [];
           for (const workshop of workshops) {
             let workshopAssigned = false;
-            for (const slot of timeSlots) {
+            for (const slot of getSortedSlots(workshop.id)) {
               const currentOcc = occupancy[workshop.id][slot.slot_number];
               if (currentOcc + team.participantCount <= workshop.max_capacity) {
                 occupancy[workshop.id][slot.slot_number] += team.participantCount;
@@ -463,7 +478,7 @@ export function useWorkshopAssignment(eventId: string) {
             if (result.workshopA && workshop.id === result.workshopA.workshopId) continue;
 
             let workshopAssigned = false;
-            for (const slot of timeSlots) {
+            for (const slot of getSortedSlots(workshop.id)) {
               if (result.workshopA && slot.slot_number === result.workshopA.slotNumber) {
                 fallbackReasonsB.push(`${workshop.name} Turno ${slot.slot_number} conflicto con Taller A`);
                 continue;
@@ -509,7 +524,7 @@ export function useWorkshopAssignment(eventId: string) {
           const noPrefsReasonsA: string[] = [];
           for (const workshop of workshops) {
             let workshopAssigned = false;
-            for (const slot of timeSlots) {
+            for (const slot of getSortedSlots(workshop.id)) {
               const currentOcc = occupancy[workshop.id][slot.slot_number];
               if (currentOcc + team.participantCount <= workshop.max_capacity) {
                 occupancy[workshop.id][slot.slot_number] += team.participantCount;
@@ -541,7 +556,7 @@ export function useWorkshopAssignment(eventId: string) {
             if (result.workshopA && workshop.id === result.workshopA.workshopId) continue;
 
             let workshopAssigned = false;
-            for (const slot of timeSlots) {
+            for (const slot of getSortedSlots(workshop.id)) {
               if (result.workshopA && slot.slot_number === result.workshopA.slotNumber) {
                 noPrefsReasonsB.push(`${workshop.name} Turno ${slot.slot_number} conflicto con Taller A`);
                 continue;
@@ -665,6 +680,7 @@ export function useWorkshopAssignment(eventId: string) {
       // Calcular estadísticas
       const stats: AssignmentStats = {
         totalTeams: results.length,
+        excludedTeams: teamsAll.length - teams.length,
         fullyAssigned: results.filter(r => r.workshopA && r.workshopB).length,
         partiallyAssigned: results.filter(r => (r.workshopA && !r.workshopB) || (!r.workshopA && r.workshopB)).length,
         unassigned: results.filter(r => !r.workshopA && !r.workshopB).length,
@@ -774,19 +790,36 @@ export function useWorkshopAssignment(eventId: string) {
         for (const tid of assignedTeamIds) {
           const p = occParticipants.get(tid) || 0;
           const m = occMentors.get(tid) || 0;
-          currentOccupancy += p + Math.min(1, m);
+          currentOccupancy += p > 0 ? p + Math.min(1, m) : 0;
         }
       }
 
-      // Contar participantes del equipo que queremos asignar
+      // Contar participantes del equipo registrados al evento
+      const { data: eventRegs } = await supabase
+        .from('event_registrations')
+        .select('user_id')
+        .eq('event_id', eventId)
+        .eq('is_companion', false)
+        .neq('registration_status', 'cancelled');
+
+      const registeredUserIds = new Set(
+        eventRegs?.map(r => r.user_id).filter((id): id is string => !!id) || []
+      );
+
       const { data: teamMembers } = await supabase
         .from('team_members')
-        .select('member_type')
+        .select('member_type, user_id')
         .eq('team_id', teamId);
 
-      const teamParticipants = teamMembers?.filter(m => m.member_type === 'participant').length || 0;
+      const teamParticipants = teamMembers?.filter(
+        m => m.member_type === 'participant' && m.user_id && registeredUserIds.has(m.user_id)
+      ).length || 0;
       const teamMentors = teamMembers?.filter(m => m.member_type === 'mentor').length || 0;
-      const teamSize = Math.max(1, teamParticipants + Math.min(1, teamMentors));
+
+      if (teamParticipants === 0) {
+        throw new Error('No se puede asignar un taller a un equipo sin participantes inscritos');
+      }
+      const teamSize = teamParticipants + Math.min(1, teamMentors);
 
       if (currentOccupancy + teamSize > workshop.max_capacity) {
         const { data: slotInfo } = await supabase

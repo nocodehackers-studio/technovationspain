@@ -284,7 +284,7 @@ export function useAllTeamsPreferences(eventId: string) {
       const participantCountByTeam = new Map<string, number>();
       for (const teamId of allTeamIds) {
         const registeredParticipants = registeredParticipantCounts.get(teamId) || 0;
-        participantCountByTeam.set(teamId, registeredParticipants + 1);
+        participantCountByTeam.set(teamId, registeredParticipants > 0 ? registeredParticipants + 1 : 0);
       }
 
       // 7. Construir array de equipos
@@ -293,7 +293,7 @@ export function useAllTeamsPreferences(eventId: string) {
         name: team.name,
         category: team.category,
         validated: team.validated ?? false,
-        participantCount: participantCountByTeam.get(team.id) || 1,
+        participantCount: participantCountByTeam.get(team.id) ?? 0,
       }));
 
       // Obtener preferencias de todos los equipos
