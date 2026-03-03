@@ -433,11 +433,31 @@ export function useWorkshopAssignment(eventId: string) {
           if (!workshop) continue;
 
           // Intentar asignar en algún turno (ordenados por menor ocupación)
+          // Con look-ahead: verificar que existe un Taller B posible antes de comprometerse
           let assigned = false;
           const slotReasons: string[] = [];
           for (const slot of getSortedSlots(pref.workshopId)) {
             const currentOccupancy = occupancy[pref.workshopId][slot.slot_number];
             if (currentOccupancy + team.participantCount <= workshop.max_capacity) {
+              // Look-ahead: ¿existe al menos un Taller B válido si asignamos este A?
+              let hasPossibleB = false;
+              for (const wB of workshops) {
+                if (wB.id === pref.workshopId) continue;
+                for (const sB of timeSlots) {
+                  if (sB.slot_number === slot.slot_number) continue;
+                  if (occupancy[wB.id][sB.slot_number] + team.participantCount <= wB.max_capacity) {
+                    hasPossibleB = true;
+                    break;
+                  }
+                }
+                if (hasPossibleB) break;
+              }
+
+              if (!hasPossibleB) {
+                slotReasons.push(`Turno ${slot.slot_number} descartado — no hay Taller B disponible`);
+                continue;
+              }
+
               occupancy[pref.workshopId][slot.slot_number] += team.participantCount;
               result.workshopA = {
                 workshopId: pref.workshopId,
