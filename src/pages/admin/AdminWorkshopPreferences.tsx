@@ -188,15 +188,16 @@ export default function AdminWorkshopPreferences() {
     }
   }, [editDialogOpen, workshops, teamPreferences]);
 
-  const teamsWithPrefs = teamsData?.filter(t => t.hasPreferences).length || 0;
-  const totalTeams = teamsData?.length || 0;
+  const validatedTeams = teamsData?.filter(t => t.validated) || [];
+  const teamsWithPrefs = validatedTeams.filter(t => t.hasPreferences).length;
+  const totalTeams = validatedTeams.length;
   const progressPercentage = totalTeams > 0 ? (teamsWithPrefs / totalTeams) * 100 : 0;
 
   const handleExportCSV = () => {
-    if (!teamsData) return;
+    if (validatedTeams.length === 0) return;
 
     const headers = ['Equipo', 'Categoría', 'Estado', 'Enviado por', 'Fecha envío', 'Pref 1', 'Pref 2', 'Pref 3', 'Pref 4', 'Pref 5', 'Pref 6', 'Pref 7'];
-    const rows = teamsData.map(team => {
+    const rows = validatedTeams.map(team => {
       const prefs = team.preferencesData?.preferences || [];
       const prefNames: string[] = [];
       for (let i = 1; i <= 7; i++) {
@@ -277,7 +278,7 @@ export default function AdminWorkshopPreferences() {
     if (!editingTeamId || !user?.id || editOrderedWorkshops.length === 0) return;
 
     const orderedWorkshopIds = editOrderedWorkshops.map(w => w.id);
-    const teamData = teamsData?.find(t => t.id === editingTeamId);
+    const teamData = validatedTeams.find(t => t.id === editingTeamId);
 
     try {
       if (teamData?.hasPreferences) {
@@ -291,7 +292,7 @@ export default function AdminWorkshopPreferences() {
     }
   };
 
-  const editingTeamData = teamsData?.find(t => t.id === editingTeamId);
+  const editingTeamData = validatedTeams.find(t => t.id === editingTeamId);
 
   return (
     <AdminLayout title="Estado de Preferencias">
@@ -312,7 +313,7 @@ export default function AdminWorkshopPreferences() {
               <p className="text-muted-foreground">{event?.name}</p>
             </div>
           </div>
-          <Button variant="outline" onClick={handleExportCSV} disabled={!teamsData?.length}>
+          <Button variant="outline" onClick={handleExportCSV} disabled={validatedTeams.length === 0}>
             <Download className="mr-2 h-4 w-4" />
             Exportar CSV
           </Button>
@@ -350,7 +351,7 @@ export default function AdminWorkshopPreferences() {
                   <Skeleton key={i} className="h-12 w-full" />
                 ))}
               </div>
-            ) : teamsData && teamsData.length > 0 ? (
+            ) : validatedTeams.length > 0 ? (
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -363,7 +364,7 @@ export default function AdminWorkshopPreferences() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {teamsData.map((team) => (
+                  {validatedTeams.map((team) => (
                     <TableRow key={team.id}>
                       <TableCell
                         className="font-medium cursor-pointer hover:underline"
