@@ -165,30 +165,39 @@ export function useWorkshopAssignment(eventId: string) {
         extraTeams = teamData || [];
       }
 
-      // 6. Contar participantes desde team_members para todos los equipos
-      // Fórmula: count(member_type='participant') + min(1, count(member_type='mentor'))
+      // 6. Contar participantes con entrada al evento + 1 (mentor fijo)
+      // Fórmula: count(participantes registradas en evento) + 1
       const participantsByTeam = new Map<string, number>();
       if (allTeamIds.length > 0) {
+        // Obtener user_ids con entrada confirmada al evento
+        const registeredUserIds = new Set(
+          registrations
+            ?.filter(r => r.user_id)
+            .map(r => r.user_id)
+            .filter((id): id is string => !!id) || []
+        );
+
+        // Obtener miembros de equipos (necesitamos user_id para cruzar)
         const { data: memberCounts } = await supabase
           .from('team_members')
-          .select('team_id, member_type')
+          .select('team_id, member_type, user_id')
           .in('team_id', allTeamIds);
 
-        const participantCounts = new Map<string, number>();
-        const mentorCounts = new Map<string, number>();
+        // Contar solo participantes que están registradas en el evento
+        const registeredParticipantCounts = new Map<string, number>();
         memberCounts?.forEach(m => {
-          if (!m.team_id) return;
-          if (m.member_type === 'mentor') {
-            mentorCounts.set(m.team_id, (mentorCounts.get(m.team_id) || 0) + 1);
-          } else if (m.member_type === 'participant') {
-            participantCounts.set(m.team_id, (participantCounts.get(m.team_id) || 0) + 1);
+          if (!m.team_id || !m.user_id) return;
+          if (m.member_type === 'participant' && registeredUserIds.has(m.user_id)) {
+            registeredParticipantCounts.set(
+              m.team_id,
+              (registeredParticipantCounts.get(m.team_id) || 0) + 1
+            );
           }
         });
 
         for (const teamId of allTeamIds) {
-          const participants = participantCounts.get(teamId) || 0;
-          const mentors = mentorCounts.get(teamId) || 0;
-          participantsByTeam.set(teamId, Math.max(1, participants + Math.min(1, mentors)));
+          const registeredParticipants = registeredParticipantCounts.get(teamId) || 0;
+          participantsByTeam.set(teamId, registeredParticipants + 1);
         }
       }
 
