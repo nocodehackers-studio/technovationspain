@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ColumnDef } from "@tanstack/react-table";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchAllRows } from "@/lib/supabase-utils";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { DataTable } from "@/components/admin/DataTable";
 import { ConfirmDialog } from "@/components/admin/ConfirmDialog";
@@ -104,10 +105,15 @@ export default function AdminTeams() {
 
       if (error) throw error;
 
-      // Get team members with profile info (including city from profiles)
-      const { data: registeredMembers } = await supabase
-        .from("team_members")
-        .select("team_id, member_type, user:profiles!team_members_user_id_fkey(id, email, first_name, last_name, city)");
+      // Get ALL team members with profile info, paginating to avoid the 1000-row limit
+      const registeredMembers = await fetchAllRows<{
+        team_id: string | null;
+        member_type: string | null;
+        user: { id: string; email: string; first_name: string | null; last_name: string | null; city: string | null } | null;
+      }>(
+        "team_members",
+        "team_id, member_type, user:profiles!team_members_user_id_fkey(id, email, first_name, last_name, city)",
+      );
 
       // Build members map by team_id
       const membersMap = new Map<string, { name: string; email: string; type: 'student' | 'mentor'; city: string | null }[]>();
