@@ -148,7 +148,22 @@ export default function AdminWorkshopAssignment() {
       }
     }
 
-    return Array.from(map.values()).sort((a, b) => a.teamName.localeCompare(b.teamName));
+    // Ordenar por fecha de registro de preferencias (ASC), sin preferencias al final
+    const submittedAtIndex = new Map(
+      validatedTeams.map(t => [t.id, t.preferencesData?.submittedAt || null])
+    );
+    return Array.from(map.values()).sort((a, b) => {
+      const submittedA = submittedAtIndex.get(a.teamId) || null;
+      const submittedB = submittedAtIndex.get(b.teamId) || null;
+
+      if (submittedA && submittedB) {
+        const cmp = submittedA.localeCompare(submittedB);
+        return cmp !== 0 ? cmp : a.teamName.localeCompare(b.teamName);
+      }
+      if (submittedA && !submittedB) return -1;
+      if (!submittedA && submittedB) return 1;
+      return a.teamName.localeCompare(b.teamName);
+    });
   }, [existingAssignments, validatedTeams]);
 
   // Mini-tabla de capacidad

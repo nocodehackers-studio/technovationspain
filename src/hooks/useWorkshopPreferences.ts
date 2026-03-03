@@ -321,6 +321,10 @@ export function useAllTeamsPreferences(eventId: string) {
 
         if (existing) {
           existing.preferences.push(newPref);
+          // Mantener MIN(submitted_at)
+          if (pref.submitted_at && pref.submitted_at < existing.submittedAt) {
+            existing.submittedAt = pref.submitted_at;
+          }
         } else {
           preferencesMap.set(pref.team_id, {
             preferences: [newPref],
