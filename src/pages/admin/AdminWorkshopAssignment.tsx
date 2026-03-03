@@ -655,24 +655,18 @@ export default function AdminWorkshopAssignment() {
                               <span className="text-red-500">—</span>
                             )}
                           </TableCell>
-                          <TableCell>
+                          <TableCell className="max-w-sm">
                             {result.errors.length > 0 ? (
-                              <TooltipProvider>
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Badge variant="destructive" className="text-xs cursor-help">
-                                      {result.errors.length} error(es)
-                                    </Badge>
-                                  </TooltipTrigger>
-                                  <TooltipContent side="left" className="max-w-xs">
-                                    <ul className="text-xs space-y-1">
-                                      {result.errors.map((err, i) => (
-                                        <li key={i}>• {err}</li>
-                                      ))}
-                                    </ul>
-                                  </TooltipContent>
-                                </Tooltip>
-                              </TooltipProvider>
+                              <div className="space-y-1">
+                                <Badge variant="destructive" className="text-xs">
+                                  {result.errors.length} error(es)
+                                </Badge>
+                                <ul className="text-xs text-muted-foreground space-y-0.5">
+                                  {result.errors.map((err, i) => (
+                                    <li key={i}>• {err}</li>
+                                  ))}
+                                </ul>
+                              </div>
                             ) : result.workshopA && result.workshopB ? (
                               <Badge className="bg-green-100 text-green-800">OK</Badge>
                             ) : (

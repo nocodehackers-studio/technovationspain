@@ -121,12 +121,17 @@ export default function AdminWorkshopSchedule() {
       );
       return {
         workshop,
-        teams: workshopAssignments.map(a => ({
-          id: (a.team as any)?.id,
-          name: (a.team as any)?.name,
-          category: (a.team as any)?.category,
-          slot: a.assignment_slot as 'A' | 'B',
-        })),
+        teams: workshopAssignments.map(a => {
+          const teamId = (a.team as any)?.id;
+          const teamData = allTeams?.find(t => t.id === teamId);
+          return {
+            id: teamId,
+            name: (a.team as any)?.name,
+            category: (a.team as any)?.category,
+            slot: a.assignment_slot as 'A' | 'B',
+            participantCount: teamData?.participantCount || 1,
+          };
+        }),
       };
     }) || [];
 
@@ -736,7 +741,7 @@ export default function AdminWorkshopSchedule() {
                                       {team.name}
                                       {team.slot && (
                                         <span className="opacity-60">
-                                          ({team.slot})
+                                          ({team.slot}) {team.participantCount}
                                         </span>
                                       )}
                                       <button
