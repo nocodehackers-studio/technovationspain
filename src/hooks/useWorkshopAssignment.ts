@@ -650,6 +650,141 @@ export function useWorkshopAssignment(eventId: string) {
       }
 
       // ============================================
+      // FASE 2e: Intercambio (swap) — liberar espacio en talleres llenos
+      // moviendo equipos completos a talleres con capacidad sobrante
+      // ============================================
+      for (let teamIdx = 0; teamIdx < teams.length; teamIdx++) {
+        const result = results[teamIdx];
+        const team = teams[teamIdx];
+
+        // Solo equipos parciales (tiene A, no tiene B)
+        if (!result.workshopA || result.workshopB) continue;
+
+        let swapped = false;
+
+        // Ordenar talleres objetivo por ratio de disponibilidad DESC para distribuir parciales
+        const targetWorkshops = [...workshops].sort((a, b) => {
+          const ratioA = timeSlots.reduce((sum, s) => sum + occupancy[a.id][s.slot_number], 0) / (timeSlots.length * a.max_capacity);
+          const ratioB = timeSlots.reduce((sum, s) => sum + occupancy[b.id][s.slot_number], 0) / (timeSlots.length * b.max_capacity);
+          return ratioA - ratioB; // menos lleno primero → distribuir parciales
+        });
+
+        for (const targetWorkshop of targetWorkshops) {
+          if (swapped) break;
+          if (targetWorkshop.id === result.workshopA.workshopId) continue;
+
+          for (const targetSlot of getSortedSlots(targetWorkshop.id)) {
+            if (swapped) break;
+            if (targetSlot.slot_number === result.workshopA.slotNumber) continue;
+
+            const currentOcc = occupancy[targetWorkshop.id][targetSlot.slot_number];
+
+            // Si cabe directamente, asignar (por si acaso)
+            if (currentOcc + team.participantCount <= targetWorkshop.max_capacity) {
+              occupancy[targetWorkshop.id][targetSlot.slot_number] += team.participantCount;
+              result.workshopB = {
+                workshopId: targetWorkshop.id,
+                workshopName: targetWorkshop.name,
+                slotNumber: targetSlot.slot_number,
+              };
+              result.preferenceMatchedB = null;
+              result.assignmentNotes.push('Taller B asignado en fase de intercambio');
+              rejectionReasonsB.delete(teamIdx);
+              swapped = true;
+              break;
+            }
+
+            // No cabe — intentar swap: buscar un equipo completo en este slot que podamos mover
+            for (let candidateIdx = 0; candidateIdx < teams.length; candidateIdx++) {
+              if (swapped) break;
+              if (candidateIdx === teamIdx) continue;
+
+              const candidateResult = results[candidateIdx];
+              const candidateTeam = teams[candidateIdx];
+
+              // El candidato debe estar completamente asignado
+              if (!candidateResult.workshopA || !candidateResult.workshopB) continue;
+
+              // ¿El candidato tiene una asignación en targetWorkshop[targetSlot]?
+              let candidateSlotType: 'A' | 'B' | null = null;
+              let candidateOther: { workshopId: string; workshopName: string; slotNumber: number };
+
+              if (candidateResult.workshopA.workshopId === targetWorkshop.id &&
+                  candidateResult.workshopA.slotNumber === targetSlot.slot_number) {
+                candidateSlotType = 'A';
+                candidateOther = candidateResult.workshopB;
+              } else if (candidateResult.workshopB.workshopId === targetWorkshop.id &&
+                         candidateResult.workshopB.slotNumber === targetSlot.slot_number) {
+                candidateSlotType = 'B';
+                candidateOther = candidateResult.workshopA;
+              } else {
+                continue;
+              }
+
+              // ¿Liberar al candidato deja espacio suficiente para el parcial?
+              if (currentOcc - candidateTeam.participantCount + team.participantCount > targetWorkshop.max_capacity) continue;
+
+              // Buscar destino para el candidato (priorizar talleres con más capacidad sobrante)
+              const destWorkshops = [...workshops].sort((a, b) => {
+                const capA = timeSlots.reduce((sum, s) => sum + (a.max_capacity - occupancy[a.id][s.slot_number]), 0);
+                const capB = timeSlots.reduce((sum, s) => sum + (b.max_capacity - occupancy[b.id][s.slot_number]), 0);
+                return capB - capA; // más capacidad sobrante primero
+              });
+
+              for (const destWorkshop of destWorkshops) {
+                if (destWorkshop.id === targetWorkshop.id) continue;
+                if (destWorkshop.id === candidateOther!.workshopId) continue; // mismo taller que su otra asignación
+
+                const destOcc = occupancy[destWorkshop.id][targetSlot.slot_number];
+                if (destOcc + candidateTeam.participantCount <= destWorkshop.max_capacity) {
+                  // ¡Swap válido!
+
+                  // 1. Mover candidato: targetWorkshop[targetSlot] → destWorkshop[targetSlot]
+                  occupancy[targetWorkshop.id][targetSlot.slot_number] -= candidateTeam.participantCount;
+                  occupancy[destWorkshop.id][targetSlot.slot_number] += candidateTeam.participantCount;
+
+                  if (candidateSlotType === 'A') {
+                    candidateResult.workshopA = {
+                      workshopId: destWorkshop.id,
+                      workshopName: destWorkshop.name,
+                      slotNumber: targetSlot.slot_number,
+                    };
+                    candidateResult.preferenceMatchedA = null;
+                  } else {
+                    candidateResult.workshopB = {
+                      workshopId: destWorkshop.id,
+                      workshopName: destWorkshop.name,
+                      slotNumber: targetSlot.slot_number,
+                    };
+                    candidateResult.preferenceMatchedB = null;
+                  }
+                  candidateResult.assignmentNotes.push(
+                    `Movido de ${targetWorkshop.name} a ${destWorkshop.name} (Turno ${targetSlot.slot_number}) para liberar espacio`
+                  );
+
+                  // 2. Asignar parcial al hueco liberado
+                  occupancy[targetWorkshop.id][targetSlot.slot_number] += team.participantCount;
+                  result.workshopB = {
+                    workshopId: targetWorkshop.id,
+                    workshopName: targetWorkshop.name,
+                    slotNumber: targetSlot.slot_number,
+                  };
+                  result.preferenceMatchedB = null;
+                  result.assignmentNotes.push(
+                    `Taller B asignado via intercambio (swap de ${candidateTeam.name})`
+                  );
+                  rejectionReasonsB.delete(teamIdx);
+
+                  swapped = true;
+                  break;
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // ============================================
       // FASE 3: Validación con mensajes descriptivos
       // ============================================
       for (let i = 0; i < results.length; i++) {
