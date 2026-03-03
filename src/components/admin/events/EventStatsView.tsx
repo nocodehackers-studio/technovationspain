@@ -348,7 +348,7 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
       return regs;
     }
     if (showCancelled) {
-      return regs;
+      return regs.filter((r) => r.registration_status === "cancelled");
     }
     return regs.filter((r) => r.registration_status !== "cancelled");
   }, [registrations, activeFilters, showCancelled]);
