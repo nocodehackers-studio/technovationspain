@@ -8,6 +8,7 @@ interface TeamForAssignment {
   name: string;
   participantCount: number;
   registrationDate: string;
+  preferencesSubmittedAt: string | null;
   preferences: { workshopId: string; order: number }[];
 }
 
@@ -165,16 +166,30 @@ export function useWorkshopAssignment(eventId: string) {
       }
 
       // 6. Contar participantes desde team_members para todos los equipos
+      // Fórmula: count(member_type='participant') + min(1, count(member_type='mentor'))
       const participantsByTeam = new Map<string, number>();
       if (allTeamIds.length > 0) {
         const { data: memberCounts } = await supabase
           .from('team_members')
-          .select('team_id')
+          .select('team_id, member_type')
           .in('team_id', allTeamIds);
 
+        const participantCounts = new Map<string, number>();
+        const mentorCounts = new Map<string, number>();
         memberCounts?.forEach(m => {
-          if (m.team_id) participantsByTeam.set(m.team_id, (participantsByTeam.get(m.team_id) || 0) + 1);
+          if (!m.team_id) return;
+          if (m.member_type === 'mentor') {
+            mentorCounts.set(m.team_id, (mentorCounts.get(m.team_id) || 0) + 1);
+          } else if (m.member_type === 'participant') {
+            participantCounts.set(m.team_id, (participantCounts.get(m.team_id) || 0) + 1);
+          }
         });
+
+        for (const teamId of allTeamIds) {
+          const participants = participantCounts.get(teamId) || 0;
+          const mentors = mentorCounts.get(teamId) || 0;
+          participantsByTeam.set(teamId, Math.max(1, participants + Math.min(1, mentors)));
+        }
       }
 
       // 7. Construir teamsMap desde registros directos (solo equipos validados)
@@ -188,6 +203,7 @@ export function useWorkshopAssignment(eventId: string) {
               name: (reg.team as any).name,
               participantCount: participantsByTeam.get(reg.team_id) || reg.participant_count || 1,
               registrationDate: reg.created_at,
+              preferencesSubmittedAt: null,
               preferences: [],
             });
           }
@@ -206,6 +222,7 @@ export function useWorkshopAssignment(eventId: string) {
             name: team.name,
             participantCount: participantsByTeam.get(team.id) || 1,
             registrationDate: earliestReg,
+            preferencesSubmittedAt: null,
             preferences: [],
           });
         }
@@ -214,12 +231,14 @@ export function useWorkshopAssignment(eventId: string) {
       // 2. Obtener preferencias
       const { data: allPreferences, error: prefError } = await supabase
         .from('workshop_preferences')
-        .select('team_id, workshop_id, preference_order')
+        .select('team_id, workshop_id, preference_order, submitted_at')
         .eq('event_id', eventId)
         .order('preference_order');
 
       if (prefError) throw prefError;
 
+      // Trackear MIN(submitted_at) por equipo
+      const submittedAtByTeam = new Map<string, string>();
       allPreferences?.forEach(pref => {
         const team = teamsMap.get(pref.team_id);
         if (team) {
@@ -228,9 +247,31 @@ export function useWorkshopAssignment(eventId: string) {
             order: pref.preference_order,
           });
         }
+        if (pref.submitted_at) {
+          const current = submittedAtByTeam.get(pref.team_id);
+          if (!current || pref.submitted_at < current) {
+            submittedAtByTeam.set(pref.team_id, pref.submitted_at);
+          }
+        }
       });
 
+      // Asignar preferencesSubmittedAt a cada equipo
+      for (const team of teamsMap.values()) {
+        team.preferencesSubmittedAt = submittedAtByTeam.get(team.id) || null;
+      }
+
       const teams = Array.from(teamsMap.values());
+
+      // Ordenar por fecha de registro de preferencias (ASC), nulls al final, nombre como tiebreaker
+      teams.sort((a, b) => {
+        if (a.preferencesSubmittedAt && b.preferencesSubmittedAt) {
+          const cmp = a.preferencesSubmittedAt.localeCompare(b.preferencesSubmittedAt);
+          return cmp !== 0 ? cmp : a.name.localeCompare(b.name);
+        }
+        if (a.preferencesSubmittedAt && !b.preferencesSubmittedAt) return -1;
+        if (!a.preferencesSubmittedAt && b.preferencesSubmittedAt) return 1;
+        return a.name.localeCompare(b.name);
+      });
 
       // 3. Inicializar contadores de ocupación (participantes, no equipos)
       const workshopsMap = new Map(workshops.map(w => [w.id, w]));
@@ -263,6 +304,9 @@ export function useWorkshopAssignment(eventId: string) {
       // ============================================
       const maxPreference = workshops.length;
 
+      // Recolectar razones de rechazo por equipo para Taller A
+      const rejectionReasonsA: Map<number, string[]> = new Map();
+
       for (let priorityLevel = 1; priorityLevel <= maxPreference; priorityLevel++) {
         for (let teamIdx = 0; teamIdx < teams.length; teamIdx++) {
           const team = teams[teamIdx];
@@ -279,6 +323,8 @@ export function useWorkshopAssignment(eventId: string) {
           if (!workshop) continue;
 
           // Intentar asignar en algún turno
+          let assigned = false;
+          const slotReasons: string[] = [];
           for (const slot of timeSlots) {
             const currentOccupancy = occupancy[pref.workshopId][slot.slot_number];
             if (currentOccupancy + team.participantCount <= workshop.max_capacity) {
@@ -289,8 +335,15 @@ export function useWorkshopAssignment(eventId: string) {
                 slotNumber: slot.slot_number,
               };
               result.preferenceMatchedA = priorityLevel;
+              assigned = true;
               break;
+            } else {
+              slotReasons.push(`Turno ${slot.slot_number} lleno (${currentOccupancy}/${workshop.max_capacity})`);
             }
+          }
+          if (!assigned) {
+            if (!rejectionReasonsA.has(teamIdx)) rejectionReasonsA.set(teamIdx, []);
+            rejectionReasonsA.get(teamIdx)!.push(`Pref #${priorityLevel} (${workshop.name}): ${slotReasons.join(', ')}`);
           }
         }
       }
@@ -298,6 +351,8 @@ export function useWorkshopAssignment(eventId: string) {
       // ============================================
       // FASE 2: Asignar Taller B
       // ============================================
+      const rejectionReasonsB: Map<number, string[]> = new Map();
+
       for (let priorityLevel = 1; priorityLevel <= maxPreference; priorityLevel++) {
         for (let teamIdx = 0; teamIdx < teams.length; teamIdx++) {
           const team = teams[teamIdx];
@@ -310,16 +365,25 @@ export function useWorkshopAssignment(eventId: string) {
           const pref = team.preferences.find(p => p.order === priorityLevel);
           if (!pref) continue;
 
-          // No puede ser el mismo taller que A
-          if (result.workshopA && pref.workshopId === result.workshopA.workshopId) continue;
-
           const workshop = workshopsMap.get(pref.workshopId);
           if (!workshop) continue;
 
+          // No puede ser el mismo taller que A
+          if (result.workshopA && pref.workshopId === result.workshopA.workshopId) {
+            if (!rejectionReasonsB.has(teamIdx)) rejectionReasonsB.set(teamIdx, []);
+            rejectionReasonsB.get(teamIdx)!.push(`Pref #${priorityLevel} (${workshop.name}): descartado — ya asignado como Taller A`);
+            continue;
+          }
+
           // Intentar asignar en turno DIFERENTE al de Taller A
+          let assigned = false;
+          const slotReasons: string[] = [];
           for (const slot of timeSlots) {
             // Evitar mismo turno que A
-            if (result.workshopA && slot.slot_number === result.workshopA.slotNumber) continue;
+            if (result.workshopA && slot.slot_number === result.workshopA.slotNumber) {
+              slotReasons.push(`Turno ${slot.slot_number} descartado — coincide con Taller A`);
+              continue;
+            }
 
             const currentOccupancy = occupancy[pref.workshopId][slot.slot_number];
             if (currentOccupancy + team.participantCount <= workshop.max_capacity) {
@@ -330,8 +394,15 @@ export function useWorkshopAssignment(eventId: string) {
                 slotNumber: slot.slot_number,
               };
               result.preferenceMatchedB = priorityLevel;
+              assigned = true;
               break;
+            } else {
+              slotReasons.push(`Turno ${slot.slot_number} lleno (${currentOccupancy}/${workshop.max_capacity})`);
             }
+          }
+          if (!assigned) {
+            if (!rejectionReasonsB.has(teamIdx)) rejectionReasonsB.set(teamIdx, []);
+            rejectionReasonsB.get(teamIdx)!.push(`Pref #${priorityLevel} (${workshop.name}): ${slotReasons.join(', ')}`);
           }
         }
       }
@@ -348,7 +419,9 @@ export function useWorkshopAssignment(eventId: string) {
 
         // Intentar asignar Taller A si falta
         if (!result.workshopA) {
+          const fallbackReasonsA: string[] = [];
           for (const workshop of workshops) {
+            let workshopAssigned = false;
             for (const slot of timeSlots) {
               const currentOcc = occupancy[workshop.id][slot.slot_number];
               if (currentOcc + team.participantCount <= workshop.max_capacity) {
@@ -360,20 +433,32 @@ export function useWorkshopAssignment(eventId: string) {
                 };
                 result.preferenceMatchedA = null;
                 result.assignmentNotes.push('Taller A asignado por disponibilidad (preferencias llenas)');
+                workshopAssigned = true;
                 break;
+              } else {
+                fallbackReasonsA.push(`${workshop.name} Turno ${slot.slot_number} lleno (${currentOcc}/${workshop.max_capacity})`);
               }
             }
-            if (result.workshopA) break;
+            if (workshopAssigned) break;
+          }
+          if (!result.workshopA) {
+            if (!rejectionReasonsA.has(teamIdx)) rejectionReasonsA.set(teamIdx, []);
+            rejectionReasonsA.get(teamIdx)!.push(`Fallback Taller A: ${fallbackReasonsA.join(', ')}`);
           }
         }
 
         // Intentar asignar Taller B si falta
         if (!result.workshopB) {
+          const fallbackReasonsB: string[] = [];
           for (const workshop of workshops) {
             if (result.workshopA && workshop.id === result.workshopA.workshopId) continue;
 
+            let workshopAssigned = false;
             for (const slot of timeSlots) {
-              if (result.workshopA && slot.slot_number === result.workshopA.slotNumber) continue;
+              if (result.workshopA && slot.slot_number === result.workshopA.slotNumber) {
+                fallbackReasonsB.push(`${workshop.name} Turno ${slot.slot_number} conflicto con Taller A`);
+                continue;
+              }
 
               const currentOcc = occupancy[workshop.id][slot.slot_number];
               if (currentOcc + team.participantCount <= workshop.max_capacity) {
@@ -385,10 +470,17 @@ export function useWorkshopAssignment(eventId: string) {
                 };
                 result.preferenceMatchedB = null;
                 result.assignmentNotes.push('Taller B asignado por disponibilidad (preferencias llenas)');
+                workshopAssigned = true;
                 break;
+              } else {
+                fallbackReasonsB.push(`${workshop.name} Turno ${slot.slot_number} lleno (${currentOcc}/${workshop.max_capacity})`);
               }
             }
-            if (result.workshopB) break;
+            if (workshopAssigned) break;
+          }
+          if (!result.workshopB) {
+            if (!rejectionReasonsB.has(teamIdx)) rejectionReasonsB.set(teamIdx, []);
+            rejectionReasonsB.get(teamIdx)!.push(`Fallback Taller B: ${fallbackReasonsB.join(', ')}`);
           }
         }
       }
@@ -405,7 +497,9 @@ export function useWorkshopAssignment(eventId: string) {
 
         // Intentar asignar Taller A
         if (!result.workshopA) {
+          const noPrefsReasonsA: string[] = [];
           for (const workshop of workshops) {
+            let workshopAssigned = false;
             for (const slot of timeSlots) {
               const currentOcc = occupancy[workshop.id][slot.slot_number];
               if (currentOcc + team.participantCount <= workshop.max_capacity) {
@@ -417,20 +511,32 @@ export function useWorkshopAssignment(eventId: string) {
                 };
                 result.preferenceMatchedA = null;
                 result.assignmentNotes.push('Taller A asignado por disponibilidad (sin preferencias)');
+                workshopAssigned = true;
                 break;
+              } else {
+                noPrefsReasonsA.push(`${workshop.name} Turno ${slot.slot_number} lleno (${currentOcc}/${workshop.max_capacity})`);
               }
             }
-            if (result.workshopA) break;
+            if (workshopAssigned) break;
+          }
+          if (!result.workshopA) {
+            if (!rejectionReasonsA.has(teamIdx)) rejectionReasonsA.set(teamIdx, []);
+            rejectionReasonsA.get(teamIdx)!.push(`Sin preferencias — Taller A: ${noPrefsReasonsA.join(', ')}`);
           }
         }
 
         // Intentar asignar Taller B
         if (!result.workshopB) {
+          const noPrefsReasonsB: string[] = [];
           for (const workshop of workshops) {
             if (result.workshopA && workshop.id === result.workshopA.workshopId) continue;
 
+            let workshopAssigned = false;
             for (const slot of timeSlots) {
-              if (result.workshopA && slot.slot_number === result.workshopA.slotNumber) continue;
+              if (result.workshopA && slot.slot_number === result.workshopA.slotNumber) {
+                noPrefsReasonsB.push(`${workshop.name} Turno ${slot.slot_number} conflicto con Taller A`);
+                continue;
+              }
 
               const currentOcc = occupancy[workshop.id][slot.slot_number];
               if (currentOcc + team.participantCount <= workshop.max_capacity) {
@@ -442,38 +548,46 @@ export function useWorkshopAssignment(eventId: string) {
                 };
                 result.preferenceMatchedB = null;
                 result.assignmentNotes.push('Taller B asignado por disponibilidad (sin preferencias)');
+                workshopAssigned = true;
                 break;
+              } else {
+                noPrefsReasonsB.push(`${workshop.name} Turno ${slot.slot_number} lleno (${currentOcc}/${workshop.max_capacity})`);
               }
             }
-            if (result.workshopB) break;
+            if (workshopAssigned) break;
+          }
+          if (!result.workshopB) {
+            if (!rejectionReasonsB.has(teamIdx)) rejectionReasonsB.set(teamIdx, []);
+            rejectionReasonsB.get(teamIdx)!.push(`Sin preferencias — Taller B: ${noPrefsReasonsB.join(', ')}`);
           }
         }
       }
 
       // ============================================
-      // FASE 3: Validación
+      // FASE 3: Validación con mensajes descriptivos
       // ============================================
       for (let i = 0; i < results.length; i++) {
         const result = results[i];
-        const team = teams[i];
-        const hasPrefs = team.preferences.length > 0;
+        const reasonsA = rejectionReasonsA.get(i) || [];
+        const reasonsB = rejectionReasonsB.get(i) || [];
 
         if (!result.workshopA && !result.workshopB) {
-          if (!hasPrefs) {
-            result.errors.push('Sin preferencias registradas — no se pudo asignar automáticamente');
-          } else {
-            result.errors.push('Todos los talleres preferidos estaban llenos — no se encontró espacio disponible');
-          }
+          const details = [...reasonsA, ...reasonsB].join('; ');
+          result.errors.push(details
+            ? `No se asignó ningún taller: ${details}`
+            : 'Sin preferencias registradas — no se pudo asignar automáticamente');
         } else {
           if (!result.workshopA) {
-            result.errors.push(hasPrefs
-              ? 'Taller A: todos los talleres preferidos llenos en los turnos disponibles'
-              : 'Taller A: no se encontró espacio disponible en ningún taller');
+            const details = reasonsA.join('; ');
+            result.errors.push(details
+              ? `No se asignó Taller A: ${details}`
+              : 'Taller A: no se encontró espacio disponible');
           }
           if (!result.workshopB) {
-            result.errors.push(hasPrefs
-              ? 'Taller B: todos los talleres preferidos llenos en los turnos disponibles'
-              : 'Taller B: no se encontró espacio disponible en ningún taller');
+            const details = reasonsB.join('; ');
+            result.errors.push(details
+              ? `No se asignó Taller B: ${details}`
+              : 'Taller B: no se encontró espacio disponible');
           }
         }
         if (result.workshopA && result.workshopB) {
@@ -634,19 +748,36 @@ export function useWorkshopAssignment(eventId: string) {
       if (assignedTeamIds.length > 0) {
         const { data: memberCounts } = await supabase
           .from('team_members')
-          .select('team_id')
+          .select('team_id, member_type')
           .in('team_id', assignedTeamIds);
 
-        currentOccupancy = memberCounts?.length || 0;
+        // Calcular ocupación con fórmula: participants + min(1, mentors) por equipo
+        const occParticipants = new Map<string, number>();
+        const occMentors = new Map<string, number>();
+        memberCounts?.forEach(m => {
+          if (!m.team_id) return;
+          if (m.member_type === 'mentor') {
+            occMentors.set(m.team_id, (occMentors.get(m.team_id) || 0) + 1);
+          } else if (m.member_type === 'participant') {
+            occParticipants.set(m.team_id, (occParticipants.get(m.team_id) || 0) + 1);
+          }
+        });
+        for (const tid of assignedTeamIds) {
+          const p = occParticipants.get(tid) || 0;
+          const m = occMentors.get(tid) || 0;
+          currentOccupancy += p + Math.min(1, m);
+        }
       }
 
       // Contar participantes del equipo que queremos asignar
       const { data: teamMembers } = await supabase
         .from('team_members')
-        .select('id')
+        .select('member_type')
         .eq('team_id', teamId);
 
-      const teamSize = teamMembers?.length || 1;
+      const teamParticipants = teamMembers?.filter(m => m.member_type === 'participant').length || 0;
+      const teamMentors = teamMembers?.filter(m => m.member_type === 'mentor').length || 0;
+      const teamSize = Math.max(1, teamParticipants + Math.min(1, teamMentors));
 
       if (currentOccupancy + teamSize > workshop.max_capacity) {
         const { data: slotInfo } = await supabase
