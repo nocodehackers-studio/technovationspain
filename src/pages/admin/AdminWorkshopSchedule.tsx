@@ -393,7 +393,7 @@ export default function AdminWorkshopSchedule() {
     const rows = teamsWithAssignments.filter(team => team.assignmentCount > 0).map(team => [
       `${team.name} (${team.participantCount || 1})`,
       team.category || '',
-      String(team.assignmentCount),
+      String(team.participantCount || 1),
       team.slotA?.workshopName || 'Sin asignar',
       team.slotA ? `Turno ${team.slotA.turnoNumber}` : '',
       team.slotA?.turnoTime || '',
@@ -403,7 +403,7 @@ export default function AdminWorkshopSchedule() {
     ]);
 
     const csvRows = [
-      ['Equipo', 'Categoría', 'Asignaciones', 'Taller A', 'Turno A', 'Horario A', 'Taller B', 'Turno B', 'Horario B'],
+      ['Equipo', 'Categoría', 'Participantes', 'Taller A', 'Turno A', 'Horario A', 'Taller B', 'Turno B', 'Horario B'],
       ...rows,
     ].map(row => row.map(cell => {
       const strVal = String(cell);
