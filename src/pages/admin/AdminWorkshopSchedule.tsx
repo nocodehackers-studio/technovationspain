@@ -349,6 +349,7 @@ export default function AdminWorkshopSchedule() {
         `${slot.start_time.slice(0, 5)} - ${slot.end_time.slice(0, 5)}`,
         '',
         '',
+        '',
       ]);
 
       workshops.forEach(({ workshop, teams }) => {
@@ -357,16 +358,17 @@ export default function AdminWorkshopSchedule() {
             (workshop as any).name,
             (workshop as any).company || '',
             (workshop as any).location || '',
+            String((workshop as any).max_capacity || ''),
             teams.map(t => t.name).join(', '),
           ]);
         }
       });
 
-      rows.push(['', '', '', '']);
+      rows.push(['', '', '', '', '']);
     });
 
     const csvRows = [
-      ['Taller', 'Empresa', 'Sala', 'Equipos'],
+      ['Taller', 'Empresa', 'Sala', 'Plazas', 'Equipos'],
       ...rows,
     ].map(row => row.map(cell => {
       const strVal = String(cell);
