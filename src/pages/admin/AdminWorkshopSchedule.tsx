@@ -359,7 +359,7 @@ export default function AdminWorkshopSchedule() {
             (workshop as any).company || '',
             (workshop as any).location || '',
             String((workshop as any).max_capacity || ''),
-            teams.map(t => t.name).join(', '),
+            teams.map(t => `${t.name} (${t.participantCount})`).join(', '),
           ]);
         }
       });
@@ -391,7 +391,7 @@ export default function AdminWorkshopSchedule() {
     if (!teamsWithAssignments.length) return;
 
     const rows = teamsWithAssignments.filter(team => team.assignmentCount > 0).map(team => [
-      team.name,
+      `${team.name} (${team.participantCount || 1})`,
       team.category || '',
       String(team.assignmentCount),
       team.slotA?.workshopName || 'Sin asignar',

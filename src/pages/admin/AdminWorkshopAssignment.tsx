@@ -256,7 +256,7 @@ export default function AdminWorkshopAssignment() {
       const typeB = g.slotB?.assignmentType || '';
       const type = typeA === 'manual' || typeB === 'manual' ? 'manual' : typeA || typeB || '';
       return [
-        g.teamName,
+        `${g.teamName} (${g.participantCount})`,
         String(g.participantCount),
         g.slotA?.workshopName || '',
         g.slotA ? `Turno ${g.slotA.slotNumber}` : '',
