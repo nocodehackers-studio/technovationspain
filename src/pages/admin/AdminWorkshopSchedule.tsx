@@ -388,7 +388,7 @@ export default function AdminWorkshopSchedule() {
   const handleExportTeamsCSV = () => {
     if (!teamsWithAssignments.length) return;
 
-    const rows = teamsWithAssignments.map(team => [
+    const rows = teamsWithAssignments.filter(team => team.assignmentCount > 0).map(team => [
       team.name,
       team.category || '',
       String(team.assignmentCount),
