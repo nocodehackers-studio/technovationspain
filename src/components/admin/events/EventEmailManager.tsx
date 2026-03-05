@@ -101,7 +101,7 @@ function TemplateCard({
 
 export function EventEmailManager({ eventId }: EventEmailManagerProps) {
   const { templates, isLoading, getTemplateOrDefault } = useEventEmailTemplates(eventId);
-  const { sends, isLoading: isLoadingSends, refetch: refetchSends } = useEventEmailSends(eventId);
+  const { sends, isLoading: isLoadingSends, refetch: refetchSends, cancelSend, isCancelling } = useEventEmailSends(eventId);
 
   const [editingTemplate, setEditingTemplate] = useState<EmailTemplateType | null>(null);
   const [showSendDialog, setShowSendDialog] = useState(false);
@@ -195,6 +195,8 @@ export function EventEmailManager({ eventId }: EventEmailManagerProps) {
         <EmailHistoryTable
           sends={sends}
           isLoading={isLoadingSends}
+          onCancelSend={cancelSend}
+          isCancelling={isCancelling}
         />
       </div>
 
