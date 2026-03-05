@@ -65,6 +65,19 @@ function getTodayInMadrid(): string {
   return formatter.format(new Date()); // Returns YYYY-MM-DD format
 }
 
+// Check if today falls within the scan window: [eventDate - 1 day, eventDate + 1 day]
+// Uses UTC noon + string comparison to avoid timezone/DST issues on edge nodes
+function isWithinScanWindow(eventDate: string, todayMadrid: string): boolean {
+  const d = new Date(eventDate + 'T12:00:00Z');
+  const before = new Date(d);
+  before.setUTCDate(before.getUTCDate() - 1);
+  const after = new Date(d);
+  after.setUTCDate(after.getUTCDate() + 1);
+  const dayBefore = before.toISOString().slice(0, 10);
+  const dayAfter = after.toISOString().slice(0, 10);
+  return todayMadrid >= dayBefore && todayMadrid <= dayAfter;
+}
+
 Deno.serve(async (req) => {
   const corsHeaders = getCorsHeaders(req);
   // Handle CORS preflight
@@ -244,7 +257,7 @@ Deno.serve(async (req) => {
       }
 
       const eventDate = eventReg?.event?.date;
-      if (eventDate && eventDate !== todayMadrid) {
+      if (eventDate && !isWithinScanWindow(eventDate, todayMadrid)) {
         console.log("Wrong date for companion. Event:", eventDate, "Today:", todayMadrid);
         return new Response(JSON.stringify({ valid: false, error: "wrong_date" }), {
           status: 200,
@@ -350,7 +363,7 @@ Deno.serve(async (req) => {
       });
     }
     const eventDate = event?.date;
-    if (eventDate && eventDate !== todayMadrid) {
+    if (eventDate && !isWithinScanWindow(eventDate, todayMadrid)) {
       console.log("Wrong date. Event:", eventDate, "Today:", todayMadrid);
       return new Response(JSON.stringify({ valid: false, error: "wrong_date" }), {
         status: 200,
