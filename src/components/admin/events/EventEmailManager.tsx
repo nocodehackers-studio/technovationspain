@@ -23,6 +23,8 @@ interface TemplateCardProps {
   hasCustomTemplate: boolean;
   onEdit: () => void;
   onSend?: () => void;
+  onTestSend?: () => void;
+  isTestSending?: boolean;
   showSendButton?: boolean;
 }
 
@@ -35,6 +37,8 @@ function TemplateCard({
   hasCustomTemplate,
   onEdit,
   onSend,
+  onTestSend,
+  isTestSending,
   showSendButton,
 }: TemplateCardProps) {
   return (
@@ -72,6 +76,12 @@ function TemplateCard({
               <Button variant="outline" size="sm" onClick={onSend}>
                 <Send className="mr-2 h-4 w-4" />
                 Enviar
+              </Button>
+            )}
+            {onTestSend && (
+              <Button variant="outline" size="sm" onClick={onTestSend} disabled={isTestSending}>
+                <FlaskConical className="mr-2 h-4 w-4" />
+                {isTestSending ? "Enviando..." : "Probar"}
               </Button>
             )}
           </div>
@@ -152,21 +162,10 @@ export function EventEmailManager({ eventId }: EventEmailManagerProps) {
             hasCustomTemplate={hasCustomReminder}
             onEdit={() => setEditingTemplate("reminder")}
             onSend={() => setShowSendDialog(true)}
+            onTestSend={handleSendTestEmail}
+            isTestSending={isSendingTest}
             showSendButton
           />
-          <Card className="border-dashed">
-            <CardContent className="flex items-center justify-center py-6">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleSendTestEmail}
-                disabled={isSendingTest}
-              >
-                <FlaskConical className="mr-2 h-4 w-4" />
-                {isSendingTest ? "Enviando..." : "Enviar email de prueba"}
-              </Button>
-            </CardContent>
-          </Card>
         </div>
       </div>
 
