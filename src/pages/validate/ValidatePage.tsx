@@ -217,7 +217,7 @@ const ERROR_CONFIG: Record<ValidationError, { icon: typeof X; title: string; des
   wrong_date: {
     icon: CalendarX,
     title: 'Fecha incorrecta',
-    description: 'Esta entrada no corresponde al evento de hoy.',
+    description: 'Esta entrada no corresponde a un evento cercano a la fecha actual.',
     bgClass: 'bg-amber-50',
     textClass: 'text-amber-700'
   },
