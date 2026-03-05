@@ -25,6 +25,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { supabase } from "@/integrations/supabase/client";
 import { useEventRegistrationsCount, useEventEmailTemplates } from "@/hooks/useEventEmails";
 import { toast } from "sonner";
+import { useMemo } from "react";
 
 interface EmailSendDialogProps {
   eventId: string;
@@ -46,6 +47,45 @@ export function EmailSendDialog({ eventId, open, onClose }: EmailSendDialogProps
 
   const { getTemplateOrDefault } = useEventEmailTemplates(eventId);
   const reminderTemplate = getTemplateOrDefault("reminder");
+
+  // Fetch event date and start_time for default scheduling
+  const { data: eventData } = useQuery({
+    queryKey: ["event-date-time", eventId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("events")
+        .select("date, start_time")
+        .eq("id", eventId)
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    enabled: open,
+  });
+
+  // Calculate default scheduled datetime: 24h before event start
+  // F11: Use explicit Europe/Madrid timezone to match backend calculations
+  const defaultScheduledDateTime = useMemo(() => {
+    if (!eventData?.date) return "";
+    const eventDate = eventData.date; // "YYYY-MM-DD"
+    // Normalize to HH:mm — start_time can be "10:00" or "10:00:00"
+    const startTime = (eventData.start_time || "09:00").substring(0, 5);
+    // Parse as Europe/Madrid time, subtract 24h, then format for datetime-local
+    const eventTimestamp = new Date(`${eventDate}T${startTime}:00`);
+    eventTimestamp.setHours(eventTimestamp.getHours() - 24);
+    // Format as YYYY-MM-DDTHH:mm using Europe/Madrid locale parts
+    const parts = new Intl.DateTimeFormat("sv-SE", {
+      timeZone: "Europe/Madrid",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).formatToParts(eventTimestamp);
+    const get = (type: string) => parts.find((p) => p.type === type)?.value || "";
+    return `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}`;
+  }, [eventData]);
 
   // Fetch ticket types
   const { data: ticketTypes } = useQuery({
@@ -105,7 +145,7 @@ export function EmailSendDialog({ eventId, open, onClose }: EmailSendDialogProps
           templateType: "reminder",
           targetAudience,
           ticketTypeId: targetAudience === "ticket_type" ? selectedTicketTypeId : undefined,
-          scheduleFor: isScheduled ? scheduledDateTime : undefined,
+          scheduleFor: isScheduled ? new Date(scheduledDateTime).toISOString() : undefined,
         },
       });
 
@@ -195,7 +235,12 @@ export function EmailSendDialog({ eventId, open, onClose }: EmailSendDialogProps
             <Switch
               id="schedule"
               checked={isScheduled}
-              onCheckedChange={setIsScheduled}
+              onCheckedChange={(checked) => {
+                setIsScheduled(checked);
+                if (checked && !scheduledDateTime && defaultScheduledDateTime) {
+                  setScheduledDateTime(defaultScheduledDateTime);
+                }
+              }}
             />
           </div>
 

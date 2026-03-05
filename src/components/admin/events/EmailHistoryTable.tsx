@@ -16,6 +16,8 @@ import { EventEmailSend, useEventEmailSends } from "@/hooks/useEventEmails";
 interface EmailHistoryTableProps {
   sends: EventEmailSend[];
   isLoading: boolean;
+  onCancelSend?: (sendId: string) => void;
+  isCancelling?: boolean;
 }
 
 function getStatusBadge(status: EventEmailSend["status"]) {
@@ -65,7 +67,7 @@ function formatDate(dateString: string | null) {
   return format(new Date(dateString), "d MMM yyyy, HH:mm", { locale: es });
 }
 
-export function EmailHistoryTable({ sends, isLoading }: EmailHistoryTableProps) {
+export function EmailHistoryTable({ sends, isLoading, onCancelSend, isCancelling }: EmailHistoryTableProps) {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-8 text-muted-foreground">
@@ -109,7 +111,22 @@ export function EmailHistoryTable({ sends, isLoading }: EmailHistoryTableProps) 
                   ? formatDate(send.scheduled_for)
                   : formatDate(send.sent_at || send.created_at)}
               </TableCell>
-              <TableCell>{getStatusBadge(send.status)}</TableCell>
+              <TableCell>
+                <div className="flex items-center gap-2">
+                  {getStatusBadge(send.status)}
+                  {send.status === "scheduled" && onCancelSend && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-muted-foreground hover:text-destructive"
+                      onClick={() => onCancelSend(send.id)}
+                      disabled={isCancelling}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
+                </div>
+              </TableCell>
             </TableRow>
           ))}
         </TableBody>

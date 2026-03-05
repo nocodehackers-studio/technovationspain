@@ -8,6 +8,7 @@ const BREVO_REPLY_TO_EMAIL = Deno.env.get("BREVO_REPLY_TO_EMAIL") || "soporte@po
 
 const ALLOWED_ORIGINS = [
   "https://app.powertocode.org",
+  "https://powertocode.vercel.app",
   "http://localhost:5173",
   "http://localhost:8080",
 ];
@@ -26,6 +27,7 @@ interface SendEventEmailRequest {
   targetAudience: "all_confirmed" | "ticket_type";
   ticketTypeId?: string;
   scheduleFor?: string; // ISO datetime
+  testRecipientEmail?: string; // Send single test email to this address
 }
 
 // Default reminder template
@@ -119,10 +121,10 @@ const handler = async (req: Request): Promise<Response> => {
       );
     }
 
-    const { eventId, templateType, targetAudience, ticketTypeId, scheduleFor }: SendEventEmailRequest =
+    const { eventId, templateType, targetAudience, ticketTypeId, scheduleFor, testRecipientEmail }: SendEventEmailRequest =
       await req.json();
 
-    console.log("Request params:", { eventId, templateType, targetAudience, ticketTypeId, scheduleFor });
+    console.log("Request params:", { eventId, templateType, targetAudience, ticketTypeId, scheduleFor, testRecipientEmail });
 
     // Fetch event
     const { data: event, error: eventError } = await supabase
@@ -151,6 +153,105 @@ const handler = async (req: Request): Promise<Response> => {
     const subjectTemplate = customTemplate?.subject || DEFAULT_REMINDER_SUBJECT;
     const bodyTemplate = customTemplate?.body_content || DEFAULT_REMINDER_BODY;
     const replyToEmail = customTemplate?.reply_to_email || null;
+
+    // Test email mode: send a single email with sample data
+    if (testRecipientEmail) {
+      console.log(`Sending test email to ${testRecipientEmail}`);
+
+      const eventDate = new Date(event.date);
+      const formattedDate = eventDate.toLocaleDateString("es-ES", {
+        weekday: "long", year: "numeric", month: "long", day: "numeric",
+      });
+
+      const templateVars: Record<string, string> = {
+        "{nombre}": "Test",
+        "{apellido}": "User",
+        "{nombre_completo}": "Test User",
+        "{evento}": event.name || "",
+        "{fecha}": formattedDate,
+        "{hora}": `${event.start_time || ""} - ${event.end_time || ""}`,
+        "{ubicacion}": event.location_name || "",
+        "{direccion}": event.location_address || "",
+        "{ciudad}": event.location_city || "",
+        "{numero_registro}": "TEST-001",
+        "{tipo_entrada}": "General",
+        "{enlace_entrada}": "https://app.powertocode.org/tickets/test",
+      };
+
+      const emailSubject = `[TEST] ${replaceVariables(subjectTemplate, templateVars)}`;
+      const emailBodyText = replaceVariables(bodyTemplate, templateVars);
+      const emailBodyHtml = emailBodyText
+        .split("\n")
+        .map((line) => `<p style="margin: 0 0 10px 0;">${line || "&nbsp;"}</p>`)
+        .join("");
+
+      const ticketUrl = "https://app.powertocode.org/tickets/test";
+      const emailPayload: Record<string, unknown> = {
+        sender: { name: BREVO_SENDER_NAME, email: BREVO_SENDER_EMAIL },
+        to: [{ email: testRecipientEmail }],
+        subject: emailSubject,
+        htmlContent: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        </head>
+        <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f3f4f6;">
+          <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f3f4f6; padding: 40px 20px;">
+            <tr>
+              <td align="center">
+                <table width="100%" style="max-width: 600px; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+                  <tr>
+                    <td style="background: linear-gradient(135deg, #7c3aed 0%, #a855f7 100%); padding: 40px 30px; text-align: center;">
+                      <h1 style="color: #ffffff; margin: 0; font-size: 28px; font-weight: bold;">Recordatorio</h1>
+                      <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0; font-size: 16px;">Technovation Girls Madrid</p>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 40px 30px; color: #374151; font-size: 16px; line-height: 1.6;">
+                      ${emailBodyHtml}
+                      <table width="100%" cellpadding="0" cellspacing="0">
+                        <tr>
+                          <td align="center" style="padding: 30px 0 20px 0;">
+                            <a href="${ticketUrl}" style="display: inline-block; background: linear-gradient(135deg, #7c3aed 0%, #a855f7 100%); color: #ffffff; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-size: 16px; font-weight: 600;">Ver mi entrada</a>
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="background-color: #f9fafb; padding: 30px; text-align: center; border-top: 1px solid #e5e7eb;">
+                      <p style="color: #6b7280; font-size: 14px; margin: 0 0 10px 0;">Power To Code - Embajadores de Technovation Girls Madrid</p>
+                      <p style="color: #9ca3af; font-size: 12px; margin: 0;"><a href="https://powertocode.org" style="color: #7c3aed; text-decoration: none;">powertocode.org</a></p>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+          </table>
+        </body>
+        </html>
+        `,
+        replyTo: { email: replyToEmail || BREVO_REPLY_TO_EMAIL },
+      };
+
+      const emailResponse = await fetch("https://api.brevo.com/v3/smtp/email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "api-key": BREVO_API_KEY! },
+        body: JSON.stringify(emailPayload),
+      });
+
+      if (!emailResponse.ok) {
+        const errorData = await emailResponse.json();
+        throw new Error(`Brevo error: ${JSON.stringify(errorData)}`);
+      }
+
+      return new Response(
+        JSON.stringify({ success: true, test: true, sentTo: testRecipientEmail }),
+        { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders } }
+      );
+    }
 
     // Build query for registrations
     let query = supabase
