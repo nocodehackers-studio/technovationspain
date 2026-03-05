@@ -145,7 +145,7 @@ export function EmailSendDialog({ eventId, open, onClose }: EmailSendDialogProps
           templateType: "reminder",
           targetAudience,
           ticketTypeId: targetAudience === "ticket_type" ? selectedTicketTypeId : undefined,
-          scheduleFor: isScheduled ? scheduledDateTime : undefined,
+          scheduleFor: isScheduled ? new Date(scheduledDateTime).toISOString() : undefined,
         },
       });
 
