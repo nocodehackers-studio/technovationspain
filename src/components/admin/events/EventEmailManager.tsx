@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Mail, Clock, Edit, Eye, Send, FlaskConical } from "lucide-react";
+import { Mail, Clock, Edit, FlaskConical } from "lucide-react";
 import { useEventEmailTemplates, useEventEmailSends, DEFAULT_TEMPLATES, EmailTemplateType } from "@/hooks/useEventEmails";
 import { EmailTemplateEditor } from "./EmailTemplateEditor";
 import { EmailSendDialog } from "./EmailSendDialog";
@@ -26,6 +26,7 @@ interface TemplateCardProps {
   onTestSend?: () => void;
   isTestSending?: boolean;
   showSendButton?: boolean;
+  scheduledInfo?: string;
 }
 
 function TemplateCard({
@@ -40,6 +41,7 @@ function TemplateCard({
   onTestSend,
   isTestSending,
   showSendButton,
+  scheduledInfo,
 }: TemplateCardProps) {
   return (
     <Card>
@@ -74,8 +76,8 @@ function TemplateCard({
             </Button>
             {showSendButton && onSend && (
               <Button variant="outline" size="sm" onClick={onSend}>
-                <Send className="mr-2 h-4 w-4" />
-                Enviar
+                <Clock className="mr-2 h-4 w-4" />
+                Programar
               </Button>
             )}
             {onTestSend && (
@@ -85,6 +87,12 @@ function TemplateCard({
               </Button>
             )}
           </div>
+          {scheduledInfo && (
+            <p className="text-sm text-muted-foreground flex items-center gap-1.5">
+              <Clock className="h-3.5 w-3.5" />
+              {scheduledInfo}
+            </p>
+          )}
         </div>
       </CardContent>
     </Card>
@@ -130,6 +138,17 @@ export function EventEmailManager({ eventId }: EventEmailManagerProps) {
   const hasCustomConfirmation = templates.some((t) => t.template_type === "confirmation");
   const hasCustomReminder = templates.some((t) => t.template_type === "reminder");
 
+  // Check if there's a scheduled reminder email
+  const scheduledReminder = sends.find(
+    (s) => s.template_type === "reminder" && s.status === "scheduled" && s.scheduled_for
+  );
+  const scheduledReminderInfo = scheduledReminder
+    ? `Programado para ${new Date(scheduledReminder.scheduled_for!).toLocaleString("es-ES", {
+        day: "2-digit", month: "2-digit", year: "numeric",
+        hour: "2-digit", minute: "2-digit",
+      })}`
+    : undefined;
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-48">
@@ -165,6 +184,7 @@ export function EventEmailManager({ eventId }: EventEmailManagerProps) {
             onTestSend={handleSendTestEmail}
             isTestSending={isSendingTest}
             showSendButton
+            scheduledInfo={scheduledReminderInfo}
           />
         </div>
       </div>

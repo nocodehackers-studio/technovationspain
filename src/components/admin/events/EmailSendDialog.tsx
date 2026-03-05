@@ -68,7 +68,8 @@ export function EmailSendDialog({ eventId, open, onClose }: EmailSendDialogProps
   const defaultScheduledDateTime = useMemo(() => {
     if (!eventData?.date) return "";
     const eventDate = eventData.date; // "YYYY-MM-DD"
-    const startTime = eventData.start_time || "09:00"; // fallback 9am
+    // Normalize to HH:mm — start_time can be "10:00" or "10:00:00"
+    const startTime = (eventData.start_time || "09:00").substring(0, 5);
     // Parse as Europe/Madrid time, subtract 24h, then format for datetime-local
     const eventTimestamp = new Date(`${eventDate}T${startTime}:00`);
     eventTimestamp.setHours(eventTimestamp.getHours() - 24);
