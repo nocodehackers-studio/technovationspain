@@ -62,6 +62,13 @@ function replaceVariables(
   return result;
 }
 
+// Strip seconds from time string: "9:00:00" → "9:00"
+function formatTime(time: string | null | undefined): string {
+  if (!time) return "";
+  const parts = time.split(":");
+  return parts.length >= 2 ? `${parts[0]}:${parts[1]}` : time;
+}
+
 // Delay helper for rate limiting
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -169,7 +176,7 @@ const handler = async (req: Request): Promise<Response> => {
         "{nombre_completo}": "Test User",
         "{evento}": event.name || "",
         "{fecha}": formattedDate,
-        "{hora}": `${event.start_time || ""} - ${event.end_time || ""}`,
+        "{hora}": `${formatTime(event.start_time)} - ${formatTime(event.end_time)}`,
         "{ubicacion}": event.location_name || "",
         "{direccion}": event.location_address || "",
         "{ciudad}": event.location_city || "",
@@ -365,7 +372,7 @@ const handler = async (req: Request): Promise<Response> => {
           "{nombre_completo}": `${registration.first_name || ""} ${registration.last_name || ""}`.trim(),
           "{evento}": event.name || "",
           "{fecha}": formattedDate,
-          "{hora}": `${event.start_time || ""} - ${event.end_time || ""}`,
+          "{hora}": `${formatTime(event.start_time)} - ${formatTime(event.end_time)}`,
           "{ubicacion}": event.location_name || "",
           "{direccion}": event.location_address || "",
           "{ciudad}": event.location_city || "",

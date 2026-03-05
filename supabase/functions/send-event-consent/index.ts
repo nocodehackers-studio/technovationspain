@@ -6,6 +6,13 @@ const BREVO_SENDER_NAME = Deno.env.get("BREVO_SENDER_NAME") || "Technovation Gir
 const BREVO_REPLY_TO_EMAIL = Deno.env.get("BREVO_REPLY_TO_EMAIL") || "soporte@powertocode.org";
 const PUBLIC_SITE_URL = (Deno.env.get("PUBLIC_SITE_URL") || "https://app.powertocode.org").replace(/\/+$/, "");
 
+// Strip seconds from time string: "9:00:00" → "9:00"
+function formatTime(time: string | null | undefined): string {
+  if (!time) return "";
+  const parts = time.split(":");
+  return parts.length >= 2 ? `${parts[0]}:${parts[1]}` : time;
+}
+
 // Escape HTML to prevent XSS in email templates
 function escapeHtml(text: string | null | undefined): string {
   if (!text) return "";
@@ -231,7 +238,7 @@ Deno.serve(async (req) => {
                   </tr>
                   <tr>
                     <td style="padding: 4px 0;">🕐 <strong>Horario:</strong></td>
-                    <td style="padding: 4px 0;">${event.start_time || ""} - ${event.end_time || ""}</td>
+                    <td style="padding: 4px 0;">${formatTime(event.start_time)} - ${formatTime(event.end_time)}</td>
                   </tr>
                   <tr>
                     <td style="padding: 4px 0;">📍 <strong>Lugar:</strong></td>
