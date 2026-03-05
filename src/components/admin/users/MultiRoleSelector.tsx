@@ -2,11 +2,10 @@ import { useState, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { RoleBadges } from "@/components/admin/RoleBadge";
 import { toast } from "sonner";
-import { Shield, Crown, Users, GraduationCap, Scale, QrCode, Heart, Check } from "lucide-react";
+import { Shield, Crown, Users, GraduationCap, Scale, Heart, Check } from "lucide-react";
 import { AppRole } from "@/types/database";
 
 interface MultiRoleSelectorProps {
@@ -32,7 +31,6 @@ export function MultiRoleSelector({ userId }: MultiRoleSelectorProps) {
     add: AppRole[];
     remove: AppRole[];
   }>({ add: [], remove: [] });
-  const [volunteerTogglePending, setVolunteerTogglePending] = useState<boolean | null>(null);
 
   // Fetch is_volunteer from profile
   const { data: isVolunteerProfile } = useQuery({
@@ -67,7 +65,6 @@ export function MultiRoleSelector({ userId }: MultiRoleSelectorProps) {
   // Reset pending changes when user changes
   useEffect(() => {
     setPendingChanges({ add: [], remove: [] });
-    setVolunteerTogglePending(null);
   }, [userId]);
 
   // Calculate effective roles (current + pending)
@@ -102,25 +99,34 @@ export function MultiRoleSelector({ userId }: MultiRoleSelectorProps) {
         if (error) throw error;
       }
 
-      // Update is_volunteer on profile if changed
-      if (volunteerTogglePending !== null) {
-        const { error } = await supabase
-          .from("profiles")
-          .update({ is_volunteer: volunteerTogglePending } as any)
-          .eq("id", userId);
-        if (error) throw error;
-      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["user-roles", userId] });
-      queryClient.invalidateQueries({ queryKey: ["user-volunteer", userId] });
       queryClient.invalidateQueries({ queryKey: ["admin-users"] });
       setPendingChanges({ add: [], remove: [] });
-      setVolunteerTogglePending(null);
       toast.success("Roles actualizados correctamente");
     },
     onError: (error) => {
       toast.error(`Error al guardar roles: ${error.message}`);
+    },
+  });
+
+  // Independent volunteer toggle mutation
+  const volunteerMutation = useMutation({
+    mutationFn: async (checked: boolean) => {
+      const { error } = await supabase
+        .from("profiles")
+        .update({ is_volunteer: checked } as any)
+        .eq("id", userId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["user-volunteer", userId] });
+      queryClient.invalidateQueries({ queryKey: ["admin-users"] });
+      toast.success("Estado de voluntario actualizado");
+    },
+    onError: (error) => {
+      toast.error(`Error al actualizar voluntario: ${error.message}`);
     },
   });
 
@@ -184,8 +190,7 @@ export function MultiRoleSelector({ userId }: MultiRoleSelectorProps) {
     setPendingChanges({ add: newAdd, remove: newRemove });
   };
 
-  const effectiveVolunteer = volunteerTogglePending !== null ? volunteerTogglePending : (isVolunteerProfile ?? false);
-  const hasChanges = pendingChanges.add.length > 0 || pendingChanges.remove.length > 0 || volunteerTogglePending !== null;
+  const hasChanges = pendingChanges.add.length > 0 || pendingChanges.remove.length > 0;
 
   if (isLoading) {
     return <div className="text-sm text-muted-foreground">Cargando roles...</div>;
@@ -258,8 +263,9 @@ export function MultiRoleSelector({ userId }: MultiRoleSelectorProps) {
             </div>
           </div>
           <Switch
-            checked={effectiveVolunteer}
-            onCheckedChange={(checked) => setVolunteerTogglePending(checked)}
+            checked={isVolunteerProfile ?? false}
+            disabled={volunteerMutation.isPending}
+            onCheckedChange={(checked) => volunteerMutation.mutate(checked)}
           />
         </div>
 
