@@ -2,11 +2,13 @@ import { useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Mail, Clock, Edit, Eye, Send } from "lucide-react";
+import { Mail, Clock, Edit, Eye, Send, FlaskConical } from "lucide-react";
 import { useEventEmailTemplates, useEventEmailSends, DEFAULT_TEMPLATES, EmailTemplateType } from "@/hooks/useEventEmails";
 import { EmailTemplateEditor } from "./EmailTemplateEditor";
 import { EmailSendDialog } from "./EmailSendDialog";
 import { EmailHistoryTable } from "./EmailHistoryTable";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 interface EventEmailManagerProps {
   eventId: string;
@@ -85,6 +87,32 @@ export function EventEmailManager({ eventId }: EventEmailManagerProps) {
 
   const [editingTemplate, setEditingTemplate] = useState<EmailTemplateType | null>(null);
   const [showSendDialog, setShowSendDialog] = useState(false);
+  const [isSendingTest, setIsSendingTest] = useState(false);
+
+  const handleSendTestEmail = async () => {
+    setIsSendingTest(true);
+    try {
+      const { data: session } = await supabase.auth.getSession();
+      if (!session?.session) throw new Error("No hay sesión activa");
+
+      const response = await supabase.functions.invoke("send-event-email", {
+        body: {
+          eventId,
+          templateType: "reminder",
+          targetAudience: "all_confirmed",
+          testRecipientEmail: "alex@nocodehackers.es",
+        },
+      });
+
+      if (response.error) throw new Error(response.error.message);
+      toast.success("Email de prueba enviado a alex@nocodehackers.es");
+    } catch (error: any) {
+      console.error("Error sending test email:", error);
+      toast.error(`Error: ${error.message}`);
+    } finally {
+      setIsSendingTest(false);
+    }
+  };
 
   const confirmationTemplate = getTemplateOrDefault("confirmation");
   const reminderTemplate = getTemplateOrDefault("reminder");
@@ -126,6 +154,19 @@ export function EventEmailManager({ eventId }: EventEmailManagerProps) {
             onSend={() => setShowSendDialog(true)}
             showSendButton
           />
+          <Card className="border-dashed">
+            <CardContent className="flex items-center justify-center py-6">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleSendTestEmail}
+                disabled={isSendingTest}
+              >
+                <FlaskConical className="mr-2 h-4 w-4" />
+                {isSendingTest ? "Enviando..." : "Enviar email de prueba"}
+              </Button>
+            </CardContent>
+          </Card>
         </div>
       </div>
 
