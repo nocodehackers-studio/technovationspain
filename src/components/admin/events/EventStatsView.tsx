@@ -81,6 +81,9 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
   const [bulkConsentSending, setBulkConsentSending] = useState(false);
   const [bulkConsentProgress, setBulkConsentProgress] = useState<{ sent: number; failed: number; total: number } | null>(null);
   const [showBulkConsentConfirm, setShowBulkConsentConfirm] = useState(false);
+  const [bulkEntrySending, setBulkEntrySending] = useState(false);
+  const [bulkEntryProgress, setBulkEntryProgress] = useState<{ sent: number; failed: number; total: number } | null>(null);
+  const [showBulkEntryConfirm, setShowBulkEntryConfirm] = useState(false);
   const cancelMutation = useAdminCancelRegistration();
   const promoteMutation = useAdminPromoteWaitlist();
   const { data: teamStats, isLoading: teamStatsLoading } = useEventTeamStats(eventId);
@@ -360,6 +363,11 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
     [registrations]
   );
 
+  const confirmedRegistrations = useMemo(
+    () => (registrations || []).filter((r) => r.registration_status === "confirmed"),
+    [registrations]
+  );
+
   const handleBulkConsentSend = async () => {
     const targets = pendingMinorRegistrations;
     if (targets.length === 0) return;
@@ -401,6 +409,51 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
     setBulkConsentSending(false);
     setBulkConsentProgress(null);
     setShowBulkConsentConfirm(false);
+  };
+
+  const handleBulkEntrySend = async () => {
+    if (bulkEntrySending) return;
+    const targets = confirmedRegistrations;
+    if (targets.length === 0) return;
+
+    setBulkEntrySending(true);
+    setBulkEntryProgress({ sent: 0, failed: 0, total: targets.length });
+
+    let sent = 0;
+    let failed = 0;
+
+    for (const registration of targets) {
+      try {
+        const { data, error } = await supabase.functions.invoke("send-registration-confirmation", {
+          body: { registrationId: registration.id },
+        });
+        if (error) throw error;
+        if (data?.error) throw new Error(data.error);
+        sent++;
+      } catch (err) {
+        console.error(`Failed to resend entry email for registration ${registration.id}:`, err);
+        failed++;
+      }
+      setBulkEntryProgress({ sent, failed, total: targets.length });
+      await new Promise((r) => setTimeout(r, 100));
+    }
+
+    if (failed === 0) {
+      toast({
+        title: "Envío masivo completado",
+        description: `${sent} entrada${sent !== 1 ? "s" : ""} reenviada${sent !== 1 ? "s" : ""} correctamente.`,
+      });
+    } else {
+      toast({
+        title: "Envío masivo completado con errores",
+        description: `${sent} enviada${sent !== 1 ? "s" : ""}, ${failed} fallida${failed !== 1 ? "s" : ""}.`,
+        variant: "destructive",
+      });
+    }
+
+    setBulkEntrySending(false);
+    setBulkEntryProgress(null);
+    setShowBulkEntryConfirm(false);
   };
 
   // Fetch total companions count for metrics
@@ -1116,6 +1169,25 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
 
         <TabsContent value="usuarios" className="mt-4">
           <h3 className="text-lg font-semibold mb-4">Listado de Inscripciones</h3>
+          <div className="mb-4">
+            <Button
+              variant="outline"
+              disabled={bulkEntrySending || confirmedRegistrations.length === 0}
+              onClick={() => setShowBulkEntryConfirm(true)}
+            >
+              {bulkEntrySending && bulkEntryProgress ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Reenviando {bulkEntryProgress.sent + bulkEntryProgress.failed} de {bulkEntryProgress.total}...
+                </>
+              ) : (
+                <>
+                  <Send className="mr-2 h-4 w-4" />
+                  Reenviar entradas a todos ({confirmedRegistrations.length})
+                </>
+              )}
+            </Button>
+          </div>
           {isPendingMinorFilterActive && pendingMinorRegistrations.length > 0 && (
             <div className="mb-4">
               <Button
@@ -1255,6 +1327,18 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
         variant="warning"
         loading={bulkConsentSending}
         onConfirm={handleBulkConsentSend}
+      />
+
+      {/* Bulk Resend Entry Email Dialog */}
+      <ConfirmDialog
+        open={showBulkEntryConfirm}
+        onOpenChange={(open) => { if (!bulkEntrySending) setShowBulkEntryConfirm(open); }}
+        title="¿Reenviar email de entrada a todos los confirmados?"
+        description={`Se reenviarán ${confirmedRegistrations.length} email${confirmedRegistrations.length !== 1 ? "s" : ""} de confirmación con entrada y código QR a todos los registros confirmados. Esta acción puede tardar unos segundos.`}
+        confirmText="Reenviar a todos"
+        variant="warning"
+        loading={bulkEntrySending}
+        onConfirm={handleBulkEntrySend}
       />
     </div>
   );
