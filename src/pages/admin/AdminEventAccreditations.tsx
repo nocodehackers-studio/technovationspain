@@ -1,9 +1,11 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAccreditationStats } from "@/hooks/useAccreditationStats";
+import { useScannedParticipants, ScannedParticipant } from "@/hooks/useScannedParticipants";
 import { AdminLayout } from "@/components/admin/AdminLayout";
+import { AirtableDataTable } from "@/components/admin/AirtableDataTable";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +22,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { ArrowLeft, RefreshCw, CheckCircle, Loader2 } from "lucide-react";
+import { ColumnDef } from "@tanstack/react-table";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 
@@ -65,6 +68,60 @@ export default function AdminEventAccreditations() {
 
   const { data: stats, isLoading, error, refetch, isFetching, dataUpdatedAt } =
     useAccreditationStats(eventId);
+
+  const { data: scannedParticipants, isLoading: isScannedLoading } =
+    useScannedParticipants(eventId);
+
+  const scannedColumns = useMemo<ColumnDef<ScannedParticipant, unknown>[]>(
+    () => [
+      {
+        id: "name",
+        header: "Nombre",
+        accessorFn: (row) =>
+          [row.first_name, row.last_name].filter(Boolean).join(" ") || "—",
+        cell: ({ getValue }) => (
+          <span className="font-medium">{getValue() as string}</span>
+        ),
+      },
+      {
+        accessorKey: "team_name",
+        header: "Equipo",
+        cell: ({ getValue }) => (getValue() as string) || "—",
+      },
+      {
+        accessorKey: "email",
+        header: "Email",
+        cell: ({ getValue }) => (
+          <span className="text-sm text-muted-foreground">
+            {(getValue() as string) || "—"}
+          </span>
+        ),
+      },
+      {
+        id: "companions",
+        header: "Acompañantes",
+        accessorFn: (row) =>
+          row.companions
+            .map((c) => [c.first_name, c.last_name].filter(Boolean).join(" "))
+            .filter(Boolean)
+            .join(", ") || "",
+        cell: ({ getValue }) => (getValue() as string) || "—",
+      },
+      {
+        id: "checked_in_time",
+        header: "Hora check-in",
+        accessorFn: (row) => row.checked_in_at,
+        cell: ({ getValue }) => {
+          try {
+            return format(new Date(getValue() as string), "HH:mm");
+          } catch {
+            return "—";
+          }
+        },
+      },
+    ],
+    []
+  );
 
   // Only update lastUpdate when data actually changes (new successful fetch)
   useEffect(() => {
@@ -265,6 +322,21 @@ export default function AdminEventAccreditations() {
             </CardContent>
           </Card>
         )}
+
+        {/* Scanned participants table */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Participantes acreditados</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <AirtableDataTable
+              columns={scannedColumns}
+              data={scannedParticipants || []}
+              loading={isScannedLoading}
+              searchPlaceholder="Buscar por nombre, equipo o email..."
+            />
+          </CardContent>
+        </Card>
       </div>
     </AdminLayout>
   );
