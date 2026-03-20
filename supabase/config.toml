@@ -35,3 +35,9 @@ verify_jwt = false
 
 [functions.process-scheduled-emails]
 verify_jwt = false
+
+[functions.process-judge-csv]
+verify_jwt = false
+
+[functions.deactivate-expired-judges]
+verify_jwt = false
