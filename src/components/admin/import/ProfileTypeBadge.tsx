@@ -1,8 +1,8 @@
 import { Badge } from "@/components/ui/badge";
-import { Users, GraduationCap, Scale, Crown } from "lucide-react";
+import { Users, GraduationCap, Handshake, Crown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export type ProfileType = "student" | "mentor" | "judge" | "chapter_ambassador";
+export type ProfileType = "student" | "mentor" | "collaborator" | "chapter_ambassador";
 
 interface ProfileTypeBadgeProps {
   type: ProfileType;
@@ -20,9 +20,9 @@ const profileTypeConfig: Record<ProfileType, { label: string; icon: React.Compon
     icon: Users,
     variant: "secondary",
   },
-  judge: {
-    label: "Juez",
-    icon: Scale,
+  collaborator: {
+    label: "Colaborador",
+    icon: Handshake,
     variant: "outline",
   },
   chapter_ambassador: {

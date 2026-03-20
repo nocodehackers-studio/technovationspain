@@ -55,7 +55,8 @@ export default function AdminReports() {
       const roleDistribution: Record<string, number> = {
         participant: 0,
         mentor: 0,
-        judge: 0,
+        collaborator: 0,
+        chapter_ambassador: 0,
         admin: 0,
       };
       roles?.forEach((r) => {
@@ -143,14 +144,16 @@ export default function AdminReports() {
         r.ticket_type?.allowed_roles?.includes("participant")
       ).length;
       const mentors = mainRegs.filter((r) =>
-        r.ticket_type?.allowed_roles?.includes("mentor") ||
-        r.ticket_type?.allowed_roles?.includes("judge")
+        r.ticket_type?.allowed_roles?.includes("mentor")
+      ).length;
+      const collaborators = mainRegs.filter((r) =>
+        r.ticket_type?.allowed_roles?.includes("collaborator")
       ).length;
 
       return {
         totalRegistrations: mainRegs.length,
         checkedIn: mainRegs.filter((r) => r.checked_in_at).length,
-        roleBreakdown: { participants, mentors, companions: companionsCount },
+        roleBreakdown: { participants, mentors, collaborators, companions: companionsCount },
         companions: companionsCount,
         totalAttendees: mainRegs.length + companionsCount,
       };

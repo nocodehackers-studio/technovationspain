@@ -561,6 +561,7 @@ export type Database = {
           current_count: number | null
           description: string | null
           event_id: string | null
+          for_judges: boolean
           id: string
           is_active: boolean | null
           max_capacity: number
@@ -578,6 +579,7 @@ export type Database = {
           current_count?: number | null
           description?: string | null
           event_id?: string | null
+          for_judges?: boolean
           id?: string
           is_active?: boolean | null
           max_capacity: number
@@ -595,6 +597,7 @@ export type Database = {
           current_count?: number | null
           description?: string | null
           event_id?: string | null
+          for_judges?: boolean
           id?: string
           is_active?: boolean | null
           max_capacity?: number
@@ -1444,7 +1447,6 @@ export type Database = {
       app_role:
         | "participant"
         | "mentor"
-        | "judge"
         | "chapter_ambassador"
         | "admin"
         | "collaborator"
@@ -1581,7 +1583,6 @@ export const Constants = {
       app_role: [
         "participant",
         "mentor",
-        "judge",
         "chapter_ambassador",
         "admin",
         "collaborator",

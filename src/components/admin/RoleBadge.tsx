@@ -21,8 +21,8 @@ const roleConfig: Record<AppRole, { label: string; className: string }> = {
     label: "Mentor",
     className: "bg-info/10 text-info border-info/20",
   },
-  judge: {
-    label: "Juez",
+  collaborator: {
+    label: "Colaborador",
     className: "bg-accent/10 text-accent border-accent/20",
   },
   chapter_ambassador: {
@@ -59,7 +59,7 @@ export function RoleBadge({ role, size = "md" }: RoleBadgeProps) {
 }
 
 // Display order for roles (primary roles first, then additional roles)
-const roleDisplayOrder: AppRole[] = ['participant', 'mentor', 'judge', 'chapter_ambassador', 'admin'];
+const roleDisplayOrder: AppRole[] = ['participant', 'mentor', 'collaborator', 'chapter_ambassador', 'admin'];
 
 export function RoleBadges({ roles, size = "md" }: RoleBadgesProps) {
   // Sort roles by display order
@@ -78,4 +78,34 @@ export function RoleBadges({ roles, size = "md" }: RoleBadgesProps) {
 
 export function getRoleLabel(role: AppRole): string {
   return roleConfig[role]?.label || role;
+}
+
+interface FlagBadgesProps {
+  isJudge?: boolean;
+  isVolunteer?: boolean;
+  size?: "sm" | "md" | "lg";
+}
+
+const flagConfig = {
+  judge: { label: "Juez", className: "bg-warning/10 text-warning border-warning/20" },
+  volunteer: { label: "Voluntario/a", className: "bg-success/10 text-success border-success/20" },
+};
+
+export function FlagBadges({ isJudge, isVolunteer, size = "md" }: FlagBadgesProps) {
+  if (!isJudge && !isVolunteer) return null;
+
+  return (
+    <div className="flex flex-wrap gap-1">
+      {isJudge && (
+        <Badge variant="outline" className={cn(flagConfig.judge.className, sizeClasses[size])}>
+          {flagConfig.judge.label}
+        </Badge>
+      )}
+      {isVolunteer && (
+        <Badge variant="outline" className={cn(flagConfig.volunteer.className, sizeClasses[size])}>
+          {flagConfig.volunteer.label}
+        </Badge>
+      )}
+    </div>
+  );
 }

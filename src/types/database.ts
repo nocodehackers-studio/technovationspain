@@ -1,7 +1,7 @@
 // Custom types for Technovation España
 // These extend the auto-generated Supabase types
 
-export type AppRole = 'participant' | 'mentor' | 'judge' | 'chapter_ambassador' | 'admin' | 'collaborator';
+export type AppRole = 'participant' | 'mentor' | 'chapter_ambassador' | 'admin' | 'collaborator';
 
 export type VerificationStatus = 'pending' | 'verified' | 'rejected' | 'manual_review';
 

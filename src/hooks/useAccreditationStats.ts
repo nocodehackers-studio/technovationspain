@@ -162,7 +162,7 @@ export function useAccreditationStats(eventId: string | undefined) {
         const tt = reg.event_ticket_types as TicketTypeJoin | null;
         const roles = tt?.allowed_roles || [];
         let roleName = "Participantes";
-        if (roles.includes("mentor") || roles.includes("judge")) {
+        if (roles.includes("mentor") || roles.includes("collaborator")) {
           roleName = "Mentores";
         }
         const entry = roleMap.get(roleName)!;

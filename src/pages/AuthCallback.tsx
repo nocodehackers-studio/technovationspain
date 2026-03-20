@@ -38,8 +38,8 @@ export default function AuthCallback() {
           const isVerified = profile?.verification_status === 'verified';
 
           // Priority: admin → !verified → !consent → missing fields → role dashboard
-          type AppRole = 'admin' | 'chapter_ambassador' | 'mentor' | 'judge' | 'participant';
-          const rolePriority: AppRole[] = ['admin', 'chapter_ambassador', 'mentor', 'judge', 'participant'];
+          type AppRole = 'admin' | 'chapter_ambassador' | 'mentor' | 'collaborator' | 'participant';
+          const rolePriority: AppRole[] = ['admin', 'chapter_ambassador', 'mentor', 'collaborator', 'participant'];
           const userRoles = (rolesData?.map(r => r.role) || []) as AppRole[];
           const highestRole = rolePriority.find(r => userRoles.includes(r));
 
