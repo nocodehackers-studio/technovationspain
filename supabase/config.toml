@@ -1,3 +1,5 @@
+# BRANCH-SPECIFIC: staging=bmucwkjfvblnfigsganm | main=orvkqnbshkxzyhqpjsdw
+# This file uses merge=ours in .gitattributes — merges keep each branch's value.
 project_id = "orvkqnbshkxzyhqpjsdw"
 
 [functions.validate-ticket]

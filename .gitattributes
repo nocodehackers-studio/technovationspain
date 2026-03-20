@@ -1,0 +1,4 @@
+# Keep branch-specific Supabase config during merges.
+# Each branch has its own project_id (staging vs production).
+# Requires one-time setup per collaborator: git config merge.ours.driver true
+supabase/config.toml merge=ours
