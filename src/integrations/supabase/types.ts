@@ -1,3 +1,4 @@
+Initialising login role...
 export type Json =
   | string
   | number
@@ -11,6 +12,31 @@ export type Database = {
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
     PostgrestVersion: "14.1"
+  }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
   }
   public: {
     Tables: {
@@ -82,172 +108,6 @@ export type Database = {
           },
         ]
       }
-      authorized_students: {
-        Row: {
-          age: number | null
-          city: string | null
-          created_at: string
-          email: string
-          first_name: string | null
-          id: string
-          imported_at: string
-          last_name: string | null
-          matched_profile_id: string | null
-          media_consent: string | null
-          parent_email: string | null
-          parent_name: string | null
-          parental_consent: string | null
-          phone: string | null
-          school_name: string | null
-          signed_up_at: string | null
-          state: string | null
-          team_division: string | null
-          team_name: string | null
-          tg_id: string | null
-          updated_at: string
-        }
-        Insert: {
-          age?: number | null
-          city?: string | null
-          created_at?: string
-          email: string
-          first_name?: string | null
-          id?: string
-          imported_at?: string
-          last_name?: string | null
-          matched_profile_id?: string | null
-          media_consent?: string | null
-          parent_email?: string | null
-          parent_name?: string | null
-          parental_consent?: string | null
-          phone?: string | null
-          school_name?: string | null
-          signed_up_at?: string | null
-          state?: string | null
-          team_division?: string | null
-          team_name?: string | null
-          tg_id?: string | null
-          updated_at?: string
-        }
-        Update: {
-          age?: number | null
-          city?: string | null
-          created_at?: string
-          email?: string
-          first_name?: string | null
-          id?: string
-          imported_at?: string
-          last_name?: string | null
-          matched_profile_id?: string | null
-          media_consent?: string | null
-          parent_email?: string | null
-          parent_name?: string | null
-          parental_consent?: string | null
-          phone?: string | null
-          school_name?: string | null
-          signed_up_at?: string | null
-          state?: string | null
-          team_division?: string | null
-          team_name?: string | null
-          tg_id?: string | null
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "authorized_students_matched_profile_id_fkey"
-            columns: ["matched_profile_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      authorized_users: {
-        Row: {
-          age: number | null
-          city: string | null
-          company_name: string | null
-          created_at: string
-          email: string
-          first_name: string | null
-          id: string
-          imported_at: string
-          last_name: string | null
-          matched_profile_id: string | null
-          media_consent: string | null
-          parent_email: string | null
-          parent_name: string | null
-          parental_consent: string | null
-          phone: string | null
-          profile_type: string
-          school_name: string | null
-          signed_up_at: string | null
-          state: string | null
-          team_division: string | null
-          team_name: string | null
-          tg_id: string | null
-          updated_at: string
-        }
-        Insert: {
-          age?: number | null
-          city?: string | null
-          company_name?: string | null
-          created_at?: string
-          email: string
-          first_name?: string | null
-          id?: string
-          imported_at?: string
-          last_name?: string | null
-          matched_profile_id?: string | null
-          media_consent?: string | null
-          parent_email?: string | null
-          parent_name?: string | null
-          parental_consent?: string | null
-          phone?: string | null
-          profile_type: string
-          school_name?: string | null
-          signed_up_at?: string | null
-          state?: string | null
-          team_division?: string | null
-          team_name?: string | null
-          tg_id?: string | null
-          updated_at?: string
-        }
-        Update: {
-          age?: number | null
-          city?: string | null
-          company_name?: string | null
-          created_at?: string
-          email?: string
-          first_name?: string | null
-          id?: string
-          imported_at?: string
-          last_name?: string | null
-          matched_profile_id?: string | null
-          media_consent?: string | null
-          parent_email?: string | null
-          parent_name?: string | null
-          parental_consent?: string | null
-          phone?: string | null
-          profile_type?: string
-          school_name?: string | null
-          signed_up_at?: string | null
-          state?: string | null
-          team_division?: string | null
-          team_name?: string | null
-          tg_id?: string | null
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "authorized_users_matched_profile_id_fkey"
-            columns: ["matched_profile_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       companions: {
         Row: {
           checked_in_at: string | null
@@ -294,36 +154,51 @@ export type Database = {
       }
       csv_imports: {
         Row: {
+          admin_email: string | null
           errors: Json | null
           file_name: string
           id: string
+          import_type: string | null
           imported_at: string | null
+          records_activated: number | null
           records_new: number | null
           records_processed: number | null
           records_updated: number | null
           status: string | null
+          storage_paths: Json | null
+          total_records: number | null
           uploaded_by: string | null
         }
         Insert: {
+          admin_email?: string | null
           errors?: Json | null
           file_name: string
           id?: string
+          import_type?: string | null
           imported_at?: string | null
+          records_activated?: number | null
           records_new?: number | null
           records_processed?: number | null
           records_updated?: number | null
           status?: string | null
+          storage_paths?: Json | null
+          total_records?: number | null
           uploaded_by?: string | null
         }
         Update: {
+          admin_email?: string | null
           errors?: Json | null
           file_name?: string
           id?: string
+          import_type?: string | null
           imported_at?: string | null
+          records_activated?: number | null
           records_new?: number | null
           records_processed?: number | null
           records_updated?: number | null
           status?: string | null
+          storage_paths?: Json | null
+          total_records?: number | null
           uploaded_by?: string | null
         }
         Relationships: [
@@ -535,6 +410,7 @@ export type Database = {
           checked_in_at: string | null
           checked_in_by: string | null
           companion_of_registration_id: string | null
+          consent_token: string
           created_at: string | null
           data_consent: boolean | null
           dni: string | null
@@ -553,7 +429,6 @@ export type Database = {
           team_id: string | null
           team_id_tg: string | null
           team_name: string | null
-          tg_email: string | null
           ticket_type_id: string | null
           user_id: string | null
         }
@@ -561,6 +436,7 @@ export type Database = {
           checked_in_at?: string | null
           checked_in_by?: string | null
           companion_of_registration_id?: string | null
+          consent_token?: string
           created_at?: string | null
           data_consent?: boolean | null
           dni?: string | null
@@ -579,7 +455,6 @@ export type Database = {
           team_id?: string | null
           team_id_tg?: string | null
           team_name?: string | null
-          tg_email?: string | null
           ticket_type_id?: string | null
           user_id?: string | null
         }
@@ -587,6 +462,7 @@ export type Database = {
           checked_in_at?: string | null
           checked_in_by?: string | null
           companion_of_registration_id?: string | null
+          consent_token?: string
           created_at?: string | null
           data_consent?: boolean | null
           dni?: string | null
@@ -605,7 +481,6 @@ export type Database = {
           team_id?: string | null
           team_id_tg?: string | null
           team_name?: string | null
-          tg_email?: string | null
           ticket_type_id?: string | null
           user_id?: string | null
         }
@@ -909,6 +784,63 @@ export type Database = {
           },
         ]
       }
+      judge_assignments: {
+        Row: {
+          comments: string | null
+          conflict_other_text: string | null
+          conflict_team_ids: string[] | null
+          created_at: string | null
+          event_id: string
+          id: string
+          is_active: boolean
+          onboarding_completed: boolean
+          schedule_preference: string | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          comments?: string | null
+          conflict_other_text?: string | null
+          conflict_team_ids?: string[] | null
+          created_at?: string | null
+          event_id: string
+          id?: string
+          is_active?: boolean
+          onboarding_completed?: boolean
+          schedule_preference?: string | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          comments?: string | null
+          conflict_other_text?: string | null
+          conflict_team_ids?: string[] | null
+          created_at?: string | null
+          event_id?: string
+          id?: string
+          is_active?: boolean
+          onboarding_completed?: boolean
+          schedule_preference?: string | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "judge_assignments_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "judge_assignments_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       parental_consents: {
         Row: {
           consent_date: string | null
@@ -980,6 +912,8 @@ export type Database = {
       profiles: {
         Row: {
           chapter: string | null
+          city: string | null
+          company_name: string | null
           created_at: string | null
           custom_fields: Json | null
           date_of_birth: string | null
@@ -988,12 +922,22 @@ export type Database = {
           first_name: string | null
           hub_id: string | null
           id: string
+          is_active: boolean
+          is_judge: boolean
+          is_volunteer: boolean
+          judge_how_discovered_program: string | null
+          judge_previous_participation: string | null
           last_name: string | null
           onboarding_completed: boolean | null
           parent_email: string | null
+          parent_name: string | null
           phone: string | null
           postal_code: string | null
-          tg_email: string | null
+          privacy_accepted_at: string | null
+          profile_type: string | null
+          school_name: string | null
+          state: string | null
+          terms_accepted_at: string | null
           tg_id: string | null
           updated_at: string | null
           verification_status:
@@ -1002,6 +946,8 @@ export type Database = {
         }
         Insert: {
           chapter?: string | null
+          city?: string | null
+          company_name?: string | null
           created_at?: string | null
           custom_fields?: Json | null
           date_of_birth?: string | null
@@ -1010,12 +956,22 @@ export type Database = {
           first_name?: string | null
           hub_id?: string | null
           id: string
+          is_active?: boolean
+          is_judge?: boolean
+          is_volunteer?: boolean
+          judge_how_discovered_program?: string | null
+          judge_previous_participation?: string | null
           last_name?: string | null
           onboarding_completed?: boolean | null
           parent_email?: string | null
+          parent_name?: string | null
           phone?: string | null
           postal_code?: string | null
-          tg_email?: string | null
+          privacy_accepted_at?: string | null
+          profile_type?: string | null
+          school_name?: string | null
+          state?: string | null
+          terms_accepted_at?: string | null
           tg_id?: string | null
           updated_at?: string | null
           verification_status?:
@@ -1024,6 +980,8 @@ export type Database = {
         }
         Update: {
           chapter?: string | null
+          city?: string | null
+          company_name?: string | null
           created_at?: string | null
           custom_fields?: Json | null
           date_of_birth?: string | null
@@ -1032,12 +990,22 @@ export type Database = {
           first_name?: string | null
           hub_id?: string | null
           id?: string
+          is_active?: boolean
+          is_judge?: boolean
+          is_volunteer?: boolean
+          judge_how_discovered_program?: string | null
+          judge_previous_participation?: string | null
           last_name?: string | null
           onboarding_completed?: boolean | null
           parent_email?: string | null
+          parent_name?: string | null
           phone?: string | null
           postal_code?: string | null
-          tg_email?: string | null
+          privacy_accepted_at?: string | null
+          profile_type?: string | null
+          school_name?: string | null
+          state?: string | null
+          terms_accepted_at?: string | null
           tg_id?: string | null
           updated_at?: string | null
           verification_status?:
@@ -1129,33 +1097,48 @@ export type Database = {
       teams: {
         Row: {
           category: string | null
+          city: string | null
           created_at: string | null
           hub_id: string | null
           id: string
           name: string
           notes: string | null
+          season: string | null
+          state: string | null
+          status: string
           tg_team_id: string | null
           updated_at: string | null
+          validated: boolean
         }
         Insert: {
           category?: string | null
+          city?: string | null
           created_at?: string | null
           hub_id?: string | null
           id?: string
           name: string
           notes?: string | null
+          season?: string | null
+          state?: string | null
+          status?: string
           tg_team_id?: string | null
           updated_at?: string | null
+          validated?: boolean
         }
         Update: {
           category?: string | null
+          city?: string | null
           created_at?: string | null
           hub_id?: string | null
           id?: string
           name?: string
           notes?: string | null
+          season?: string | null
+          state?: string | null
+          status?: string
           tg_team_id?: string | null
           updated_at?: string | null
+          validated?: boolean
         }
         Relationships: [
           {
@@ -1437,78 +1420,9 @@ export type Database = {
       }
     }
     Views: {
-      authorized_students_safe: {
-        Row: {
-          email: string | null
-          id: string | null
-          matched_profile_id: string | null
-          tg_id: string | null
-        }
-        Insert: {
-          email?: string | null
-          id?: string | null
-          matched_profile_id?: string | null
-          tg_id?: string | null
-        }
-        Update: {
-          email?: string | null
-          id?: string | null
-          matched_profile_id?: string | null
-          tg_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "authorized_students_matched_profile_id_fkey"
-            columns: ["matched_profile_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      authorized_users_safe: {
-        Row: {
-          email: string | null
-          id: string | null
-          matched_profile_id: string | null
-          profile_type: string | null
-          tg_id: string | null
-        }
-        Insert: {
-          email?: string | null
-          id?: string | null
-          matched_profile_id?: string | null
-          profile_type?: string | null
-          tg_id?: string | null
-        }
-        Update: {
-          email?: string | null
-          id?: string | null
-          matched_profile_id?: string | null
-          profile_type?: string | null
-          tg_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "authorized_users_matched_profile_id_fkey"
-            columns: ["matched_profile_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
+      [_ in never]: never
     }
     Functions: {
-      can_access_authorized_student: {
-        Args: { student_email: string }
-        Returns: boolean
-      }
-      can_access_authorized_user: {
-        Args: { user_email: string }
-        Returns: boolean
-      }
-      check_email_exists: { Args: { check_email: string }; Returns: boolean }
       decrement_registration_count:
         | {
             Args: { p_event_id: string; p_ticket_type_id: string }
@@ -1557,9 +1471,9 @@ export type Database = {
         | "participant"
         | "mentor"
         | "judge"
-        | "volunteer"
         | "chapter_ambassador"
         | "admin"
+        | "collaborator"
       ticket_priority: "nice_to_have" | "mandatory"
       ticket_status: "pending" | "in_progress" | "completed"
       verification_status: "pending" | "verified" | "rejected" | "manual_review"
@@ -1688,15 +1602,18 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
       app_role: [
         "participant",
         "mentor",
         "judge",
-        "volunteer",
         "chapter_ambassador",
         "admin",
+        "collaborator",
       ],
       ticket_priority: ["nice_to_have", "mandatory"],
       ticket_status: ["pending", "in_progress", "completed"],
