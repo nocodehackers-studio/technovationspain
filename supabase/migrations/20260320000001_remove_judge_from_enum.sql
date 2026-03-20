@@ -31,8 +31,14 @@ ALTER TABLE public.event_ticket_types ADD COLUMN IF NOT EXISTS for_judges BOOLEA
 
 -- ============================================================
 -- 1d. Clean authorized_users stale data (must run BEFORE CHECK constraint update)
+-- NOTE: authorized_users may not exist on staging branches
 -- ============================================================
-UPDATE public.authorized_users SET profile_type = 'mentor' WHERE profile_type = 'judge';
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'authorized_users') THEN
+    UPDATE public.authorized_users SET profile_type = 'mentor' WHERE profile_type = 'judge';
+  END IF;
+END $$;
 
 -- ============================================================
 -- 1e. Drop ALL RLS policies that depend on has_role() / app_role
@@ -538,7 +544,13 @@ CREATE POLICY "Admins can manage all judge assignments"
 
 -- ============================================================
 -- 1l. Update authorized_users CHECK constraint
+-- NOTE: authorized_users may not exist on staging branches
 -- ============================================================
-ALTER TABLE public.authorized_users DROP CONSTRAINT IF EXISTS authorized_users_profile_type_check;
-ALTER TABLE public.authorized_users ADD CONSTRAINT authorized_users_profile_type_check
-  CHECK (profile_type IN ('student', 'mentor', 'chapter_ambassador'));
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'authorized_users') THEN
+    ALTER TABLE public.authorized_users DROP CONSTRAINT IF EXISTS authorized_users_profile_type_check;
+    ALTER TABLE public.authorized_users ADD CONSTRAINT authorized_users_profile_type_check
+      CHECK (profile_type IN ('student', 'mentor', 'chapter_ambassador'));
+  END IF;
+END $$;
