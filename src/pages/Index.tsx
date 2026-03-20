@@ -97,8 +97,8 @@ export default function Index() {
           .select('role')
           .eq('user_id', data.session.user.id);
 
-        type AppRole = 'admin' | 'chapter_ambassador' | 'mentor' | 'judge' | 'participant';
-        const rolePriority: AppRole[] = ['admin', 'chapter_ambassador', 'mentor', 'judge', 'participant'];
+        type AppRole = 'admin' | 'chapter_ambassador' | 'mentor' | 'collaborator' | 'participant';
+        const rolePriority: AppRole[] = ['admin', 'chapter_ambassador', 'mentor', 'collaborator', 'participant'];
         const userRoles = (rolesData?.map(r => r.role) || []) as AppRole[];
         const highestRole = rolePriority.find(r => userRoles.includes(r));
 

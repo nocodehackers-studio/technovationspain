@@ -178,7 +178,7 @@ export function UnregisteredUsersTable() {
     const typeOptions: FilterableColumn["options"] = [
       { value: "student", label: "Estudiante" },
       { value: "mentor", label: "Mentor" },
-      { value: "judge", label: "Juez" },
+      { value: "collaborator", label: "Colaborador" },
       { value: "chapter_ambassador", label: "Embajador" },
     ];
 

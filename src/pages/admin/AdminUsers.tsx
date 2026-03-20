@@ -582,7 +582,7 @@ export default function AdminUsers() {
         options: [
           { value: "participant", label: "Participante" },
           { value: "mentor", label: "Mentor" },
-          { value: "judge", label: "Juez" },
+          { value: "collaborator", label: "Colaborador" },
           { value: "chapter_ambassador", label: "Embajador" },
           { value: "admin", label: "Admin" },
         ],

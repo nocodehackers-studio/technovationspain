@@ -111,7 +111,7 @@ type RegistrationFormValues = z.infer<typeof registrationSchema>;
 export default function EventRegistrationPage() {
   const { eventId } = useParams<{ eventId: string }>();
   const navigate = useNavigate();
-  const { profile, role, isJudge } = useAuth();
+  const { profile, role, isJudge, activeJudgeEventIds } = useAuth();
   const dashboardPath = getDashboardPath(role);
   const [step, setStep] = useState(1);
   const [companions, setCompanions] = useState<CompanionData[]>([]);
@@ -305,20 +305,20 @@ const selectedTicketId = form.watch('ticket_type_id');
     );
   }
   
+  const isJudgeForThisEvent = isJudge && activeJudgeEventIds.includes(event?.id ?? '');
+
   const ticketTypes = event.ticket_types?.filter(t => {
-    // Debe estar activo
     if (!t.is_active) return false;
 
-    // Si no tiene roles configurados, visible para todos
-    if (!t.allowed_roles || t.allowed_roles.length === 0) return true;
+    // Judge-exclusive tickets: only for users with active judge_assignment for THIS event
+    if ((t as any).for_judges) {
+      return isJudgeForThisEvent;
+    }
 
-    // Si el usuario tiene rol, verificar que esté en la lista permitida
+    // Standard role-based access (judges ALSO see their base role tickets)
+    if (!t.allowed_roles || t.allowed_roles.length === 0) return true;
     if (role && t.allowed_roles.includes(role)) return true;
 
-    // Si el usuario es juez (flag), puede ver tickets con 'judge' en allowed_roles
-    if (isJudge && t.allowed_roles.includes('judge')) return true;
-
-    // Si no hay rol o no está permitido, ocultar
     return false;
   }) || [];
   

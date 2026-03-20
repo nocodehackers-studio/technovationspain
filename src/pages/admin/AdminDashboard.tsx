@@ -61,7 +61,7 @@ export default function AdminDashboard() {
         const displayType =
           r.role === "participant" ? "student" :
           r.role === "mentor" ? "mentor" :
-          r.role === "judge" ? "judge" : null;
+          r.role === "collaborator" ? "collaborator" : null;
         if (displayType) roleFromTable.set(r.user_id, displayType);
       });
 
@@ -71,7 +71,7 @@ export default function AdminDashboard() {
         const lower = pt.toLowerCase().trim();
         if (lower === "student" || lower === "participant") return "student";
         if (lower === "mentor") return "mentor";
-        if (lower === "judge") return "judge";
+        if (lower === "collaborator") return "collaborator";
         return null; // admin, chapter_ambassador, etc. excluded
       };
 
@@ -82,7 +82,7 @@ export default function AdminDashboard() {
         byType: {
           student: { total: 0, registered: 0 },
           mentor: { total: 0, registered: 0 },
-          judge: { total: 0, registered: 0 },
+          collaborator: { total: 0, registered: 0 },
         },
       };
 

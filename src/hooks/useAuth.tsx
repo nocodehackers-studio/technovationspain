@@ -15,6 +15,7 @@ interface AuthContextType {
   isJudge: boolean;
   needsJudgeOnboarding: boolean;
   activeJudgeEventId: string | null;
+  activeJudgeEventIds: string[];
   needsOnboarding: boolean;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
@@ -29,7 +30,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [role, setRole] = useState<AppRole | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [isProfileLoading, setIsProfileLoading] = useState(false);
-  const [activeJudgeEventId, setActiveJudgeEventId] = useState<string | null>(null);
+  const [activeJudgeEventIds, setActiveJudgeEventIds] = useState<string[]>([]);
   const [judgeOnboardingCompleted, setJudgeOnboardingCompleted] = useState(true);
 
   // Combined loading state - true until both auth AND profile are loaded
@@ -52,26 +53,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       setProfile(profileData as unknown as Profile);
 
-      // Fetch judge assignment if user is a judge
+      // Fetch judge assignments if user is a judge (multi-event support)
       if ((profileData as any)?.is_judge) {
         const { data: judgeData } = await supabase
           .from('judge_assignments')
           .select('event_id, onboarding_completed')
           .eq('user_id', userId)
           .eq('is_active', true)
-          .order('created_at', { ascending: true })
-          .limit(1)
-          .maybeSingle();
+          .order('created_at', { ascending: true });
 
-        if (judgeData) {
-          setActiveJudgeEventId(judgeData.event_id);
-          setJudgeOnboardingCompleted(judgeData.onboarding_completed);
+        if (judgeData && judgeData.length > 0) {
+          setActiveJudgeEventIds(judgeData.map(j => j.event_id));
+          // Use the first assignment for onboarding check (existing behavior)
+          setJudgeOnboardingCompleted(judgeData[0].onboarding_completed);
         } else {
-          setActiveJudgeEventId(null);
+          setActiveJudgeEventIds([]);
           setJudgeOnboardingCompleted(true);
         }
       } else {
-        setActiveJudgeEventId(null);
+        setActiveJudgeEventIds([]);
         setJudgeOnboardingCompleted(true);
       }
 
@@ -83,7 +83,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (!roleError && rolesData && rolesData.length > 0) {
         // Prioritize admin > chapter_ambassador > mentor > judge > participant
-        const rolePriority: AppRole[] = ['admin', 'chapter_ambassador', 'mentor', 'judge', 'collaborator', 'participant'];
+        const rolePriority: AppRole[] = ['admin', 'chapter_ambassador', 'mentor', 'collaborator', 'participant'];
         const userRoles = rolesData.map(r => r.role as AppRole);
         const highestRole = rolePriority.find(r => userRoles.includes(r)) || userRoles[0];
         setRole(highestRole);
@@ -175,6 +175,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const isVerified = profile?.verification_status === 'verified';
   const isVolunteer = (profile as any)?.is_volunteer ?? false;
   const isJudge = (profile as any)?.is_judge ?? false;
+  const activeJudgeEventId = activeJudgeEventIds[0] ?? null;
   const needsJudgeOnboarding = isJudge && activeJudgeEventId !== null && !judgeOnboardingCompleted;
   const needsOnboarding = profile
     ? !profile.terms_accepted_at || hasMissingFields(profile as unknown as Record<string, unknown>) || needsJudgeOnboarding
@@ -193,6 +194,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isJudge,
         needsJudgeOnboarding,
         activeJudgeEventId,
+        activeJudgeEventIds,
         needsOnboarding,
         signOut,
         refreshProfile,
