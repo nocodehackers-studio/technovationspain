@@ -12,6 +12,9 @@ interface AuthContextType {
   isLoading: boolean;
   isVerified: boolean;
   isVolunteer: boolean;
+  isJudge: boolean;
+  needsJudgeOnboarding: boolean;
+  activeJudgeEventId: string | null;
   needsOnboarding: boolean;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
@@ -26,6 +29,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [role, setRole] = useState<AppRole | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [isProfileLoading, setIsProfileLoading] = useState(false);
+  const [activeJudgeEventId, setActiveJudgeEventId] = useState<string | null>(null);
+  const [judgeOnboardingCompleted, setJudgeOnboardingCompleted] = useState(true);
 
   // Combined loading state - true until both auth AND profile are loaded
   const isLoading = isAuthLoading || isProfileLoading;
@@ -47,6 +52,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       setProfile(profileData as unknown as Profile);
 
+      // Fetch judge assignment if user is a judge
+      if ((profileData as any)?.is_judge) {
+        const { data: judgeData } = await supabase
+          .from('judge_assignments')
+          .select('event_id, onboarding_completed')
+          .eq('user_id', userId)
+          .eq('is_active', true)
+          .order('created_at', { ascending: true })
+          .limit(1)
+          .maybeSingle();
+
+        if (judgeData) {
+          setActiveJudgeEventId(judgeData.event_id);
+          setJudgeOnboardingCompleted(judgeData.onboarding_completed);
+        } else {
+          setActiveJudgeEventId(null);
+          setJudgeOnboardingCompleted(true);
+        }
+      } else {
+        setActiveJudgeEventId(null);
+        setJudgeOnboardingCompleted(true);
+      }
+
       // Fetch role - prioritize admin role if user has multiple roles
       const { data: rolesData, error: roleError } = await supabase
         .from('user_roles')
@@ -55,7 +83,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (!roleError && rolesData && rolesData.length > 0) {
         // Prioritize admin > chapter_ambassador > mentor > judge > participant
-        const rolePriority: AppRole[] = ['admin', 'chapter_ambassador', 'mentor', 'judge', 'participant'];
+        const rolePriority: AppRole[] = ['admin', 'chapter_ambassador', 'mentor', 'judge', 'collaborator', 'participant'];
         const userRoles = rolesData.map(r => r.role as AppRole);
         const highestRole = rolePriority.find(r => userRoles.includes(r)) || userRoles[0];
         setRole(highestRole);
@@ -146,8 +174,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const isVerified = profile?.verification_status === 'verified';
   const isVolunteer = (profile as any)?.is_volunteer ?? false;
+  const isJudge = (profile as any)?.is_judge ?? false;
+  const needsJudgeOnboarding = isJudge && activeJudgeEventId !== null && !judgeOnboardingCompleted;
   const needsOnboarding = profile
-    ? !profile.terms_accepted_at || hasMissingFields(profile as unknown as Record<string, unknown>)
+    ? !profile.terms_accepted_at || hasMissingFields(profile as unknown as Record<string, unknown>) || needsJudgeOnboarding
     : false;
 
   return (
@@ -160,6 +190,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isLoading,
         isVerified,
         isVolunteer,
+        isJudge,
+        needsJudgeOnboarding,
+        activeJudgeEventId,
         needsOnboarding,
         signOut,
         refreshProfile,

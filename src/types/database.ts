@@ -1,7 +1,7 @@
 // Custom types for Technovation España
 // These extend the auto-generated Supabase types
 
-export type AppRole = 'participant' | 'mentor' | 'judge' | 'chapter_ambassador' | 'admin';
+export type AppRole = 'participant' | 'mentor' | 'judge' | 'chapter_ambassador' | 'admin' | 'collaborator';
 
 export type VerificationStatus = 'pending' | 'verified' | 'rejected' | 'manual_review';
 
@@ -17,6 +17,10 @@ export interface Profile {
   parent_email?: string | null;
   tg_id?: string | null;
   is_volunteer?: boolean;
+  is_judge?: boolean;
+  is_active?: boolean;
+  judge_how_discovered_program?: string | null;
+  judge_previous_participation?: string | null;
   verification_status: VerificationStatus;
   first_name?: string | null;
   last_name?: string | null;
@@ -253,6 +257,24 @@ export interface EventRegistrationWithDetails extends EventRegistration {
   team?: Team;
   companions?: Companion[];
   profile?: Profile;
+}
+
+export interface JudgeAssignment {
+  id: string;
+  user_id: string;
+  event_id: string;
+  is_active: boolean;
+  onboarding_completed: boolean;
+  schedule_preference?: 'morning' | 'afternoon' | 'no_preference' | null;
+  conflict_team_ids?: string[] | null;
+  conflict_other_text?: string | null;
+  comments?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface JudgeAssignmentWithEvent extends JudgeAssignment {
+  event?: Event;
 }
 
 export interface EventVolunteer {
