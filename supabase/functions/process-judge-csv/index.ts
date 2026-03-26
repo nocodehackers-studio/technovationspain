@@ -80,16 +80,13 @@ Deno.serve(async (req)=>{
   const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   // Parse body
   let importId;
-  let eventId;
   try {
     const body = await req.json();
     importId = body.importId;
-    eventId = body.eventId;
     if (!importId) throw new Error("Missing importId");
-    if (!eventId) throw new Error("Missing eventId");
   } catch  {
     return new Response(JSON.stringify({
-      error: "Invalid request body — requires importId and eventId"
+      error: "Invalid request body — requires importId"
     }), {
       status: 400,
       headers: {
@@ -146,14 +143,6 @@ Deno.serve(async (req)=>{
     errors: []
   };
   try {
-    // ── Validate event exists and is published ──
-    const { data: event, error: eventError } = await supabase.from("events").select("id, name, status").eq("id", eventId).single();
-    if (eventError || !event) {
-      throw new Error(`Event not found: ${eventId}`);
-    }
-    if (event.status !== "published") {
-      throw new Error(`Event is not published: ${event.name}`);
-    }
     // ── Validate import record and CAS pending → processing ──
     const { data: importRecord, error: importError } = await supabase.from("csv_imports").update({
       status: "processing"
@@ -209,36 +198,6 @@ Deno.serve(async (req)=>{
     await supabase.from("csv_imports").update({
       total_records: rowsByEmail.size
     }).eq("id", importId);
-    // ── F1: Parse + validate CSV FIRST, then clear existing judges ──
-    // Now that we know the CSV is valid and parsed, safe to clear
-    const { data: existingAssignments } = await supabase.from("judge_assignments").select("user_id").eq("event_id", eventId).eq("is_active", true);
-    if (existingAssignments && existingAssignments.length > 0) {
-      // Deactivate all current assignments for this event
-      await supabase.from("judge_assignments").update({
-        is_active: false
-      }).eq("event_id", eventId).eq("is_active", true);
-      // For each affected user, check if they have other active assignments
-      const affectedUserIds = [
-        ...new Set(existingAssignments.map((a)=>a.user_id))
-      ];
-      for (const userId of affectedUserIds){
-        const { data: otherActive } = await supabase.from("judge_assignments").select("id").eq("user_id", userId).eq("is_active", true).limit(1);
-        if (!otherActive || otherActive.length === 0) {
-          // No other active assignments — check their role
-          const { data: userRole } = await supabase.from("user_roles").select("role").eq("user_id", userId).maybeSingle();
-          if (userRole?.role === "collaborator") {
-            await supabase.from("profiles").update({
-              is_judge: false,
-              is_active: false
-            }).eq("id", userId);
-          } else {
-            await supabase.from("profiles").update({
-              is_judge: false
-            }).eq("id", userId);
-          }
-        }
-      }
-    }
     // ── Batch lookup existing profiles ──
     const emails = [
       ...rowsByEmail.keys()
@@ -280,15 +239,7 @@ Deno.serve(async (req)=>{
           }
           await supabase.from("profiles").update(profileUpdate).eq("id", existing.id);
           // Do NOT touch user_roles for existing users
-          // Upsert judge_assignments
-          await supabase.from("judge_assignments").upsert({
-            user_id: existing.id,
-            event_id: eventId,
-            is_active: true,
-            onboarding_completed: false
-          }, {
-            onConflict: "user_id,event_id"
-          });
+          // No judge_assignments row created — event assignment happens separately
           counters.records_updated++;
         } else {
           // ── New user ──
@@ -346,15 +297,7 @@ Deno.serve(async (req)=>{
             user_id: userId,
             role: "collaborator"
           });
-          // Create judge_assignments
-          await supabase.from("judge_assignments").upsert({
-            user_id: userId,
-            event_id: eventId,
-            is_active: true,
-            onboarding_completed: false
-          }, {
-            onConflict: "user_id,event_id"
-          });
+          // No judge_assignments row created — event assignment happens separately
           counters.records_new++;
         }
         counters.records_processed++;
@@ -405,8 +348,8 @@ Deno.serve(async (req)=>{
                 email: importRecord.admin_email
               }
             ],
-            subject: `Importación de jueces completada — ${event.name}`,
-            htmlContent: `<p>La importación de jueces para <strong>${escapeHtml(event.name)}</strong> ha finalizado.</p>
+            subject: `Importación de jueces completada`,
+            htmlContent: `<p>La importación de jueces ha finalizado.</p>
 <ul>
   <li>Nuevos: ${counters.records_new}</li>
   <li>Actualizados: ${counters.records_updated}</li>

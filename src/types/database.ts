@@ -262,10 +262,10 @@ export interface EventRegistrationWithDetails extends EventRegistration {
 export interface JudgeAssignment {
   id: string;
   user_id: string;
-  event_id: string;
+  event_id: string | null;
   is_active: boolean;
   onboarding_completed: boolean;
-  schedule_preference?: 'morning' | 'afternoon' | 'no_preference' | null;
+  schedule_preference?: 'morning' | 'afternoon' | 'no_preference' | 'online_only' | null;
   conflict_team_ids?: string[] | null;
   conflict_other_text?: string | null;
   comments?: string | null;
