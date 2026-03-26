@@ -14,6 +14,7 @@ interface AuthContextType {
   isVolunteer: boolean;
   isJudge: boolean;
   needsJudgeOnboarding: boolean;
+  judgeHasNoEvent: boolean;
   activeJudgeEventId: string | null;
   activeJudgeEventIds: string[];
   needsOnboarding: boolean;
@@ -55,21 +56,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       // Fetch judge assignments if user is a judge (multi-event support)
       if ((profileData as any)?.is_judge) {
-        const { data: judgeData } = await supabase
+        // (1) Active event assignments (non-null event_id, is_active=true)
+        const { data: activeData } = await supabase
           .from('judge_assignments')
-          .select('event_id, onboarding_completed')
+          .select('event_id')
           .eq('user_id', userId)
           .eq('is_active', true)
+          .not('event_id', 'is', null)
           .order('created_at', { ascending: true });
 
-        if (judgeData && judgeData.length > 0) {
-          setActiveJudgeEventIds(judgeData.map(j => j.event_id));
-          // Use the first assignment for onboarding check (existing behavior)
-          setJudgeOnboardingCompleted(judgeData[0].onboarding_completed);
+        if (activeData && activeData.length > 0) {
+          setActiveJudgeEventIds(activeData.map(j => j.event_id!));
         } else {
           setActiveJudgeEventIds([]);
-          setJudgeOnboardingCompleted(true);
         }
+
+        // (2) Onboarding check: ANY row with onboarding_completed=true (null-event or event-bound)
+        const { data: onboardingData } = await supabase
+          .from('judge_assignments')
+          .select('id')
+          .eq('user_id', userId)
+          .eq('onboarding_completed', true)
+          .limit(1);
+
+        setJudgeOnboardingCompleted(!!onboardingData && onboardingData.length > 0);
       } else {
         setActiveJudgeEventIds([]);
         setJudgeOnboardingCompleted(true);
@@ -176,7 +186,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const isVolunteer = (profile as any)?.is_volunteer ?? false;
   const isJudge = (profile as any)?.is_judge ?? false;
   const activeJudgeEventId = activeJudgeEventIds[0] ?? null;
-  const needsJudgeOnboarding = isJudge && activeJudgeEventId !== null && !judgeOnboardingCompleted;
+  const needsJudgeOnboarding = isJudge && !judgeOnboardingCompleted;
+  const judgeHasNoEvent = isJudge && judgeOnboardingCompleted && activeJudgeEventIds.length === 0;
   const needsOnboarding = profile
     ? !profile.terms_accepted_at || hasMissingFields(profile as unknown as Record<string, unknown>) || needsJudgeOnboarding
     : false;
@@ -193,6 +204,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isVolunteer,
         isJudge,
         needsJudgeOnboarding,
+        judgeHasNoEvent,
         activeJudgeEventId,
         activeJudgeEventIds,
         needsOnboarding,

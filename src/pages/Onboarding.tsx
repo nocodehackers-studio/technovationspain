@@ -10,9 +10,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { User, Calendar, Mail, Building2, LogOut, X } from 'lucide-react';
+import { User, Calendar, Mail, Building2, LogOut } from 'lucide-react';
 import { validateSpanishDNI } from '@/lib/validation-utils';
 import { isMinor } from '@/lib/age-utils';
 import { getMissingFields, getMissingJudgeFields, hasMissingFields, REQUIRED_PROFILE_FIELDS } from '@/lib/profile-fields';
@@ -44,8 +43,7 @@ interface FormData {
 interface JudgeFormData {
   judge_how_discovered_program: string;
   judge_previous_participation: string;
-  schedule_preference: '' | 'morning' | 'afternoon' | 'no_preference';
-  conflict_team_ids: string[];
+  schedule_preference: '' | 'morning' | 'afternoon' | 'no_preference' | 'online_only';
   conflict_other_text: string;
   comments: string;
   has_conflict: boolean;
@@ -53,24 +51,21 @@ interface JudgeFormData {
 
 export default function Onboarding() {
   const navigate = useNavigate();
-  const { user, profile, role, refreshProfile, signOut, isJudge, needsJudgeOnboarding, activeJudgeEventId } = useAuth();
+  const { user, profile, role, refreshProfile, signOut, isJudge, needsJudgeOnboarding } = useAuth();
   const { toast } = useToast();
 
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [privacyAccepted, setPrivacyAccepted] = useState(false);
-  const [showGoToEvent, setShowGoToEvent] = useState(false);
   const [judgeFormData, setJudgeFormData] = useState<JudgeFormData>({
     judge_how_discovered_program: (profile as any)?.judge_how_discovered_program || '',
     judge_previous_participation: (profile as any)?.judge_previous_participation || '',
     schedule_preference: '',
-    conflict_team_ids: [],
     conflict_other_text: '',
     comments: '',
     has_conflict: false,
   });
-  const [teamSearchQuery, setTeamSearchQuery] = useState('');
 
   // Determine which fields are missing (dynamic)
   const missingFieldSet = useMemo(() => {
@@ -120,44 +115,6 @@ export default function Onboarding() {
     if (!profile || !needsJudgeOnboarding) return [];
     return getMissingJudgeFields(profile as unknown as Record<string, unknown>);
   }, [profile, needsJudgeOnboarding]);
-
-  // Fetch judge assignment data (only if needsJudgeOnboarding)
-  const { data: judgeAssignment } = useQuery({
-    queryKey: ['judge-assignment', user?.id, activeJudgeEventId],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from('judge_assignments')
-        .select('*, events(*)')
-        .eq('user_id', user!.id)
-        .eq('event_id', activeJudgeEventId!)
-        .eq('is_active', true)
-        .single();
-      return data;
-    },
-    enabled: !!user && !!activeJudgeEventId && needsJudgeOnboarding,
-  });
-
-  // Fetch event teams for conflict of interest dropdown
-  const { data: eventTeams } = useQuery({
-    queryKey: ['event-teams-for-judges', activeJudgeEventId],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from('event_registrations')
-        .select('team_id, teams!inner(id, name)')
-        .eq('event_id', activeJudgeEventId!)
-        .not('team_id', 'is', null);
-      const seen = new Set<string>();
-      return (data ?? [])
-        .filter(r => {
-          const teamId = (r as any).teams?.id;
-          if (!teamId || seen.has(teamId)) return false;
-          seen.add(teamId);
-          return true;
-        })
-        .map(r => ({ id: (r as any).teams.id as string, name: (r as any).teams.name as string }));
-    },
-    enabled: !!activeJudgeEventId && needsJudgeOnboarding,
-  });
 
   // Determine if user is a minor based on DOB (form value or existing profile)
   // Only evaluate when a DOB actually exists — no DOB means hide parent fields
@@ -251,7 +208,7 @@ export default function Onboarding() {
     // Judge fields
     if (needsJudgeOnboarding) {
       if (!judgeFormData.schedule_preference) return false;
-      if (judgeFormData.has_conflict && judgeFormData.conflict_team_ids.length === 0 && !judgeFormData.conflict_other_text.trim()) return false;
+      if (judgeFormData.has_conflict && !judgeFormData.conflict_other_text.trim()) return false;
     }
     return true;
   }, [missingFieldSet, formData, showParentName, showParentEmail, needsConsent, termsAccepted, privacyAccepted, needsJudgeOnboarding, judgeFormData]);
@@ -322,23 +279,42 @@ export default function Onboarding() {
 
       if (profileError) throw profileError;
 
-      // Save event-specific judge answers
-      if (needsJudgeOnboarding && activeJudgeEventId) {
-        const { error: judgeError } = await supabase
+      // Save judge onboarding answers (null-event row: check-then-insert)
+      if (needsJudgeOnboarding) {
+        const judgeOnboardingData = {
+          schedule_preference: judgeFormData.schedule_preference || null,
+          conflict_other_text: sanitizeText(judgeFormData.conflict_other_text) || null,
+          comments: sanitizeText(judgeFormData.comments),
+          onboarding_completed: true,
+        };
+
+        // Check for existing null-event row
+        const { data: existingRow } = await supabase
           .from('judge_assignments')
-          .update({
-            schedule_preference: judgeFormData.schedule_preference || null,
-            conflict_team_ids: judgeFormData.conflict_team_ids.length > 0
-              ? judgeFormData.conflict_team_ids
-              : null,
-            conflict_other_text: sanitizeText(judgeFormData.conflict_other_text) || null,
-            comments: sanitizeText(judgeFormData.comments),
-            onboarding_completed: true,
-          })
+          .select('id')
           .eq('user_id', user.id)
-          .eq('event_id', activeJudgeEventId)
-          .eq('is_active', true);
-        if (judgeError) throw judgeError;
+          .is('event_id', null)
+          .maybeSingle();
+
+        if (existingRow) {
+          // UPDATE existing null-event row
+          const { error: judgeError } = await supabase
+            .from('judge_assignments')
+            .update(judgeOnboardingData)
+            .eq('id', existingRow.id);
+          if (judgeError) throw judgeError;
+        } else {
+          // INSERT new null-event row
+          const { error: judgeError } = await supabase
+            .from('judge_assignments')
+            .insert({
+              user_id: user.id,
+              event_id: null,
+              is_active: false,
+              ...judgeOnboardingData,
+            });
+          if (judgeError) throw judgeError;
+        }
       }
 
       // If user has no role yet (manual registrant), assign 'participant' as default
@@ -375,13 +351,6 @@ export default function Onboarding() {
           supabase.functions.invoke("send-welcome-email", {
             body: { email: user.email, firstName: formData.first_name || (profile as any)?.first_name },
           }).catch((err) => console.error("Welcome email error:", err));
-        }
-
-        // If judge onboarding was included, show "Go to event" button
-        if (needsJudgeOnboarding && activeJudgeEventId) {
-          toast({ title: '¡Registro completado!', description: 'Tu registro como juez está listo.' });
-          setShowGoToEvent(true);
-          return;
         }
 
         toast({ title: '¡Bienvenida!', description: 'Tu cuenta está lista.' });
@@ -648,15 +617,15 @@ export default function Onboarding() {
                 </div>
               )}
 
-              {/* ── Judge Event-Specific Fields ── */}
-              {needsJudgeOnboarding && judgeAssignment && (
+              {/* ── Judge Onboarding Fields (Generic — no event dependency) ── */}
+              {needsJudgeOnboarding && (
                 <div className="space-y-4 border-t pt-4">
-                  <p className="text-sm font-medium">Información del Evento — {(judgeAssignment as any).events?.name}</p>
+                  <p className="text-sm font-medium">Preferencias de participación</p>
 
                   {/* Schedule preference */}
                   <div className="space-y-2">
                     <Label htmlFor="schedule_preference">
-                      Indícanos el horario para participar como juez presencial en {(judgeAssignment as any).events?.name} el {new Date((judgeAssignment as any).events?.date).toLocaleDateString('es-ES', { day: 'numeric', month: 'long' })} en {(judgeAssignment as any).events?.location_name}{(judgeAssignment as any).events?.location_city ? `, ${(judgeAssignment as any).events.location_city}` : ''} *
+                      ¿Cuál es tu preferencia horaria para participar como juez? *
                     </Label>
                     <Select
                       value={judgeFormData.schedule_preference}
@@ -669,6 +638,7 @@ export default function Onboarding() {
                         <SelectItem value="morning">Mañana</SelectItem>
                         <SelectItem value="afternoon">Tarde</SelectItem>
                         <SelectItem value="no_preference">Sin preferencia</SelectItem>
+                        <SelectItem value="online_only">Solo online</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -682,94 +652,24 @@ export default function Onboarding() {
                         onCheckedChange={(checked) => setJudgeFormData(prev => ({
                           ...prev,
                           has_conflict: !!checked,
-                          conflict_team_ids: !checked ? [] : prev.conflict_team_ids,
                           conflict_other_text: !checked ? '' : prev.conflict_other_text,
                         }))}
                       />
                       <Label htmlFor="has_conflict" className="text-sm font-normal leading-snug">
-                        ¿Eres padre, madre o mentor de alguna chica participante en Technovation?
+                        ¿Eres padre o madre de alguna chica participante?
                       </Label>
                     </div>
 
                     {judgeFormData.has_conflict && (
-                      <div className="space-y-3 pl-6">
-                        {/* Selected teams as badges */}
-                        {judgeFormData.conflict_team_ids.length > 0 && (
-                          <div className="flex flex-wrap gap-1.5">
-                            {judgeFormData.conflict_team_ids.map(teamId => {
-                              const team = eventTeams?.find(t => t.id === teamId);
-                              return (
-                                <Badge key={teamId} variant="secondary" className="gap-1">
-                                  {team?.name || teamId}
-                                  <button
-                                    type="button"
-                                    onClick={() => setJudgeFormData(prev => ({
-                                      ...prev,
-                                      conflict_team_ids: prev.conflict_team_ids.filter(id => id !== teamId),
-                                    }))}
-                                  >
-                                    <X className="h-3 w-3" />
-                                  </button>
-                                </Badge>
-                              );
-                            })}
-                          </div>
-                        )}
-
-                        {/* Team selector */}
-                        <div className="space-y-2">
-                          <Label className="text-sm">Selecciona el equipo o equipos</Label>
-                          <Input
-                            placeholder="Buscar equipo..."
-                            value={teamSearchQuery}
-                            onChange={(e) => setTeamSearchQuery(e.target.value)}
-                          />
-                          {eventTeams && eventTeams.length > 0 && (
-                            <div className="max-h-40 overflow-y-auto border rounded-md">
-                              {eventTeams
-                                .filter(t => !judgeFormData.conflict_team_ids.includes(t.id))
-                                .filter(t => !teamSearchQuery || t.name.toLowerCase().includes(teamSearchQuery.toLowerCase()))
-                                .map(team => (
-                                  <button
-                                    key={team.id}
-                                    type="button"
-                                    className="w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors"
-                                    onClick={() => {
-                                      setJudgeFormData(prev => ({
-                                        ...prev,
-                                        conflict_team_ids: [...prev.conflict_team_ids, team.id],
-                                      }));
-                                      setTeamSearchQuery('');
-                                    }}
-                                  >
-                                    {team.name}
-                                  </button>
-                                ))}
-                              {/* "Other" option */}
-                              <button
-                                type="button"
-                                className="w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors text-muted-foreground italic"
-                                onClick={() => setJudgeFormData(prev => ({ ...prev, conflict_other_text: prev.conflict_other_text || ' ' }))}
-                              >
-                                Otro equipo no listado
-                              </button>
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Other team text */}
-                        {judgeFormData.conflict_other_text && (
-                          <div className="space-y-2">
-                            <Label htmlFor="conflict_other">Nombre del equipo no listado</Label>
-                            <Input
-                              id="conflict_other"
-                              placeholder="Nombre del equipo"
-                              value={judgeFormData.conflict_other_text.trim() ? judgeFormData.conflict_other_text : ''}
-                              onChange={(e) => setJudgeFormData(prev => ({ ...prev, conflict_other_text: e.target.value }))}
-                              maxLength={200}
-                            />
-                          </div>
-                        )}
+                      <div className="space-y-2 pl-6">
+                        <Label htmlFor="conflict_other">¿Puedes especificar de qué equipo o de qué niña?</Label>
+                        <Input
+                          id="conflict_other"
+                          placeholder="Nombre del equipo o de la participante"
+                          value={judgeFormData.conflict_other_text}
+                          onChange={(e) => setJudgeFormData(prev => ({ ...prev, conflict_other_text: e.target.value }))}
+                          maxLength={200}
+                        />
                       </div>
                     )}
                   </div>
@@ -833,7 +733,7 @@ export default function Onboarding() {
               <Button
                 type="submit"
                 className="w-full"
-                disabled={isLoading || !isFormComplete || showGoToEvent}
+                disabled={isLoading || !isFormComplete}
               >
                 {isLoading ? (
                   <span className="flex items-center gap-2">
@@ -845,14 +745,6 @@ export default function Onboarding() {
                 )}
               </Button>
 
-              {showGoToEvent && activeJudgeEventId && (
-                <div className="text-center space-y-3 pt-4">
-                  <p className="text-sm text-muted-foreground">¡Tu registro como juez está completo!</p>
-                  <Button onClick={() => navigate(`/events/${activeJudgeEventId}`)}>
-                    Ir al evento →
-                  </Button>
-                </div>
-              )}
             </form>
           </CardContent>
         </Card>

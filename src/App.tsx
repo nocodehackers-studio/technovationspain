@@ -12,6 +12,7 @@ import Index from "./pages/Index";
 import AuthCallback from "./pages/AuthCallback";
 import Onboarding from "./pages/Onboarding";
 import PendingVerification from "./pages/PendingVerification";
+import JudgePendingEvent from "./pages/JudgePendingEvent";
 import NotFound from "./pages/NotFound";
 import ParticipantDashboard from "./pages/ParticipantDashboard";
 
@@ -72,6 +73,11 @@ const App = () => (
             {/* Public routes */}
             <Route path="/auth/callback" element={<AuthCallback />} />
             <Route path="/pending-verification" element={<PendingVerification />} />
+            <Route path="/judge-pending-event" element={
+              <ProtectedRoute>
+                <JudgePendingEvent />
+              </ProtectedRoute>
+            } />
 
             {/* Volunteer page (access controlled inside the component via is_volunteer) */}
             <Route path="/voluntario" element={

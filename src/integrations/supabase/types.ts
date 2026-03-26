@@ -767,7 +767,7 @@ export type Database = {
           conflict_other_text: string | null
           conflict_team_ids: string[] | null
           created_at: string | null
-          event_id: string
+          event_id: string | null
           id: string
           is_active: boolean
           onboarding_completed: boolean
@@ -780,7 +780,7 @@ export type Database = {
           conflict_other_text?: string | null
           conflict_team_ids?: string[] | null
           created_at?: string | null
-          event_id: string
+          event_id?: string | null
           id?: string
           is_active?: boolean
           onboarding_completed?: boolean
@@ -793,7 +793,7 @@ export type Database = {
           conflict_other_text?: string | null
           conflict_team_ids?: string[] | null
           created_at?: string | null
-          event_id?: string
+          event_id?: string | null
           id?: string
           is_active?: boolean
           onboarding_completed?: boolean

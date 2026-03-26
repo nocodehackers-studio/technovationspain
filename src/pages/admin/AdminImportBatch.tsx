@@ -25,14 +25,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { useQuery } from "@tanstack/react-query";
 import { Upload, FileText, ArrowLeft, Loader2, CheckCircle2, XCircle, Mail, History } from "lucide-react";
 
 // ─── Types ──────────────────────────────────────────────────────────
@@ -73,27 +65,12 @@ export default function AdminImportBatch() {
   const [usersFile, setUsersFile] = useState<File | null>(null);
   const [teamsFile, setTeamsFile] = useState<File | null>(null);
   const [judgesFile, setJudgesFile] = useState<File | null>(null);
-  const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [usersPreview, setUsersPreview] = useState<CsvPreview | null>(null);
   const [teamsPreview, setTeamsPreview] = useState<CsvPreview | null>(null);
   const [judgesPreview, setJudgesPreview] = useState<CsvPreview | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [checkingImport, setCheckingImport] = useState(true);
   const [activeImportId, setActiveImportId] = useState<string | null>(null);
-
-  // ─── Fetch published events for judge import ─────────────
-  const { data: publishedEvents } = useQuery({
-    queryKey: ['published-events-for-import'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('events')
-        .select('id, name, date, location_city')
-        .eq('status', 'published')
-        .order('date', { ascending: true });
-      if (error) throw error;
-      return data;
-    },
-  });
 
   // ─── Check for active import on mount ─────────────────────
   useEffect(() => {
@@ -142,12 +119,6 @@ export default function AdminImportBatch() {
   const generatePreview = useCallback(async () => {
     if (!usersFile && !teamsFile && !judgesFile) {
       toast.error("Debes seleccionar al menos un archivo CSV");
-      return;
-    }
-
-    // Validate: judges file requires event selection
-    if (judgesFile && !selectedEventId) {
-      toast.error("Debes seleccionar un evento para la importación de jueces");
       return;
     }
 
@@ -202,7 +173,7 @@ export default function AdminImportBatch() {
     }
 
     setStep("preview");
-  }, [usersFile, teamsFile, judgesFile, selectedEventId]);
+  }, [usersFile, teamsFile, judgesFile]);
 
   // ─── Start Import ───────────────────────────────────────────────
   const startImport = async () => {
@@ -321,10 +292,10 @@ export default function AdminImportBatch() {
         }
       }
 
-      if (judgesFile && selectedEventId) {
+      if (judgesFile) {
         const { error: judgeInvokeError } = await supabase.functions.invoke(
           "process-judge-csv",
-          { body: { importId, eventId: selectedEventId } }
+          { body: { importId } }
         );
 
         if (judgeInvokeError) {
@@ -360,7 +331,6 @@ export default function AdminImportBatch() {
     setUsersFile(null);
     setTeamsFile(null);
     setJudgesFile(null);
-    setSelectedEventId(null);
     setUsersPreview(null);
     setTeamsPreview(null);
     setJudgesPreview(null);
@@ -387,10 +357,7 @@ export default function AdminImportBatch() {
               usersFile={usersFile}
               teamsFile={teamsFile}
               judgesFile={judgesFile}
-              selectedEventId={selectedEventId}
-              publishedEvents={publishedEvents ?? []}
               onSelectFile={handleFileSelect}
-              onSelectEvent={setSelectedEventId}
               onContinue={generatePreview}
             />
           )}
@@ -426,26 +393,15 @@ function UploadStep({
   usersFile,
   teamsFile,
   judgesFile,
-  selectedEventId,
-  publishedEvents,
   onSelectFile,
-  onSelectEvent,
   onContinue,
 }: {
   usersFile: File | null;
   teamsFile: File | null;
   judgesFile: File | null;
-  selectedEventId: string | null;
-  publishedEvents: Array<{ id: string; name: string; date: string; location_city: string | null }>;
   onSelectFile: (file: File | null, type: "users" | "teams" | "judges") => void;
-  onSelectEvent: (eventId: string | null) => void;
   onContinue: () => void;
 }) {
-  const formatDate = (dateStr: string) => {
-    const d = new Date(dateStr);
-    return d.toLocaleDateString("es-ES", { day: "2-digit", month: "short", year: "numeric" });
-  };
-
   return (
     <>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -468,26 +424,6 @@ function UploadStep({
           onSelect={(f) => onSelectFile(f, "judges")}
         />
       </div>
-
-      {judgesFile && (
-        <div className="max-w-md">
-          <Select
-            value={selectedEventId ?? ""}
-            onValueChange={(value) => onSelectEvent(value || null)}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="Selecciona el evento para estos jueces" />
-            </SelectTrigger>
-            <SelectContent>
-              {publishedEvents.map((evt) => (
-                <SelectItem key={evt.id} value={evt.id}>
-                  {evt.name} — {formatDate(evt.date)}{evt.location_city ? ` (${evt.location_city})` : ''}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      )}
 
       <div className="flex justify-end">
         <Button
