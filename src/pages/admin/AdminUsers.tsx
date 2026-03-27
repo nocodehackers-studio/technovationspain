@@ -1,20 +1,13 @@
-import { useState, useMemo, useCallback } from "react";
-import { useSearchParams } from "react-router-dom";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ColumnDef } from "@tanstack/react-table";
-import { supabase } from "@/integrations/supabase/client";
-import { fetchAllRows } from "@/lib/supabase-utils";
-import { AdminLayout } from "@/components/admin/AdminLayout";
-import { AirtableDataTable, FilterableColumn, ExportData } from "@/components/admin/AirtableDataTable";
-import { format } from "date-fns";
-import { StatusBadge } from "@/components/admin/StatusBadge";
-import { RoleBadges } from "@/components/admin/RoleBadge";
-import { ConfirmDialog } from "@/components/admin/ConfirmDialog";
-import { EditableCell } from "@/components/admin/EditableCell";
-import { UserEditSheet } from "@/components/admin/UserEditSheet";
-import { UnregisteredUsersTable } from "@/components/admin/users/UnregisteredUsersTable";
-import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useState, useMemo, useCallback, useRef } from "react"
+import { ColumnDef } from "@tanstack/react-table"
+import { supabase } from "@/integrations/supabase/client"
+import { AdminLayout } from "@/components/admin/AdminLayout"
+import { AirtableDataTable, ExportData } from "@/components/admin/AirtableDataTable"
+import { format } from "date-fns"
+import { ConfirmDialog } from "@/components/admin/ConfirmDialog"
+import { UserEditSheet } from "@/components/admin/UserEditSheet"
+import { Button } from "@/components/ui/button"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import {
   Dialog,
   DialogContent,
@@ -22,553 +15,167 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { toast } from "sonner"
+import { Plus, Mail, Loader2 } from "lucide-react"
+
+import { VIEWS } from "@/components/admin/users/viewDefinitions"
+import { useAdminUsersData, type UserWithRoles } from "@/components/admin/users/useAdminUsersData"
+import { buildColumns, COLUMN_LABELS } from "@/components/admin/users/columnDefinitions"
+import { UserViewSelector } from "@/components/admin/users/UserViewSelector"
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { toast } from "sonner";
-import { Plus, MoreVertical, Trash2, Users, UserPlus } from "lucide-react";
-import { Profile, AppRole, TableCustomColumn } from "@/types/database";
+  DynamicFilterBar,
+  type ActiveFilter,
+  type FieldOption,
+} from "@/components/admin/users/DynamicFilterBar"
 
-type UserWithRoles = Profile & {
-  roles: AppRole[];
-  team_name?: string | null;
-  school_name?: string | null;
-  hub_name?: string | null;
-  chapter?: string | null;
-  city?: string | null;
-  state?: string | null;
-};
-
-// Slugify column label to create a key
-function slugify(text: string): string {
-  return text
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "");
+// Display value helpers for preset filters
+function presetDisplayValue(field: string, value: any): string {
+  if (typeof value === "boolean") return value ? "Sí" : "No"
+  const statusMap: Record<string, string> = {
+    pending: "Pendiente",
+    verified: "Verificado",
+    manual_review: "Revisión Manual",
+    rejected: "Rechazado",
+  }
+  if (field === "verification_status" && statusMap[value]) return statusMap[value]
+  return String(value)
 }
 
 export default function AdminUsers() {
-  const [searchParams] = useSearchParams();
-  const queryClient = useQueryClient();
-  const [selectedUser, setSelectedUser] = useState<UserWithRoles | null>(null);
-  const [editSheetOpen, setEditSheetOpen] = useState(false);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [createDialogOpen, setCreateDialogOpen] = useState(false);
-  const [addFieldDialogOpen, setAddFieldDialogOpen] = useState(false);
-  const [newFieldLabel, setNewFieldLabel] = useState("");
-  const [hiddenColumns, setHiddenColumns] = useState<string[]>([]);
-  const [activeTab, setActiveTab] = useState("registered");
+  const {
+    users,
+    isLoading,
+    regionalFinalEvents,
+    customColumns,
+    updateJudgeEvent,
+    updateCustomField,
+    deleteUser,
+    deleteUserMutation,
+    addColumn,
+    addColumnMutation,
+    deleteColumn,
+  } = useAdminUsersData()
 
-  // Fetch users with roles, teams, and hub info
-  const { data: users, isLoading } = useQuery({
-    queryKey: ["admin-users"],
-    queryFn: async () => {
-      // Fetch profiles (paginated to avoid 1000-row limit)
-      const profiles = await fetchAllRows<Record<string, unknown>>(
-        "profiles",
-        "*, hub:hubs!profiles_hub_id_fkey(name)",
-      );
+  const [activeViewId, setActiveViewId] = useState("registrados")
+  const [sessionFilters, setSessionFilters] = useState<ActiveFilter[]>([])
+  const [removedPresetFilters, setRemovedPresetFilters] = useState<Set<string>>(new Set())
+  const [hiddenColumns, setHiddenColumns] = useState<string[]>([])
 
-      // Fetch ALL roles for ALL users (paginated)
-      const roles = await fetchAllRows<{ user_id: string; role: string }>(
-        "user_roles",
-        "user_id, role",
-      );
+  const [selectedUser, setSelectedUser] = useState<UserWithRoles | null>(null)
+  const [editSheetOpen, setEditSheetOpen] = useState(false)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [createDialogOpen, setCreateDialogOpen] = useState(false)
+  const [addFieldDialogOpen, setAddFieldDialogOpen] = useState(false)
+  const [newFieldLabel, setNewFieldLabel] = useState("")
+  const [sendingIds, setSendingIds] = useState<Set<string>>(new Set())
+  const sendingIdsRef = useRef(sendingIds)
+  sendingIdsRef.current = sendingIds
 
-      // Fetch team memberships with team names (paginated)
-      const teamMembers = await fetchAllRows<{ user_id: string; team: { name: string } | null }>(
-        "team_members",
-        "user_id, team:teams(name)",
-      );
+  const activeView = useMemo(
+    () => VIEWS.find((v) => v.id === activeViewId) || VIEWS[0],
+    [activeViewId]
+  )
 
-      // Build role lookup map for O(1) access instead of O(n) filter per profile
-      const rolesByUserId = new Map<string, AppRole[]>();
-      for (const r of roles) {
-        const existing = rolesByUserId.get(r.user_id) || [];
-        existing.push(r.role as AppRole);
-        rolesByUserId.set(r.user_id, existing);
-      }
+  // When view changes, reset session state
+  const handleViewChange = useCallback((viewId: string) => {
+    setActiveViewId(viewId)
+    setSessionFilters([])
+    setRemovedPresetFilters(new Set())
+    // Apply view column visibility
+    const view = VIEWS.find((v) => v.id === viewId)
+    if (view && view.visibleColumns !== "all") {
+      // Hide all columns except the ones in the view's list
+      const allColumnKeys = Object.keys(COLUMN_LABELS)
+      // Also include custom column IDs so they get hidden in restricted views
+      const customColKeys = (customColumns || []).map((c) => `custom_${c.column_key}`)
+      const visible = new Set(view.visibleColumns)
+      const hidden = [...allColumnKeys, ...customColKeys].filter((k) => !visible.has(k))
+      setHiddenColumns(hidden)
+    } else {
+      setHiddenColumns([])
+    }
+  }, [customColumns])
 
-      // Build team lookup map
-      const teamByUserId = new Map<string, string>();
-      for (const tm of teamMembers) {
-        if (tm.team?.name) teamByUserId.set(tm.user_id, tm.team.name);
-      }
+  // Compute effective preset filters (view presets minus removed ones)
+  const effectivePresetFilters: ActiveFilter[] = useMemo(() => {
+    return activeView.filters
+      .filter((f) => !removedPresetFilters.has(f.field))
+      .map((f) => ({
+        field: f.field,
+        label: COLUMN_LABELS[f.field] || f.field,
+        value: f.value,
+        displayValue: presetDisplayValue(f.field, f.value),
+      }))
+  }, [activeView, removedPresetFilters])
 
-      // Merge profiles with all related data
-      // Note: city, state, school_name, company_name are now directly on profiles after migration
-      const usersWithRoles: UserWithRoles[] = profiles.map((profile) => {
-        const userRoles = rolesByUserId.get(profile.id as string) || [];
-        const profileAny = profile as any;
+  // Apply all filters (preset + session) to data
+  const filteredUsers = useMemo(() => {
+    if (!users) return []
 
-        return {
-          ...profile,
-          custom_fields: (profile.custom_fields as Record<string, unknown>) || {},
-          roles: userRoles,
-          team_name: teamByUserId.get(profile.id as string) || null,
-          school_name: profileAny.school_name || profileAny.company_name || null,
-          hub_name: (profile.hub as { name: string } | null)?.name || null,
-          chapter: profileAny.chapter || null,
-          city: profileAny.city || null,
-          state: profileAny.state || null,
-        };
-      });
+    const allFilters = [
+      ...effectivePresetFilters,
+      ...sessionFilters,
+    ]
 
-      return usersWithRoles;
-    },
-  });
+    if (allFilters.length === 0) return users
 
-  // Fetch unregistered count for tab badge (pre-created profiles not yet onboarded)
-  const { data: unregisteredCount } = useQuery({
-    queryKey: ["admin-unregistered-users-count"],
-    queryFn: async () => {
-      const { count, error } = await supabase
-        .from("profiles")
-        .select("*", { count: "exact", head: true })
-        .eq("onboarding_completed", false)
-        .eq("verification_status", "verified");
+    return users.filter((user) => {
+      return allFilters.every((filter) => {
+        const fieldValue = (user as any)[filter.field]
 
-      if (error) throw error;
-      return count || 0;
-    },
-  });
-
-  // Fetch custom columns
-  const { data: customColumns } = useQuery({
-    queryKey: ["table-custom-columns", "profiles"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("table_custom_columns")
-        .select("*")
-        .eq("table_name", "profiles")
-        .order("sort_order");
-
-      if (error) throw error;
-      return (data || []) as TableCustomColumn[];
-    },
-  });
-
-  // Update custom field mutation (for inline editing in table)
-  const updateCustomFieldMutation = useMutation({
-    mutationFn: async ({
-      userId,
-      fieldKey,
-      value,
-      currentCustomFields,
-    }: {
-      userId: string;
-      fieldKey: string;
-      value: string;
-      currentCustomFields: Record<string, unknown>;
-    }) => {
-      const updatedFields = {
-        ...currentCustomFields,
-        [fieldKey]: value,
-      };
-
-      const { error } = await supabase
-        .from("profiles")
-        .update({ custom_fields: updatedFields as unknown as Record<string, never> })
-        .eq("id", userId);
-
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["admin-users"] });
-    },
-    onError: (error) => {
-      toast.error(`Error al guardar: ${error.message}`);
-    },
-  });
-
-  // Delete user mutation
-  const deleteUserMutation = useMutation({
-    mutationFn: async (userId: string) => {
-      const { error } = await supabase.auth.admin.deleteUser(userId);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["admin-users"] });
-      toast.success("Usuario eliminado correctamente");
-      setDeleteDialogOpen(false);
-      setEditSheetOpen(false);
-    },
-    onError: (error) => {
-      toast.error(`Error al eliminar: ${error.message}`);
-    },
-  });
-
-  // Add custom column mutation
-  const addColumnMutation = useMutation({
-    mutationFn: async (label: string) => {
-      const columnKey = slugify(label);
-      const { error } = await supabase.from("table_custom_columns").insert({
-        table_name: "profiles",
-        column_key: columnKey,
-        column_label: label,
-        column_type: "text",
-        sort_order: (customColumns?.length || 0) + 1,
-      });
-
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["table-custom-columns", "profiles"] });
-      toast.success("Campo creado correctamente");
-      setAddFieldDialogOpen(false);
-      setNewFieldLabel("");
-    },
-    onError: (error) => {
-      toast.error(`Error al crear campo: ${error.message}`);
-    },
-  });
-
-  // Delete custom column mutation
-  const deleteColumnMutation = useMutation({
-    mutationFn: async (columnId: string) => {
-      const { error } = await supabase
-        .from("table_custom_columns")
-        .delete()
-        .eq("id", columnId);
-
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["table-custom-columns", "profiles"] });
-      toast.success("Campo eliminado correctamente");
-    },
-    onError: (error) => {
-      toast.error(`Error al eliminar campo: ${error.message}`);
-    },
-  });
-
-  // Check if user can be deleted - admins can delete any user
-  const canDeleteUser = useCallback((_user: UserWithRoles): boolean => {
-    return true;
-  }, []);
-
-  // Static columns - memoized to prevent re-renders
-  const staticColumns: ColumnDef<UserWithRoles>[] = useMemo(() => [
-    {
-      id: "name",
-      accessorFn: (row) => 
-        `${row.first_name || ""} ${row.last_name || ""} ${row.email || ""} ${row.tg_id || ""} ${row.phone || ""} ${row.team_name || ""} ${row.school_name || ""} ${row.hub_name || ""} ${row.chapter || ""} ${row.city || ""} ${row.state || ""}`.toLowerCase(),
-      header: "Nombre",
-      enableHiding: true,
-      cell: ({ row }) => (
-        <div className="flex flex-col">
-          <span className="font-medium">
-            {row.original.first_name} {row.original.last_name}
-          </span>
-          <span className="text-xs text-muted-foreground">
-            {row.original.email}
-          </span>
-        </div>
-      ),
-    },
-    {
-      accessorKey: "tg_id",
-      header: "TG ID",
-      enableHiding: true,
-      cell: ({ row }) => (
-        <span className="font-mono text-sm">{row.original.tg_id || "—"}</span>
-      ),
-    },
-    {
-      accessorKey: "roles",
-      header: "Roles",
-      enableHiding: true,
-      filterFn: (row, id, value) => {
-        const roles = row.original.roles;
-        if (Array.isArray(value)) return value.some((v: string) => roles.includes(v as AppRole));
-        return roles.includes(value as AppRole);
-      },
-      cell: ({ row }) =>
-        row.original.roles.length > 0 ? (
-          <RoleBadges roles={row.original.roles} size="sm" />
-        ) : (
-          <span className="text-muted-foreground text-sm">Sin rol</span>
-        ),
-    },
-    {
-      accessorKey: "verification_status",
-      header: "Estado",
-      enableHiding: true,
-      filterFn: (row, id, value) => {
-        const v = row.getValue(id);
-        if (Array.isArray(value)) return value.includes(v as string);
-        return v === value;
-      },
-      cell: ({ row }) => (
-        <StatusBadge status={row.original.verification_status || "pending"} />
-      ),
-    },
-    {
-      accessorKey: "team_name",
-      header: "Equipo",
-      enableHiding: true,
-      filterFn: (row, id, value) => {
-        const v = row.getValue(id) as string | null;
-        const normalized = v || "__empty__";
-        if (Array.isArray(value)) return value.includes(normalized);
-        return normalized === value;
-      },
-      cell: ({ row }) => (
-        <span className="text-sm">{row.original.team_name || "—"}</span>
-      ),
-    },
-    {
-      accessorKey: "school_name",
-      header: "Colegio/Empresa",
-      enableHiding: true,
-      filterFn: (row, id, value) => {
-        const v = row.getValue(id) as string | null;
-        const normalized = v || "__empty__";
-        if (Array.isArray(value)) return value.includes(normalized);
-        return normalized === value;
-      },
-      cell: ({ row }) => (
-        <span className="text-sm max-w-[150px] truncate block">{row.original.school_name || "—"}</span>
-      ),
-    },
-    {
-      accessorKey: "hub_name",
-      header: "Hub",
-      enableHiding: true,
-      filterFn: (row, id, value) => {
-        const v = row.getValue(id) as string | null;
-        const normalized = v || "__empty__";
-        if (Array.isArray(value)) return value.includes(normalized);
-        return normalized === value;
-      },
-      cell: ({ row }) => (
-        <span className="text-sm">{row.original.hub_name || "—"}</span>
-      ),
-    },
-    {
-      accessorKey: "chapter",
-      header: "Chapter",
-      enableHiding: true,
-      filterFn: (row, id, value) => {
-        const v = row.getValue(id) as string | null;
-        const normalized = v || "__empty__";
-        if (Array.isArray(value)) return value.includes(normalized);
-        return normalized === value;
-      },
-      cell: ({ row }) => (
-        <span className="text-sm">{row.original.chapter || "—"}</span>
-      ),
-    },
-    {
-      accessorKey: "city",
-      header: "Ciudad",
-      enableHiding: true,
-      cell: ({ row }) => (
-        <span className="text-sm">{row.original.city || "—"}</span>
-      ),
-    },
-    {
-      accessorKey: "state",
-      header: "Comunidad",
-      enableHiding: true,
-      filterFn: (row, id, value) => {
-        const v = row.getValue(id) as string | null;
-        const normalized = v || "__empty__";
-        if (Array.isArray(value)) return value.includes(normalized);
-        return normalized === value;
-      },
-      cell: ({ row }) => (
-        <span className="text-sm max-w-[120px] truncate block">{row.original.state || "—"}</span>
-      ),
-    },
-    {
-      accessorKey: "date_of_birth",
-      header: "Edad",
-      enableHiding: true,
-      cell: ({ row }) => {
-        const dob = row.original.date_of_birth;
-        if (!dob) return <span className="text-muted-foreground">—</span>;
-        
-        const today = new Date();
-        const birth = new Date(dob);
-        let age = today.getFullYear() - birth.getFullYear();
-        const monthDiff = today.getMonth() - birth.getMonth();
-        if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
-          age--;
+        // Boolean comparison (treat null/undefined as false)
+        if (typeof filter.value === "boolean") {
+          return (fieldValue ?? false) === filter.value
         }
-        
-        // Highlight ages outside typical participant range (8-18)
-        const isOutOfRange = age < 8 || age > 18;
-        return (
-          <span className={isOutOfRange ? "text-orange-600 font-medium" : "text-sm"}>
-            {age}
-          </span>
-        );
-      },
-    },
-    {
-      accessorKey: "phone",
-      header: "Teléfono",
-      enableHiding: true,
-      cell: ({ row }) => (
-        <span className="text-sm">{row.original.phone || "—"}</span>
-      ),
-    },
-    {
-      accessorKey: "created_at",
-      header: "Registro",
-      enableHiding: true,
-      cell: ({ row }) => (
-        <span className="text-sm text-muted-foreground">
-          {new Date(row.original.created_at || "").toLocaleDateString("es-ES")}
-        </span>
-      ),
-    },
-  ], []);
 
-  // Stable callback for saving custom fields
-  const handleSaveCustomField = useCallback(
-    (userId: string, fieldKey: string, value: string, currentCustomFields: Record<string, unknown>) => {
-      updateCustomFieldMutation.mutate({
-        userId,
-        fieldKey,
-        value,
-        currentCustomFields,
-      });
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
-  );
+        // Array field (e.g. roles) — check if array includes the value
+        if (Array.isArray(fieldValue)) {
+          return fieldValue.includes(filter.value)
+        }
 
-  // Stable callback for deleting custom columns
-  const handleDeleteColumn = useCallback(
-    (columnId: string) => {
-      deleteColumnMutation.mutate(columnId);
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
-  );
+        // Text search (case-insensitive contains)
+        if (typeof filter.value === "string") {
+          const actual = String(fieldValue || "").toLowerCase()
+          const expected = filter.value.toLowerCase()
+          // For exact matches on known discrete values
+          if (
+            filter.field === "verification_status" ||
+            filter.field === "profile_type"
+          ) {
+            return actual === expected
+          }
+          // For text filters, use contains
+          return actual.includes(expected)
+        }
 
-  // Dynamic columns from custom fields
-  const dynamicColumns: ColumnDef<UserWithRoles>[] = useMemo(() => {
-    return (customColumns || []).map((col) => ({
-      id: `custom_${col.column_key}`,
-      accessorKey: `custom_fields.${col.column_key}`,
-      header: () => (
-        <div className="flex items-center justify-between gap-2">
-          <span>{col.column_label}</span>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6 opacity-0 group-hover:opacity-100 hover:opacity-100 focus:opacity-100"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <MoreVertical className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem
-                className="text-destructive focus:text-destructive"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleDeleteColumn(col.id);
-                }}
-              >
-                <Trash2 className="mr-2 h-4 w-4" />
-                Eliminar campo
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      ),
-      enableHiding: true,
-      cell: ({ row }) => {
-        const customFields = (row.original.custom_fields || {}) as Record<string, unknown>;
-        const value = (customFields[col.column_key] as string) || "";
+        return fieldValue === filter.value
+      })
+    })
+  }, [users, effectivePresetFilters, sessionFilters])
 
-        return (
-          <EditableCell
-            value={value}
-            onSave={(newValue) => {
-              handleSaveCustomField(
-                row.original.id,
-                col.column_key,
-                newValue,
-                customFields
-              );
-            }}
-          />
-        );
-      },
-    }));
-  }, [customColumns, handleSaveCustomField, handleDeleteColumn]);
+  // Build available fields for the dynamic filter bar
+  const availableFields: FieldOption[] = useMemo(() => {
+    const allUsers = users || []
 
-  // Combine all columns
-  const columns = useMemo(
-    () => [...staticColumns, ...dynamicColumns],
-    [staticColumns, dynamicColumns]
-  );
+    const buildSelectOptions = (field: string): { value: string; label: string }[] => {
+      const values = new Set<string>()
+      allUsers.forEach((u) => {
+        const v = (u as any)[field]
+        if (v && typeof v === "string") values.add(v)
+      })
+      return Array.from(values)
+        .sort((a, b) => a.localeCompare(b))
+        .map((v) => ({ value: v, label: v }))
+    }
 
-  // Filterable columns config - dynamic options from data
-  const filterableColumns: FilterableColumn[] = useMemo(() => {
-    const hubOptions: FilterableColumn["options"] = [
-      { value: "__empty__", label: "Sin Hub" },
-    ];
-    const teamOptions: FilterableColumn["options"] = [
-      { value: "__empty__", label: "Sin equipo" },
-    ];
-    const stateOptions: FilterableColumn["options"] = [
-      { value: "__empty__", label: "Sin comunidad" },
-    ];
-    const chapterOptions: FilterableColumn["options"] = [
-      { value: "__empty__", label: "Sin chapter" },
-    ];
-
-    const hubSet = new Set<string>();
-    const teamSet = new Set<string>();
-    const stateSet = new Set<string>();
-    const chapterSet = new Set<string>();
-
-    (users || []).forEach((u) => {
-      if (u.hub_name && !hubSet.has(u.hub_name)) {
-        hubSet.add(u.hub_name);
-        hubOptions.push({ value: u.hub_name, label: u.hub_name });
-      }
-      if (u.team_name && !teamSet.has(u.team_name)) {
-        teamSet.add(u.team_name);
-        teamOptions.push({ value: u.team_name, label: u.team_name });
-      }
-      if (u.state && !stateSet.has(u.state)) {
-        stateSet.add(u.state);
-        stateOptions.push({ value: u.state, label: u.state });
-      }
-      if (u.chapter && !chapterSet.has(u.chapter)) {
-        chapterSet.add(u.chapter);
-        chapterOptions.push({ value: u.chapter, label: u.chapter });
-      }
-    });
-
-    // Sort alphabetically (after the "Sin..." option)
-    const sortOpts = (opts: FilterableColumn["options"]) => {
-      const first = opts[0];
-      const rest = opts.slice(1).sort((a, b) => a.label.localeCompare(b.label));
-      return [first, ...rest];
-    };
-
-    return [
+    const fields: FieldOption[] = [
       {
         key: "verification_status",
         label: "Estado",
+        type: "select",
         options: [
           { value: "pending", label: "Pendiente" },
           { value: "verified", label: "Verificado" },
@@ -578,7 +185,8 @@ export default function AdminUsers() {
       },
       {
         key: "roles",
-        label: "Rol",
+        label: "Roles",
+        type: "select",
         options: [
           { value: "participant", label: "Participante" },
           { value: "mentor", label: "Mentor" },
@@ -587,125 +195,224 @@ export default function AdminUsers() {
           { value: "admin", label: "Admin" },
         ],
       },
-      {
-        key: "hub_name",
-        label: "Hub",
-        options: sortOpts(hubOptions),
-      },
-      {
-        key: "team_name",
-        label: "Equipo",
-        options: sortOpts(teamOptions),
-      },
-      {
-        key: "chapter",
-        label: "Chapter",
-        options: sortOpts(chapterOptions),
-      },
-      {
-        key: "state",
-        label: "Comunidad",
-        options: sortOpts(stateOptions),
-      },
-    ];
-  }, [users]);
+      { key: "hub_name", label: "Hub", type: "select", options: buildSelectOptions("hub_name") },
+      { key: "team_name", label: "Equipo", type: "select", options: buildSelectOptions("team_name") },
+      { key: "chapter", label: "Chapter", type: "select", options: buildSelectOptions("chapter") },
+      { key: "state", label: "Comunidad", type: "select", options: buildSelectOptions("state") },
+      { key: "city", label: "Ciudad", type: "select", options: buildSelectOptions("city") },
+      { key: "profile_type", label: "Tipo de Perfil", type: "select", options: buildSelectOptions("profile_type") },
+      { key: "onboarding_completed", label: "Registro Completado", type: "boolean" },
+      { key: "is_volunteer", label: "Voluntario", type: "boolean" },
+      { key: "is_judge", label: "Juez", type: "boolean" },
+      { key: "is_active", label: "Activo", type: "boolean" },
+      { key: "school_name", label: "Colegio/Empresa", type: "text" },
+      { key: "phone", label: "Teléfono", type: "text" },
+      { key: "dni", label: "DNI", type: "text" },
+      { key: "postal_code", label: "Código Postal", type: "text" },
+      { key: "parent_email", label: "Email del Padre/Madre", type: "text" },
+      { key: "parent_name", label: "Nombre del Padre/Madre", type: "text" },
+    ]
 
-  // Get initial filters from URL params
-  const initialFilters = useMemo(() => {
-    const filters: Record<string, string[]> = {};
-    const status = searchParams.get("status");
-    if (status) {
-      filters.verification_status = [status];
+    return fields
+  }, [users])
+
+  // Derive data keys from first user for auto-column detection
+  const dataKeys = useMemo(() => {
+    if (!users || users.length === 0) return []
+    return Object.keys(users[0])
+  }, [users])
+
+  // Build columns
+  const columns = useMemo(() => {
+    const baseCols = buildColumns({
+      regionalFinalEvents,
+      customColumns,
+      onSaveCustomField: updateCustomField,
+      onDeleteColumn: deleteColumn,
+      onUpdateJudgeEvent: updateJudgeEvent,
+      dataKeys,
+    })
+
+    // Add send-reminder action column for "sin-registrar" view
+    if (activeViewId === "sin-registrar") {
+      const actionCol: ColumnDef<UserWithRoles> = {
+        id: "actions",
+        header: "",
+        enableHiding: false,
+        cell: ({ row }) => {
+          const user = row.original
+          const isSending = sendingIdsRef.current.has(user.id)
+          return (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  disabled={isSending}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleSendReminder(user)
+                  }}
+                >
+                  {isSending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Enviar recordatorio de registro</TooltipContent>
+            </Tooltip>
+          )
+        },
+      }
+      baseCols.push(actionCol)
     }
-    return filters;
-  }, [searchParams]);
 
-  const handleAddField = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newFieldLabel.trim()) return;
-    addColumnMutation.mutate(newFieldLabel.trim());
-  };
+    return baseCols
+  }, [
+    regionalFinalEvents,
+    customColumns,
+    updateCustomField,
+    deleteColumn,
+    updateJudgeEvent,
+    activeViewId,
+    dataKeys,
+  ])
 
-  // Export handler - exports only visible columns and filtered rows
+  // Send reminder handler
+  const handleSendReminder = async (user: UserWithRoles) => {
+    setSendingIds((prev) => new Set(prev).add(user.id))
+    try {
+      const { error } = await supabase.functions.invoke("send-invite-reminder", {
+        body: { email: user.email, firstName: user.first_name, lastName: user.last_name },
+      })
+      if (error) throw error
+      toast.success(`Recordatorio enviado a ${user.email}`)
+    } catch (err: any) {
+      toast.error(err.message || "No se pudo enviar el recordatorio")
+    } finally {
+      setSendingIds((prev) => {
+        const next = new Set(prev)
+        next.delete(user.id)
+        return next
+      })
+    }
+  }
+
+  // Dynamic filter handlers
+  const handleAddFilter = useCallback((filter: ActiveFilter) => {
+    setSessionFilters((prev) => {
+      // Avoid duplicate
+      if (prev.some((f) => f.field === filter.field && String(f.value) === String(filter.value))) {
+        return prev
+      }
+      return [...prev, filter]
+    })
+  }, [])
+
+  const handleRemoveFilter = useCallback((field: string, value: any) => {
+    setSessionFilters((prev) =>
+      prev.filter((f) => !(f.field === field && String(f.value) === String(value)))
+    )
+  }, [])
+
+  const handleRemovePresetFilter = useCallback((field: string) => {
+    setRemovedPresetFilters((prev) => new Set(prev).add(field))
+  }, [])
+
+  // Export handler
   const handleExport = useCallback((exportData: ExportData<UserWithRoles>) => {
-    const { rows, visibleColumns } = exportData;
+    const { rows, visibleColumns } = exportData
 
     if (rows.length === 0) {
-      toast.error("No hay datos para exportar");
-      return;
+      toast.error("No hay datos para exportar")
+      return
     }
 
-    // Map column ID to value extractor
     const getColumnValue = (row: UserWithRoles, colId: string): string => {
       switch (colId) {
         case "name":
-          return `${row.first_name || ""} ${row.last_name || ""}`.trim();
+          return `${row.first_name || ""} ${row.last_name || ""}`.trim()
         case "tg_id":
-          return row.tg_id || "";
+          return row.tg_id || ""
         case "roles":
-          return row.roles.join(", ");
+          return row.roles.join(", ")
         case "verification_status":
-          return row.verification_status || "";
+          return row.verification_status || ""
         case "team_name":
-          return row.team_name || "";
+          return row.team_name || ""
         case "school_name":
-          return row.school_name || "";
+          return row.school_name || ""
         case "hub_name":
-          return row.hub_name || "";
+          return row.hub_name || ""
         case "chapter":
-          return row.chapter || "";
+          return row.chapter || ""
+        case "city":
+          return row.city || ""
+        case "state":
+          return row.state || ""
         case "phone":
-          return row.phone || "";
+          return row.phone || ""
+        case "date_of_birth":
+          return row.date_of_birth || ""
         case "created_at":
-          return row.created_at ? format(new Date(row.created_at), "dd/MM/yyyy") : "";
+          return row.created_at ? format(new Date(row.created_at), "dd/MM/yyyy") : ""
+        case "judge_event_name":
+        case "judge_event_id":
+          return row.judge_event_name || ""
+        case "judge_schedule_preference":
+          return row.judge_schedule_preference || ""
+        case "judge_conflict_other_text":
+          return row.judge_conflict_other_text || ""
+        case "judge_comments":
+          return row.judge_comments || ""
         default:
           if (colId.startsWith("custom_")) {
-            const key = colId.replace("custom_", "");
-            return (row.custom_fields?.[key] as string) || "";
+            const key = colId.replace("custom_", "")
+            return (row.custom_fields?.[key] as string) || ""
           }
-          return "";
+          // Try direct field access
+          return String((row as any)[colId] ?? "")
       }
-    };
+    }
 
-    // Escape CSV value
     const escapeCSV = (val: string): string => {
       if (val.includes(",") || val.includes('"') || val.includes("\n")) {
-        return `"${val.replace(/"/g, '""')}"`;
+        return `"${val.replace(/"/g, '""')}"`
       }
-      return val;
-    };
+      return val
+    }
 
-    // Generate CSV
-    const headers = visibleColumns.map(c => escapeCSV(c.header));
+    const headers = visibleColumns.map((c) => escapeCSV(c.header))
     const csvRows = [
       headers.join(","),
-      ...rows.map(row =>
-        visibleColumns.map(col => escapeCSV(getColumnValue(row, col.id))).join(",")
+      ...rows.map((row) =>
+        visibleColumns.map((col) => escapeCSV(getColumnValue(row, col.id))).join(",")
       ),
-    ];
+    ]
 
-    // Download
     const blob = new Blob(["\ufeff" + csvRows.join("\n")], {
       type: "text/csv;charset=utf-8;",
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `usuarios_${new Date().toISOString().split("T")[0]}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `usuarios_${new Date().toISOString().split("T")[0]}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
 
-    toast.success(`Exportados ${rows.length} usuarios`);
-  }, []);
+    toast.success(`Exportados ${rows.length} usuarios`)
+  }, [])
 
   const handleDeleteUser = useCallback(() => {
-    if (!selectedUser) return;
-    if (!canDeleteUser(selectedUser)) {
-      toast.error("No se puede eliminar este usuario. Está verificado o existe en la whitelist.");
-      return;
-    }
-    setDeleteDialogOpen(true);
-  }, [selectedUser, canDeleteUser]);
+    if (!selectedUser) return
+    setDeleteDialogOpen(true)
+  }, [selectedUser])
+
+  const handleAddField = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!newFieldLabel.trim()) return
+    addColumn(newFieldLabel.trim())
+    setAddFieldDialogOpen(false)
+    setNewFieldLabel("")
+  }
 
   return (
     <AdminLayout title="Gestión de Usuarios">
@@ -724,51 +431,39 @@ export default function AdminUsers() {
           </Button>
         </div>
 
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="w-full sm:w-auto">
-            <TabsTrigger value="registered" className="flex items-center gap-2">
-              <Users className="h-4 w-4" />
-              Registrados
-              {users && (
-                <span className="ml-1 text-xs bg-muted px-1.5 py-0.5 rounded-full">
-                  {users.length}
-                </span>
-              )}
-            </TabsTrigger>
-            <TabsTrigger value="unregistered" className="flex items-center gap-2">
-              <UserPlus className="h-4 w-4" />
-              Sin Registrar
-              {unregisteredCount !== undefined && unregisteredCount > 0 && (
-                <span className="ml-1 text-xs bg-warning/20 text-warning px-1.5 py-0.5 rounded-full">
-                  {unregisteredCount}
-                </span>
-              )}
-            </TabsTrigger>
-          </TabsList>
+        {/* View Selector */}
+        <UserViewSelector
+          views={VIEWS}
+          activeViewId={activeViewId}
+          onViewChange={handleViewChange}
+        />
 
-          <TabsContent value="registered" className="mt-4">
-            <AirtableDataTable
-              columns={columns}
-              data={users || []}
-              searchPlaceholder="Buscar por nombre, email, equipo, hub..."
-              loading={isLoading}
-              filterableColumns={filterableColumns}
-              initialFilters={initialFilters}
-              hiddenColumns={hiddenColumns}
-              onHiddenColumnsChange={setHiddenColumns}
-              onAddColumn={() => setAddFieldDialogOpen(true)}
-              onRowClick={(user) => {
-                setSelectedUser(user as UserWithRoles);
-                setEditSheetOpen(true);
-              }}
-              onExport={handleExport}
+        {/* Data Table */}
+        <AirtableDataTable
+          columns={columns}
+          data={filteredUsers}
+          searchPlaceholder="Buscar por nombre, email, equipo, hub..."
+          loading={isLoading}
+          externalFilterMode
+          hiddenColumns={hiddenColumns}
+          onHiddenColumnsChange={setHiddenColumns}
+          onAddColumn={() => setAddFieldDialogOpen(true)}
+          onRowClick={(user) => {
+            setSelectedUser(user as UserWithRoles)
+            setEditSheetOpen(true)
+          }}
+          onExport={handleExport}
+          filterBarContent={
+            <DynamicFilterBar
+              filters={sessionFilters}
+              viewPresetFilters={effectivePresetFilters}
+              availableFields={availableFields}
+              onAddFilter={handleAddFilter}
+              onRemoveFilter={handleRemoveFilter}
+              onRemovePresetFilter={handleRemovePresetFilter}
             />
-          </TabsContent>
-
-          <TabsContent value="unregistered" className="mt-4">
-            <UnregisteredUsersTable />
-          </TabsContent>
-        </Tabs>
+          }
+        />
       </div>
 
       {/* Add Field Dialog */}
@@ -815,7 +510,7 @@ export default function AdminUsers() {
         onOpenChange={setEditSheetOpen}
         customColumns={customColumns}
         onDelete={handleDeleteUser}
-        canDelete={selectedUser ? canDeleteUser(selectedUser) : false}
+        canDelete={!!selectedUser}
       />
 
       {/* Delete Confirmation */}
@@ -826,9 +521,14 @@ export default function AdminUsers() {
         description={`Esta acción eliminará permanentemente a ${selectedUser?.first_name} ${selectedUser?.last_name}. Esta acción no se puede deshacer.`}
         confirmText="Eliminar"
         variant="danger"
-        onConfirm={() =>
-          selectedUser && deleteUserMutation.mutate(selectedUser.id)
-        }
+        onConfirm={() => {
+          if (selectedUser) {
+            deleteUser(selectedUser.id, () => {
+              setDeleteDialogOpen(false)
+              setEditSheetOpen(false)
+            })
+          }
+        }}
         loading={deleteUserMutation.isPending}
       />
 
@@ -843,22 +543,22 @@ export default function AdminUsers() {
           </DialogHeader>
           <form
             onSubmit={async (e) => {
-              e.preventDefault();
-              const formData = new FormData(e.currentTarget);
-              const email = formData.get("email") as string;
+              e.preventDefault()
+              const formData = new FormData(e.currentTarget)
+              const email = formData.get("email") as string
 
               const { error } = await supabase.auth.signInWithOtp({
                 email,
                 options: {
                   emailRedirectTo: `${window.location.origin}/auth/callback`,
                 },
-              });
+              })
 
               if (error) {
-                toast.error(`Error: ${error.message}`);
+                toast.error(`Error: ${error.message}`)
               } else {
-                toast.success(`Se ha enviado un Magic Link a ${email}`);
-                setCreateDialogOpen(false);
+                toast.success(`Se ha enviado un Magic Link a ${email}`)
+                setCreateDialogOpen(false)
               }
             }}
             className="space-y-4"
@@ -887,5 +587,5 @@ export default function AdminUsers() {
         </DialogContent>
       </Dialog>
     </AdminLayout>
-  );
+  )
 }
