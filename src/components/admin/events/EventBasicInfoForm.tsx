@@ -11,7 +11,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { EventType } from "@/types/database";
+import { EventType, TeamTurn } from "@/types/database";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Upload, Link, X } from "lucide-react";
@@ -21,6 +21,7 @@ interface EventBasicInfoFormProps {
   eventType: EventType | null;
   description: string;
   imageUrl: string;
+  turn?: TeamTurn;
   onUpdate: (field: string, value: string) => void;
 }
 
@@ -29,6 +30,7 @@ export function EventBasicInfoForm({
   eventType,
   description,
   imageUrl,
+  turn,
   onUpdate,
 }: EventBasicInfoFormProps) {
   const [uploading, setUploading] = useState(false);
@@ -105,6 +107,27 @@ export function EventBasicInfoForm({
             </SelectContent>
           </Select>
         </div>
+
+        {eventType === 'regional_final' && (
+          <div className="space-y-2">
+            <Label htmlFor="turn">Turno de importación</Label>
+            <Select
+              value={turn || 'morning'}
+              onValueChange={(value) => onUpdate('turn', value)}
+            >
+              <SelectTrigger className="w-48">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="morning">Mañana</SelectItem>
+                <SelectItem value="afternoon">Tarde</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Define el turno para la importación de equipos desde CSV.
+            </p>
+          </div>
+        )}
 
         <div className="space-y-2">
           <Label htmlFor="description">Descripción</Label>
