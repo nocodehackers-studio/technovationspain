@@ -6,7 +6,7 @@ import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { ArrowLeft, Save, Info, MapPin, Ticket, Calendar, Eye, Mail, BarChart3, Heart, GraduationCap } from "lucide-react";
+import { ArrowLeft, Save, Info, MapPin, Ticket, Calendar, Eye, Mail, BarChart3, Heart, GraduationCap, FileSpreadsheet, Gavel } from "lucide-react";
 import { EventBasicInfoForm } from "@/components/admin/events/EventBasicInfoForm";
 import { EventLocationForm } from "@/components/admin/events/EventLocationForm";
 import { TicketTypeManager } from "@/components/admin/events/TicketTypeManager";
@@ -16,7 +16,9 @@ import { EventEmailManager } from "@/components/admin/events/EventEmailManager";
 import { EventStatsView } from "@/components/admin/events/EventStatsView";
 import { EventVolunteersView } from "@/components/admin/events/EventVolunteersView";
 import { WorkshopManager } from "@/components/admin/events/WorkshopManager";
-import { Event, EventType } from "@/types/database";
+import { Event, EventType, TeamTurn } from "@/types/database";
+import { EventTeamImport } from "@/components/admin/events/EventTeamImport";
+import { JudgingManager } from "@/components/admin/events/JudgingManager";
 
 interface EventFormData {
   name: string;
@@ -33,6 +35,7 @@ interface EventFormData {
   registration_close_date: string;
   max_capacity: number | null;
   status: "draft" | "published" | null;
+  turn: TeamTurn;
 }
 
 const initialFormData: EventFormData = {
@@ -50,6 +53,7 @@ const initialFormData: EventFormData = {
   registration_close_date: "",
   max_capacity: null,
   status: "draft",
+  turn: "morning" as TeamTurn,
 };
 
 export default function AdminEventEditor() {
@@ -107,6 +111,20 @@ export default function AdminEventEditor() {
   };
 
   // Populate form when event loads
+  // Load turn from existing imported teams
+  const { data: existingTurn } = useQuery({
+    queryKey: ['event-turn', eventId],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('event_teams')
+        .select('turn')
+        .eq('event_id', eventId!)
+        .limit(1);
+      return (data?.[0]?.turn as TeamTurn) || 'morning';
+    },
+    enabled: !!eventId,
+  });
+
   useEffect(() => {
     if (event) {
       setFormData({
@@ -124,9 +142,10 @@ export default function AdminEventEditor() {
         registration_close_date: formatDateTimeLocal(event.registration_close_date),
         max_capacity: event.max_capacity || null,
         status: (event.status as "draft" | "published") || "draft",
+        turn: existingTurn || "morning",
       });
     }
-  }, [event]);
+  }, [event, existingTurn]);
 
   // Create event mutation
   const createMutation = useMutation({
@@ -324,7 +343,7 @@ export default function AdminEventEditor() {
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-9">
+          <TabsList className={`grid w-full ${formData.event_type === 'regional_final' ? 'grid-cols-11' : 'grid-cols-9'}`}>
             <TabsTrigger value="basic" className="gap-2">
               <Info className="h-4 w-4" />
               <span className="hidden sm:inline">Info</span>
@@ -357,6 +376,18 @@ export default function AdminEventEditor() {
               <BarChart3 className="h-4 w-4" />
               <span className="hidden sm:inline">Stats</span>
             </TabsTrigger>
+            {formData.event_type === 'regional_final' && (
+              <TabsTrigger value="teams-import" className="gap-2" disabled={!isEditing}>
+                <FileSpreadsheet className="h-4 w-4" />
+                <span className="hidden sm:inline">Equipos</span>
+              </TabsTrigger>
+            )}
+            {formData.event_type === 'regional_final' && (
+              <TabsTrigger value="judging" className="gap-2" disabled={!isEditing}>
+                <Gavel className="h-4 w-4" />
+                <span className="hidden sm:inline">Jurados</span>
+              </TabsTrigger>
+            )}
             <TabsTrigger value="publish" className="gap-2" disabled={!isEditing}>
               <Eye className="h-4 w-4" />
               <span className="hidden sm:inline">Publicar</span>
@@ -370,6 +401,7 @@ export default function AdminEventEditor() {
                 eventType={formData.event_type}
                 description={formData.description}
                 imageUrl={formData.image_url}
+                turn={formData.turn}
                 onUpdate={handleUpdateField}
               />
             </TabsContent>
@@ -417,6 +449,18 @@ export default function AdminEventEditor() {
             <TabsContent value="stats">
               {eventId && <EventStatsView eventId={eventId} />}
             </TabsContent>
+
+            {formData.event_type === 'regional_final' && (
+              <TabsContent value="teams-import">
+                {eventId && <EventTeamImport eventId={eventId} turn={formData.turn} />}
+              </TabsContent>
+            )}
+
+            {formData.event_type === 'regional_final' && (
+              <TabsContent value="judging">
+                {eventId && <JudgingManager eventId={eventId} />}
+              </TabsContent>
+            )}
 
             <TabsContent value="publish">
               {eventId && (

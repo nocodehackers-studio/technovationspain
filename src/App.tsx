@@ -39,6 +39,8 @@ import AdminSettings from "./pages/admin/AdminSettings";
 import AdminTickets from "./pages/admin/AdminTickets";
 import AdminImportBatch from "./pages/admin/AdminImportBatch";
 import AdminEventAccreditations from "./pages/admin/AdminEventAccreditations";
+import AdminJudgingAssignment from "./pages/admin/AdminJudgingAssignment";
+import AdminJudgingSchedule from "./pages/admin/AdminJudgingSchedule";
 
 // Event Pages
 import EventsListPage from "./pages/events/EventsListPage";
@@ -163,6 +165,16 @@ const App = () => (
             <Route path="/admin/events/:eventId/workshops/schedule" element={
               <ProtectedRoute requiredRoles={["admin", "chapter_ambassador"]}>
                 <AdminWorkshopSchedule />
+              </ProtectedRoute>
+            } />
+            <Route path="/admin/events/:eventId/judging/assign" element={
+              <ProtectedRoute requiredRoles={["admin"]}>
+                <AdminJudgingAssignment />
+              </ProtectedRoute>
+            } />
+            <Route path="/admin/events/:eventId/judging/schedule" element={
+              <ProtectedRoute requiredRoles={["admin"]}>
+                <AdminJudgingSchedule />
               </ProtectedRoute>
             } />
             <Route path="/admin/reports" element={

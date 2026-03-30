@@ -9,6 +9,9 @@ export type TeamCategory = 'beginner' | 'junior' | 'senior';
 
 export type EventType = 'intermediate' | 'regional_final' | 'workshop';
 
+export type TeamTurn = 'morning' | 'afternoon';
+export type TeamMatchType = 'exact' | 'fuzzy' | 'email' | 'manual' | 'tg_id';
+
 export type RegistrationStatus = 'confirmed' | 'cancelled' | 'checked_in' | 'waitlisted';
 
 export interface Profile {
@@ -236,6 +239,22 @@ export interface AuditLog {
   entity_id?: string | null;
   changes?: Record<string, unknown> | null;
   timestamp: string;
+}
+
+// NOTA: Usar EventTeamImportRecord, NO EventTeam (colisión con useEventTeams.ts)
+export interface EventTeamImportRecord {
+  id: string;
+  event_id: string;
+  team_id: string;
+  team_code: string;
+  category: TeamCategory;
+  turn: TeamTurn;
+  csv_team_name: string | null;
+  match_type: TeamMatchType;
+  imported_at: string;
+  imported_by: string | null;
+  updated_at: string;
+  created_at: string;
 }
 
 // Extended types with relations
