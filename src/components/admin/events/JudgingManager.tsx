@@ -94,14 +94,15 @@ export function JudgingManager({ eventId }: JudgingManagerProps) {
         // Batch send emails and mark as sent
         const emailPromises = (judges || []).map(async (judge: any) => {
           try {
-            await supabase.functions.invoke('send-judge-welcome-email', {
+            const { error: invokeError } = await supabase.functions.invoke('send-judge-welcome-email', {
               body: {
                 email: judge.profiles.email,
                 firstName: judge.profiles.first_name,
                 eventId,
               },
             });
-            // Mark this judge as emailed
+            if (invokeError) throw invokeError;
+            // Mark this judge as emailed only on success
             await supabase
               .from('judge_assignments')
               .update({ welcome_email_sent_at: new Date().toISOString() })
