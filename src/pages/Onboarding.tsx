@@ -668,7 +668,7 @@ export default function Onboarding() {
 
                   {/* Comments */}
                   <div className="space-y-2">
-                    <Label htmlFor="judge_comments">Comentarios adicionales</Label>
+                    <Label htmlFor="judge_comments">Indícanos si tienes alguna incompatibilidad adicional para valorar a un equipo</Label>
                     <Textarea
                       id="judge_comments"
                       placeholder="Si tienes algún comentario o consulta, escríbelo aquí"
