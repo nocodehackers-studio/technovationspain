@@ -285,6 +285,8 @@ export interface JudgeAssignment {
   is_active: boolean;
   onboarding_completed: boolean;
   schedule_preference?: 'morning' | 'afternoon' | 'no_preference' | 'online_only' | null;
+  external_judge_id?: string | null;
+  hub_id?: string | null;
   conflict_team_ids?: string[] | null;
   conflict_other_text?: string | null;
   comments?: string | null;

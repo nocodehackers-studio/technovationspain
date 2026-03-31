@@ -11,11 +11,14 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { User, Calendar, Mail, Building2, LogOut } from 'lucide-react';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
+import { User, Calendar, Mail, Building2, LogOut, ChevronsUpDown, Check } from 'lucide-react';
 import { validateSpanishDNI } from '@/lib/validation-utils';
 import { isMinor } from '@/lib/age-utils';
 import { getMissingFields, getMissingJudgeFields, hasMissingFields, REQUIRED_PROFILE_FIELDS } from '@/lib/profile-fields';
 import { getDashboardPath } from '@/lib/dashboard-routes';
+import { cn } from '@/lib/utils';
 
 type OnboardingField = string;
 
@@ -43,7 +46,8 @@ interface FormData {
 interface JudgeFormData {
   judge_how_discovered_program: string;
   judge_previous_participation: string;
-  schedule_preference: '' | 'morning' | 'afternoon' | 'no_preference' | 'online_only';
+  event_id: string;
+  judge_hub_id: string;
   conflict_other_text: string;
   comments: string;
   has_conflict: boolean;
@@ -61,11 +65,13 @@ export default function Onboarding() {
   const [judgeFormData, setJudgeFormData] = useState<JudgeFormData>({
     judge_how_discovered_program: (profile as any)?.judge_how_discovered_program || '',
     judge_previous_participation: (profile as any)?.judge_previous_participation || '',
-    schedule_preference: '',
+    event_id: '',
+    judge_hub_id: '',
     conflict_other_text: '',
     comments: '',
     has_conflict: false,
   });
+  const [hubComboOpen, setHubComboOpen] = useState(false);
 
   // Determine which fields are missing (dynamic)
   const missingFieldSet = useMemo(() => {
@@ -108,6 +114,21 @@ export default function Onboarding() {
       if (error) throw error;
       return data;
     },
+  });
+
+  // Fetch regional_final events for judge time preference
+  const { data: regionalEvents } = useQuery({
+    queryKey: ["regional-final-events"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("events")
+        .select("id, name, start_time, end_time, date")
+        .eq("event_type", "regional_final")
+        .order("start_time", { ascending: true });
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!needsJudgeOnboarding,
   });
 
   // Compute missing judge profile fields
@@ -207,7 +228,7 @@ export default function Onboarding() {
     if (needsConsent && (!termsAccepted || !privacyAccepted)) return false;
     // Judge fields
     if (needsJudgeOnboarding) {
-      if (!judgeFormData.schedule_preference) return false;
+      if (!judgeFormData.event_id) return false;
       if (judgeFormData.has_conflict && !judgeFormData.conflict_other_text.trim()) return false;
     }
     return true;
@@ -279,16 +300,29 @@ export default function Onboarding() {
 
       if (profileError) throw profileError;
 
-      // Save judge onboarding answers (null-event row: check-then-insert)
+      // Save judge onboarding answers
       if (needsJudgeOnboarding) {
+        // Derive schedule_preference from the selected event's start_time
+        const selectedEvent = regionalEvents?.find(e => e.id === judgeFormData.event_id);
+        let derivedPreference: string = 'no_preference';
+        if (selectedEvent?.start_time) {
+          const hour = parseInt(selectedEvent.start_time.split(':')[0], 10);
+          derivedPreference = hour < 12 ? 'morning' : 'afternoon';
+        }
+
+        const selectedEventId = judgeFormData.event_id || null;
+        const judgeHubId = judgeFormData.judge_hub_id || null;
+
         const judgeOnboardingData = {
-          schedule_preference: judgeFormData.schedule_preference || null,
+          schedule_preference: derivedPreference,
+          event_id: selectedEventId,
+          hub_id: judgeHubId,
           conflict_other_text: sanitizeText(judgeFormData.conflict_other_text) || null,
           comments: sanitizeText(judgeFormData.comments),
           onboarding_completed: true,
         };
 
-        // Check for existing null-event row
+        // Check for existing null-event row (may have been created by CSV import)
         const { data: existingRow } = await supabase
           .from('judge_assignments')
           .select('id')
@@ -297,19 +331,18 @@ export default function Onboarding() {
           .maybeSingle();
 
         if (existingRow) {
-          // UPDATE existing null-event row
+          // UPDATE existing null-event row — promote it to event-bound
           const { error: judgeError } = await supabase
             .from('judge_assignments')
             .update(judgeOnboardingData)
             .eq('id', existingRow.id);
           if (judgeError) throw judgeError;
         } else {
-          // INSERT new null-event row
+          // INSERT new event-bound row
           const { error: judgeError } = await supabase
             .from('judge_assignments')
             .insert({
               user_id: user.id,
-              event_id: null,
               is_active: false,
               ...judgeOnboardingData,
             });
@@ -617,30 +650,97 @@ export default function Onboarding() {
                 </div>
               )}
 
-              {/* ── Judge Onboarding Fields (Generic — no event dependency) ── */}
+              {/* ── Judge Onboarding Fields ── */}
               {needsJudgeOnboarding && (
                 <div className="space-y-4 border-t pt-4">
                   <p className="text-sm font-medium">Preferencias de participación</p>
 
-                  {/* Schedule preference */}
+                  {/* Event selection (replaces static schedule preference) */}
                   <div className="space-y-2">
-                    <Label htmlFor="schedule_preference">
-                      ¿Cuál es tu preferencia horaria para participar como juez? *
+                    <Label htmlFor="event_id">
+                      ¿En qué evento del 23 de mayo deseas participar como juez? *
                     </Label>
-                    <Select
-                      value={judgeFormData.schedule_preference}
-                      onValueChange={(value) => setJudgeFormData(prev => ({ ...prev, schedule_preference: value as any }))}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Selecciona tu preferencia horaria" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="morning">Mañana</SelectItem>
-                        <SelectItem value="afternoon">Tarde</SelectItem>
-                        <SelectItem value="no_preference">Sin preferencia</SelectItem>
-                        <SelectItem value="online_only">Solo online</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    {regionalEvents && regionalEvents.length > 0 ? (
+                      <Select
+                        value={judgeFormData.event_id}
+                        onValueChange={(value) => setJudgeFormData(prev => ({ ...prev, event_id: value }))}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecciona el evento" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {regionalEvents.map((event) => {
+                            const startDisplay = event.start_time?.slice(0, 5) || '??:??';
+                            const endDisplay = event.end_time?.slice(0, 5) || '??:??';
+                            let timeLabel = 'Evento';
+                            if (event.start_time) {
+                              const hour = parseInt(event.start_time.split(':')[0], 10);
+                              timeLabel = hour < 12 ? 'Mañana' : 'Tarde';
+                            }
+                            return (
+                              <SelectItem key={event.id} value={event.id}>
+                                {timeLabel} ({startDisplay} - {endDisplay})
+                              </SelectItem>
+                            );
+                          })}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">No hay eventos disponibles</p>
+                    )}
+                  </div>
+
+                  {/* Hub selection for judges (searchable combobox) */}
+                  <div className="space-y-2">
+                    <Label>Hub al que perteneces (opcional)</Label>
+                    <Popover open={hubComboOpen} onOpenChange={setHubComboOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          role="combobox"
+                          aria-expanded={hubComboOpen}
+                          className="w-full justify-between font-normal"
+                        >
+                          {judgeFormData.judge_hub_id
+                            ? hubs?.find(h => h.id === judgeFormData.judge_hub_id)?.name || 'Hub seleccionado'
+                            : 'Selecciona tu hub...'}
+                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-full p-0" align="start">
+                        <Command>
+                          <CommandInput placeholder="Buscar hub..." />
+                          <CommandList>
+                            <CommandEmpty>No se encontró ningún hub.</CommandEmpty>
+                            <CommandGroup>
+                              <CommandItem
+                                value="none"
+                                onSelect={() => {
+                                  setJudgeFormData(prev => ({ ...prev, judge_hub_id: '' }));
+                                  setHubComboOpen(false);
+                                }}
+                              >
+                                <Check className={cn("mr-2 h-4 w-4", !judgeFormData.judge_hub_id ? "opacity-100" : "opacity-0")} />
+                                Sin hub asignado
+                              </CommandItem>
+                              {hubs?.map((hub) => (
+                                <CommandItem
+                                  key={hub.id}
+                                  value={hub.name}
+                                  onSelect={() => {
+                                    setJudgeFormData(prev => ({ ...prev, judge_hub_id: hub.id }));
+                                    setHubComboOpen(false);
+                                  }}
+                                >
+                                  <Check className={cn("mr-2 h-4 w-4", judgeFormData.judge_hub_id === hub.id ? "opacity-100" : "opacity-0")} />
+                                  {hub.name}{hub.location ? ` (${hub.location})` : ''}
+                                </CommandItem>
+                              ))}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
                   </div>
 
                   {/* Conflict of interest */}

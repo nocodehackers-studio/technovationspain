@@ -174,6 +174,7 @@ Deno.serve(async (req)=>{
     const firstNameIdx = findCol("First name");
     const lastNameIdx = findCol("Last name");
     const companyIdx = findCol("Get school company name");
+    const judgeIdIdx = findCol("Judge Id");
     // ── Deduplicate by email ──
     const rowsByEmail = new Map();
     const duplicateEmails = [];
@@ -226,6 +227,7 @@ Deno.serve(async (req)=>{
           last_name: lastName || null,
           company_name: companyName || null
         });
+        const externalJudgeId = judgeIdIdx >= 0 ? trimField(row[judgeIdIdx]) : "";
         const existing = existingProfiles.get(email);
         if (existing) {
           // ── Existing user ──
@@ -239,7 +241,26 @@ Deno.serve(async (req)=>{
           }
           await supabase.from("profiles").update(profileUpdate).eq("id", existing.id);
           // Do NOT touch user_roles for existing users
-          // No judge_assignments row created — event assignment happens separately
+          // Upsert judge_assignments row with external_judge_id if present
+          if (externalJudgeId) {
+            const { data: existingAssignment, error: assignLookupErr } = await supabase
+              .from("judge_assignments")
+              .select("id")
+              .eq("user_id", existing.id)
+              .is("event_id", null)
+              .maybeSingle();
+            if (assignLookupErr) throw assignLookupErr;
+            if (existingAssignment) {
+              const { error: assignUpdateErr } = await supabase.from("judge_assignments")
+                .update({ external_judge_id: externalJudgeId })
+                .eq("id", existingAssignment.id);
+              if (assignUpdateErr) throw assignUpdateErr;
+            } else {
+              const { error: assignInsertErr } = await supabase.from("judge_assignments")
+                .insert({ user_id: existing.id, event_id: null, is_active: false, external_judge_id: externalJudgeId });
+              if (assignInsertErr) throw assignInsertErr;
+            }
+          }
           counters.records_updated++;
         } else {
           // ── New user ──
@@ -297,7 +318,12 @@ Deno.serve(async (req)=>{
             user_id: userId,
             role: "collaborator"
           });
-          // No judge_assignments row created — event assignment happens separately
+          // Create judge_assignments row with external_judge_id if present
+          if (externalJudgeId) {
+            const { error: assignInsertErr } = await supabase.from("judge_assignments")
+              .insert({ user_id: userId, event_id: null, is_active: false, external_judge_id: externalJudgeId });
+            if (assignInsertErr) throw assignInsertErr;
+          }
           counters.records_new++;
         }
         counters.records_processed++;
