@@ -11,14 +11,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
-import { User, Calendar, Mail, Building2, LogOut, ChevronsUpDown, Check } from 'lucide-react';
+import { User, Calendar, Mail, Building2, LogOut } from 'lucide-react';
 import { validateSpanishDNI } from '@/lib/validation-utils';
 import { isMinor } from '@/lib/age-utils';
 import { getMissingFields, getMissingJudgeFields, hasMissingFields, REQUIRED_PROFILE_FIELDS } from '@/lib/profile-fields';
 import { getDashboardPath } from '@/lib/dashboard-routes';
-import { cn } from '@/lib/utils';
 
 type OnboardingField = string;
 
@@ -47,7 +44,6 @@ interface JudgeFormData {
   judge_how_discovered_program: string;
   judge_previous_participation: string;
   event_id: string;
-  judge_hub_id: string;
   conflict_other_text: string;
   comments: string;
   has_conflict: boolean;
@@ -66,12 +62,10 @@ export default function Onboarding() {
     judge_how_discovered_program: (profile as any)?.judge_how_discovered_program || '',
     judge_previous_participation: (profile as any)?.judge_previous_participation || '',
     event_id: '',
-    judge_hub_id: '',
     conflict_other_text: '',
     comments: '',
     has_conflict: false,
   });
-  const [hubComboOpen, setHubComboOpen] = useState(false);
 
   // Determine which fields are missing (dynamic)
   const missingFieldSet = useMemo(() => {
@@ -311,12 +305,10 @@ export default function Onboarding() {
         }
 
         const selectedEventId = judgeFormData.event_id || null;
-        const judgeHubId = judgeFormData.judge_hub_id || null;
 
         const judgeOnboardingData = {
           schedule_preference: derivedPreference,
           event_id: selectedEventId,
-          hub_id: judgeHubId,
           conflict_other_text: sanitizeText(judgeFormData.conflict_other_text) || null,
           comments: sanitizeText(judgeFormData.comments),
           onboarding_completed: true,
@@ -688,59 +680,6 @@ export default function Onboarding() {
                     ) : (
                       <p className="text-sm text-muted-foreground">No hay eventos disponibles</p>
                     )}
-                  </div>
-
-                  {/* Hub selection for judges (searchable combobox) */}
-                  <div className="space-y-2">
-                    <Label>Hub al que perteneces (opcional)</Label>
-                    <Popover open={hubComboOpen} onOpenChange={setHubComboOpen}>
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant="outline"
-                          role="combobox"
-                          aria-expanded={hubComboOpen}
-                          className="w-full justify-between font-normal"
-                        >
-                          {judgeFormData.judge_hub_id
-                            ? hubs?.find(h => h.id === judgeFormData.judge_hub_id)?.name || 'Hub seleccionado'
-                            : 'Selecciona tu hub...'}
-                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-full p-0" align="start">
-                        <Command>
-                          <CommandInput placeholder="Buscar hub..." />
-                          <CommandList>
-                            <CommandEmpty>No se encontró ningún hub.</CommandEmpty>
-                            <CommandGroup>
-                              <CommandItem
-                                value="none"
-                                onSelect={() => {
-                                  setJudgeFormData(prev => ({ ...prev, judge_hub_id: '' }));
-                                  setHubComboOpen(false);
-                                }}
-                              >
-                                <Check className={cn("mr-2 h-4 w-4", !judgeFormData.judge_hub_id ? "opacity-100" : "opacity-0")} />
-                                Sin hub asignado
-                              </CommandItem>
-                              {hubs?.map((hub) => (
-                                <CommandItem
-                                  key={hub.id}
-                                  value={hub.name}
-                                  onSelect={() => {
-                                    setJudgeFormData(prev => ({ ...prev, judge_hub_id: hub.id }));
-                                    setHubComboOpen(false);
-                                  }}
-                                >
-                                  <Check className={cn("mr-2 h-4 w-4", judgeFormData.judge_hub_id === hub.id ? "opacity-100" : "opacity-0")} />
-                                  {hub.name}{hub.location ? ` (${hub.location})` : ''}
-                                </CommandItem>
-                              ))}
-                            </CommandGroup>
-                          </CommandList>
-                        </Command>
-                      </PopoverContent>
-                    </Popover>
                   </div>
 
                   {/* Conflict of interest */}

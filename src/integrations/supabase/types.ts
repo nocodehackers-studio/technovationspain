@@ -769,7 +769,6 @@ export type Database = {
           created_at: string | null
           event_id: string | null
           external_judge_id: string | null
-          hub_id: string | null
           id: string
           is_active: boolean
           onboarding_completed: boolean
@@ -784,7 +783,6 @@ export type Database = {
           created_at?: string | null
           event_id?: string | null
           external_judge_id?: string | null
-          hub_id?: string | null
           id?: string
           is_active?: boolean
           onboarding_completed?: boolean
@@ -799,7 +797,6 @@ export type Database = {
           created_at?: string | null
           event_id?: string | null
           external_judge_id?: string | null
-          hub_id?: string | null
           id?: string
           is_active?: boolean
           onboarding_completed?: boolean
@@ -813,13 +810,6 @@ export type Database = {
             columns: ["event_id"]
             isOneToOne: false
             referencedRelation: "events"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "judge_assignments_hub_id_fkey"
-            columns: ["hub_id"]
-            isOneToOne: false
-            referencedRelation: "hubs"
             referencedColumns: ["id"]
           },
           {
