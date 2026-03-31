@@ -23,7 +23,7 @@ export default function JudgePendingEvent() {
         .from('judge_assignments')
         .select('event_id, events!inner(judge_access_enabled)')
         .eq('user_id', user.id)
-        .eq('is_active', true)
+        .eq('onboarding_completed', true)
         .not('event_id', 'is', null)
         .eq('events.judge_access_enabled', true)
         .limit(1);

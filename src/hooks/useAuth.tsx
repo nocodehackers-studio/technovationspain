@@ -56,12 +56,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       // Fetch judge assignments if user is a judge (multi-event support)
       if ((profileData as any)?.is_judge) {
-        // (1) Active event assignments where judge_access_enabled is true
+        // (1) Event assignments where onboarding is done and judge_access_enabled is true
         const { data: activeData } = await supabase
           .from('judge_assignments')
           .select('event_id, events!inner(judge_access_enabled)')
           .eq('user_id', userId)
-          .eq('is_active', true)
+          .eq('onboarding_completed', true)
           .not('event_id', 'is', null)
           .eq('events.judge_access_enabled', true)
           .order('created_at', { ascending: true });

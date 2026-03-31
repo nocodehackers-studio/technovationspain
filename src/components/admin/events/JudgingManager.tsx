@@ -88,7 +88,6 @@ export function JudgingManager({ eventId }: JudgingManagerProps) {
           .select('id, user_id, profiles!inner(email, first_name)')
           .eq('event_id', eventId)
           .eq('onboarding_completed', true)
-          .eq('is_active', true)
           .is('welcome_email_sent_at', null);
         if (judgesError) throw judgesError;
 
