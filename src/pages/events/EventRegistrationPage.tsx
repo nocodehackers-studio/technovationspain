@@ -112,7 +112,7 @@ export default function EventRegistrationPage() {
   const { eventId } = useParams<{ eventId: string }>();
   const navigate = useNavigate();
   const { profile, role, isJudge, activeJudgeEventIds } = useAuth();
-  const dashboardPath = getDashboardPath(role);
+  const dashboardPath = getDashboardPath(role, isJudge);
   const [step, setStep] = useState(1);
   const [companions, setCompanions] = useState<CompanionData[]>([]);
   const [consentModalOpen, setConsentModalOpen] = useState(false);

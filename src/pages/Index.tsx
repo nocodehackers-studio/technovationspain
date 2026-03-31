@@ -19,7 +19,7 @@ const LOGO_POWER_TO_CODE = "https://orvkqnbshkxzyhqpjsdw.supabase.co/storage/v1/
 
 export default function Index() {
   const navigate = useNavigate();
-  const { user, isLoading, role, isVerified, profile } = useAuth();
+  const { user, isLoading, role, isVerified, isJudge, judgeHasNoEvent, profile } = useAuth();
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
@@ -39,6 +39,8 @@ export default function Index() {
     if (profile && hasMissingFields(profile)) return <Navigate to="/onboarding" replace />;
     if (role === "chapter_ambassador") return <Navigate to="/admin" replace />;
     if (role === "mentor") return <Navigate to="/mentor/dashboard" replace />;
+    if (isJudge && judgeHasNoEvent) return <Navigate to="/judge-pending-event" replace />;
+    if (isJudge) return <Navigate to="/judge/dashboard" replace />;
     return <Navigate to="/dashboard" replace />;
   }
 
@@ -115,6 +117,8 @@ export default function Index() {
           navigate('/admin', { replace: true });
         } else if (highestRole === 'mentor') {
           navigate('/mentor/dashboard', { replace: true });
+        } else if (profileData?.is_judge) {
+          navigate('/judge/dashboard', { replace: true });
         } else {
           navigate('/dashboard', { replace: true });
         }

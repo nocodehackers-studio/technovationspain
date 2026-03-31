@@ -56,13 +56,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       // Fetch judge assignments if user is a judge (multi-event support)
       if ((profileData as any)?.is_judge) {
-        // (1) Active event assignments (non-null event_id, is_active=true)
+        // (1) Active event assignments where judge_access_enabled is true
         const { data: activeData } = await supabase
           .from('judge_assignments')
-          .select('event_id')
+          .select('event_id, events!inner(judge_access_enabled)')
           .eq('user_id', userId)
           .eq('is_active', true)
           .not('event_id', 'is', null)
+          .eq('events.judge_access_enabled', true)
           .order('created_at', { ascending: true });
 
         if (activeData && activeData.length > 0) {

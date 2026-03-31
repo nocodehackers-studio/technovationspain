@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Shuffle, Calendar, AlertTriangle, Gavel } from 'lucide-react';
 import { useJudgingConfig } from '@/hooks/useJudgingConfig';
 import { useEventJudges } from '@/hooks/useEventJudges';
+import { useToast } from '@/hooks/use-toast';
 import { JudgingConfigForm } from './JudgingConfigForm';
 import { JudgingSchedulePreview } from './JudgingSchedulePreview';
 
@@ -19,6 +20,8 @@ interface JudgingManagerProps {
 
 export function JudgingManager({ eventId }: JudgingManagerProps) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
   const {
     config,
     isLoading: configLoading,
@@ -52,7 +55,82 @@ export function JudgingManager({ eventId }: JudgingManagerProps) {
   const neededJudges = totalPanels * (config?.judges_per_group || 6);
   const hasEnoughJudges = readyJudges.length >= neededJudges;
 
-  const [judgeAccessEnabled, setJudgeAccessEnabled] = useState(false);
+  // Fetch judge_access_enabled from DB
+  const { data: eventData } = useQuery({
+    queryKey: ['event-judge-access', eventId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('events')
+        .select('judge_access_enabled')
+        .eq('id', eventId)
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!eventId,
+  });
+
+  const judgeAccessEnabled = eventData?.judge_access_enabled ?? false;
+
+  // Toggle judge access and send welcome emails when enabling
+  const toggleJudgeAccess = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      const { error } = await supabase
+        .from('events')
+        .update({ judge_access_enabled: enabled })
+        .eq('id', eventId);
+      if (error) throw error;
+
+      // When enabling, send welcome emails to onboarded judges who haven't been emailed yet
+      if (enabled) {
+        const { data: judges, error: judgesError } = await supabase
+          .from('judge_assignments')
+          .select('id, user_id, profiles!inner(email, first_name)')
+          .eq('event_id', eventId)
+          .eq('onboarding_completed', true)
+          .eq('is_active', true)
+          .is('welcome_email_sent_at', null);
+        if (judgesError) throw judgesError;
+
+        // Batch send emails and mark as sent
+        const emailPromises = (judges || []).map(async (judge: any) => {
+          try {
+            await supabase.functions.invoke('send-judge-welcome-email', {
+              body: {
+                email: judge.profiles.email,
+                firstName: judge.profiles.first_name,
+                eventId,
+              },
+            });
+            // Mark this judge as emailed
+            await supabase
+              .from('judge_assignments')
+              .update({ welcome_email_sent_at: new Date().toISOString() })
+              .eq('id', judge.id);
+          } catch (err: any) {
+            console.error('Judge email error:', err);
+          }
+        });
+        await Promise.allSettled(emailPromises);
+      }
+    },
+    onSuccess: (_data, enabled) => {
+      queryClient.invalidateQueries({ queryKey: ['event-judge-access', eventId] });
+      toast({
+        title: enabled ? 'Acceso habilitado' : 'Acceso deshabilitado',
+        description: enabled
+          ? 'Los jueces pueden acceder a la plataforma. Se han enviado los correos de bienvenida.'
+          : 'Los jueces ya no pueden acceder a la plataforma.',
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: 'Error',
+        description: error.message || 'No se pudo actualizar el acceso de jueces.',
+        variant: 'destructive',
+      });
+    },
+  });
 
   return (
     <div className="space-y-4">
@@ -72,7 +150,8 @@ export function JudgingManager({ eventId }: JudgingManagerProps) {
         <Switch
           id="judge-access"
           checked={judgeAccessEnabled}
-          onCheckedChange={setJudgeAccessEnabled}
+          onCheckedChange={(checked) => toggleJudgeAccess.mutate(checked)}
+          disabled={toggleJudgeAccess.isPending}
         />
       </div>
 

@@ -24,8 +24,8 @@ const RELATIONSHIP_LABELS: Record<string, string> = {
 export default function RegistrationConfirmationPage() {
   const { registrationId } = useParams<{ registrationId: string }>();
   const navigate = useNavigate();
-  const { role } = useAuth();
-  const dashboardPath = getDashboardPath(role);
+  const { role, isJudge } = useAuth();
+  const dashboardPath = getDashboardPath(role, isJudge);
   
   const { data: registration, isLoading, error } = useRegistration(registrationId || '');
   const { data: companions } = useRegistrationCompanions(registrationId || '');

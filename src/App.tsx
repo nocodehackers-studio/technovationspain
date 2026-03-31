@@ -22,6 +22,9 @@ import VolunteerDashboard from "./pages/volunteer/VolunteerDashboard";
 // Mentor Pages
 import MentorDashboard from "./pages/mentor/MentorDashboard";
 
+// Judge Pages
+import JudgeDashboard from "./pages/judge/JudgeDashboard";
+
 // Admin Pages
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import AdminUsers from "./pages/admin/AdminUsers";
@@ -92,6 +95,13 @@ const App = () => (
             <Route path="/mentor/dashboard" element={
               <ProtectedRoute requiredRoles={["mentor", "admin"]}>
                 <MentorDashboard />
+              </ProtectedRoute>
+            } />
+
+            {/* Judge dashboard (protected — access gated by is_judge + judge_access_enabled) */}
+            <Route path="/judge/dashboard" element={
+              <ProtectedRoute>
+                <JudgeDashboard />
               </ProtectedRoute>
             } />
             {/* Protected routes */}

@@ -9,8 +9,8 @@ import { getDashboardPath } from '@/lib/dashboard-routes';
 
 export default function EventsListPage() {
   const { data: events, isLoading, error } = useEventsList();
-  const { signOut, role } = useAuth();
-  const dashboardPath = getDashboardPath(role);
+  const { signOut, role, isJudge } = useAuth();
+  const dashboardPath = getDashboardPath(role, isJudge);
   
   if (isLoading) {
     return (

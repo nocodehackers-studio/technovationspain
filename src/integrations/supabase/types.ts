@@ -667,6 +667,7 @@ export type Database = {
           event_type: string | null
           id: string
           image_url: string | null
+          judge_access_enabled: boolean
           location: string | null
           location_address: string | null
           location_city: string | null
@@ -689,6 +690,7 @@ export type Database = {
           event_type?: string | null
           id?: string
           image_url?: string | null
+          judge_access_enabled?: boolean
           location?: string | null
           location_address?: string | null
           location_city?: string | null
@@ -711,6 +713,7 @@ export type Database = {
           event_type?: string | null
           id?: string
           image_url?: string | null
+          judge_access_enabled?: boolean
           location?: string | null
           location_address?: string | null
           location_city?: string | null
@@ -775,6 +778,7 @@ export type Database = {
           schedule_preference: string | null
           updated_at: string | null
           user_id: string
+          welcome_email_sent_at: string | null
         }
         Insert: {
           comments?: string | null
@@ -789,6 +793,7 @@ export type Database = {
           schedule_preference?: string | null
           updated_at?: string | null
           user_id: string
+          welcome_email_sent_at?: string | null
         }
         Update: {
           comments?: string | null
@@ -803,6 +808,7 @@ export type Database = {
           schedule_preference?: string | null
           updated_at?: string | null
           user_id?: string
+          welcome_email_sent_at?: string | null
         }
         Relationships: [
           {

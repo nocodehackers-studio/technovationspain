@@ -11,7 +11,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { User, Calendar, Mail, Building2, LogOut } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { User, Calendar, Mail, Building2, LogOut, Info } from 'lucide-react';
 import { validateSpanishDNI } from '@/lib/validation-utils';
 import { isMinor } from '@/lib/age-utils';
 import { getMissingFields, hasMissingFields, REQUIRED_PROFILE_FIELDS } from '@/lib/profile-fields';
@@ -74,7 +75,7 @@ export default function Onboarding() {
 
   // If no required fields missing, consent done, and no judge onboarding, skip
   if (profile && !needsConsent && !hasMissingFields(profile as unknown as Record<string, unknown>) && !needsJudgeOnboarding) {
-    navigate(getDashboardPath(role), { replace: true });
+    navigate(getDashboardPath(role, isJudge), { replace: true });
     return null;
   }
 
@@ -177,6 +178,9 @@ export default function Onboarding() {
     }
     if (missingFieldSet.has('postal_code') && !formData.postal_code.trim()) {
       newErrors.postal_code = 'El código postal es obligatorio';
+    }
+    if (missingFieldSet.has('phone') && !formData.phone.trim()) {
+      newErrors.phone = 'El teléfono es obligatorio';
     }
     // hub_id is optional — user can select "Sin hub asignado"
 
@@ -361,7 +365,7 @@ export default function Onboarding() {
         }
 
         toast({ title: '¡Bienvenida!', description: 'Tu cuenta está lista.' });
-        navigate(getDashboardPath(role), { replace: true });
+        navigate(getDashboardPath(role, isJudge), { replace: true });
       } else {
         toast({ title: 'Registro completado', description: 'Tu perfil está pendiente de verificación.' });
         navigate('/pending-verification', { replace: true });
@@ -395,6 +399,14 @@ export default function Onboarding() {
             </CardDescription>
           </CardHeader>
           <CardContent>
+            {isJudge && (
+              <Alert className="mb-4 border-blue-200 bg-blue-50 text-blue-800">
+                <Info className="h-4 w-4 text-blue-600" />
+                <AlertDescription>
+                  Si vas a participar como juez en modalidad online, no es necesario que completes este formulario. Este registro es únicamente para jueces presenciales.
+                </AlertDescription>
+              </Alert>
+            )}
             <form onSubmit={handleSubmit} className="space-y-4">
               {/* Name fields */}
               {(shouldShowField('first_name') || shouldShowField('last_name')) && (
@@ -515,7 +527,7 @@ export default function Onboarding() {
                   )}
                   {shouldShowField('phone') && (
                     <div className="space-y-2">
-                      <Label htmlFor="phone">Teléfono</Label>
+                      <Label htmlFor="phone">Teléfono *</Label>
                       <Input
                         id="phone"
                         type="tel"
@@ -524,6 +536,7 @@ export default function Onboarding() {
                         onChange={(e) => updateField('phone', e.target.value)}
                         maxLength={20}
                       />
+                      {errors.phone && <p className="text-sm text-destructive">{errors.phone}</p>}
                     </div>
                   )}
                 </div>

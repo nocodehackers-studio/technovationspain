@@ -43,7 +43,7 @@ export function ProtectedRoute({
     return <Navigate to="/onboarding" replace />;
   }
 
-  // Block judges with no event assignment after onboarding (skip for admins)
+  // Block judges with no accessible event (judge_access_enabled) after onboarding (skip for admins)
   if (judgeHasNoEvent && role !== 'admin' && location.pathname !== '/judge-pending-event') {
     return <Navigate to="/judge-pending-event" replace />;
   }

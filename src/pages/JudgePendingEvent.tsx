@@ -10,7 +10,7 @@ import { getDashboardPath } from '@/lib/dashboard-routes';
 
 export default function JudgePendingEvent() {
   const navigate = useNavigate();
-  const { user, profile, isLoading, signOut, refreshProfile, role, judgeHasNoEvent } = useAuth();
+  const { user, profile, isLoading, signOut, refreshProfile, role, isJudge, judgeHasNoEvent } = useAuth();
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Poll judge_assignments every 30s for new event assignment
@@ -18,17 +18,19 @@ export default function JudgePendingEvent() {
     if (!user) return;
 
     const checkForEvent = async () => {
+      // Check if any assigned event has judge_access_enabled=true
       const { data } = await supabase
         .from('judge_assignments')
-        .select('id')
+        .select('event_id, events!inner(judge_access_enabled)')
         .eq('user_id', user.id)
         .eq('is_active', true)
         .not('event_id', 'is', null)
+        .eq('events.judge_access_enabled', true)
         .limit(1);
 
       if (data && data.length > 0) {
         await refreshProfile();
-        navigate(getDashboardPath(role), { replace: true });
+        navigate(getDashboardPath(role, isJudge), { replace: true });
       }
     };
 
@@ -37,11 +39,11 @@ export default function JudgePendingEvent() {
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [user, refreshProfile, navigate, role]);
+  }, [user, refreshProfile, navigate, role, isJudge]);
 
   // Redirect if judge already has an event
   if (!isLoading && !judgeHasNoEvent && user) {
-    navigate(getDashboardPath(role), { replace: true });
+    navigate(getDashboardPath(role, isJudge), { replace: true });
     return null;
   }
 
