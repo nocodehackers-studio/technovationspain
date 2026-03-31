@@ -812,6 +812,176 @@ export function useJudgingAssignment(eventId: string | undefined) {
     },
   });
 
+  // Replace judge in panel (deactivate old + insert new, with rollback)
+  const replaceJudge = useMutation({
+    mutationFn: async ({
+      panelJudgeId,
+      panelId,
+      newJudgeId,
+      userId,
+    }: {
+      panelJudgeId: string;
+      panelId: string;
+      newJudgeId: string;
+      userId: string;
+    }) => {
+      // Verify the new judge isn't already assigned to an active panel
+      const { data: existing } = await supabase
+        .from('judging_panel_judges')
+        .select('id')
+        .eq('judge_id', newJudgeId)
+        .eq('is_active', true)
+        .limit(1);
+
+      if (existing && existing.length > 0) {
+        throw new Error('Este juez ya fue asignado a otro panel. Recarga la página.');
+      }
+
+      // Deactivate original judge
+      const { error: deactErr } = await supabase
+        .from('judging_panel_judges')
+        .update({
+          is_active: false,
+          deactivated_at: new Date().toISOString(),
+          deactivated_reason: 'Reemplazado por otro juez',
+        })
+        .eq('id', panelJudgeId);
+
+      if (deactErr) throw deactErr;
+
+      // Insert new judge
+      const { error: insErr } = await supabase
+        .from('judging_panel_judges')
+        .insert({
+          panel_id: panelId,
+          judge_id: newJudgeId,
+          assignment_type: 'manual',
+          assigned_by: userId,
+        });
+
+      if (insErr) {
+        // Rollback: re-activate original judge
+        await supabase
+          .from('judging_panel_judges')
+          .update({
+            is_active: true,
+            deactivated_at: null,
+            deactivated_reason: null,
+          })
+          .eq('id', panelJudgeId);
+        throw new Error(`Fallo al insertar nuevo juez: ${insErr.message}. Juez original restaurado.`);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['judging-assignments', eventId] });
+      toast.success('Juez reemplazado correctamente');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message);
+    },
+  });
+
+  // Swap two judges between panels (with rollback)
+  const swapJudges = useMutation({
+    mutationFn: async ({
+      panelJudgeAId,
+      panelJudgeBId,
+      userId,
+    }: {
+      panelJudgeAId: string;
+      panelJudgeBId: string;
+      userId: string;
+    }) => {
+      // Fetch both records to get judge_id and panel_id
+      const [{ data: recordA, error: errA }, { data: recordB, error: errB }] = await Promise.all([
+        supabase.from('judging_panel_judges').select('id, judge_id, panel_id, is_active').eq('id', panelJudgeAId).single(),
+        supabase.from('judging_panel_judges').select('id, judge_id, panel_id, is_active').eq('id', panelJudgeBId).single(),
+      ]);
+
+      if (errA || errB || !recordA || !recordB) {
+        throw new Error('No se pudieron cargar los registros de jueces. Recarga la página.');
+      }
+      if (!recordA.is_active || !recordB.is_active) {
+        throw new Error('Uno de los jueces ya no está activo. Recarga la página.');
+      }
+
+      // Step 1: Deactivate both
+      const { error: deactAErr } = await supabase
+        .from('judging_panel_judges')
+        .update({
+          is_active: false,
+          deactivated_at: new Date().toISOString(),
+          deactivated_reason: 'Intercambiado con otro juez',
+        })
+        .eq('id', panelJudgeAId);
+
+      if (deactAErr) throw deactAErr;
+
+      const { error: deactBErr } = await supabase
+        .from('judging_panel_judges')
+        .update({
+          is_active: false,
+          deactivated_at: new Date().toISOString(),
+          deactivated_reason: 'Intercambiado con otro juez',
+        })
+        .eq('id', panelJudgeBId);
+
+      if (deactBErr) {
+        // Rollback: re-activate A
+        await supabase.from('judging_panel_judges').update({ is_active: true, deactivated_at: null, deactivated_reason: null }).eq('id', panelJudgeAId);
+        throw new Error(`Fallo al desactivar segundo juez: ${deactBErr.message}. Restaurado.`);
+      }
+
+      // Step 2: Insert A into B's panel
+      const { data: insertedA, error: insAErr } = await supabase
+        .from('judging_panel_judges')
+        .insert({
+          panel_id: recordB.panel_id,
+          judge_id: recordA.judge_id,
+          assignment_type: 'manual',
+          assigned_by: userId,
+        })
+        .select('id')
+        .single();
+
+      if (insAErr) {
+        // Rollback: re-activate both
+        await Promise.all([
+          supabase.from('judging_panel_judges').update({ is_active: true, deactivated_at: null, deactivated_reason: null }).eq('id', panelJudgeAId),
+          supabase.from('judging_panel_judges').update({ is_active: true, deactivated_at: null, deactivated_reason: null }).eq('id', panelJudgeBId),
+        ]);
+        throw new Error(`Fallo al insertar juez A en panel destino: ${insAErr.message}. Restaurado.`);
+      }
+
+      // Step 3: Insert B into A's panel
+      const { error: insBErr } = await supabase
+        .from('judging_panel_judges')
+        .insert({
+          panel_id: recordA.panel_id,
+          judge_id: recordB.judge_id,
+          assignment_type: 'manual',
+          assigned_by: userId,
+        });
+
+      if (insBErr) {
+        // Rollback: re-activate both + delete inserted A
+        await Promise.all([
+          supabase.from('judging_panel_judges').delete().eq('id', insertedA.id),
+          supabase.from('judging_panel_judges').update({ is_active: true, deactivated_at: null, deactivated_reason: null }).eq('id', panelJudgeAId),
+          supabase.from('judging_panel_judges').update({ is_active: true, deactivated_at: null, deactivated_reason: null }).eq('id', panelJudgeBId),
+        ]);
+        throw new Error(`Fallo al insertar juez B en panel destino: ${insBErr.message}. Restaurado.`);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['judging-assignments', eventId] });
+      toast.success('Jueces intercambiados correctamente');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message);
+    },
+  });
+
   // Clear all assignments
   const clearAssignments = useMutation({
     mutationFn: async () => {
@@ -852,6 +1022,10 @@ export function useJudgingAssignment(eventId: string | undefined) {
     isDeactivating: deactivateJudgeFromPanel.isPending,
     moveTeam: moveTeam.mutateAsync,
     isMovingTeam: moveTeam.isPending,
+    replaceJudge: replaceJudge.mutateAsync,
+    isReplacing: replaceJudge.isPending,
+    swapJudges: swapJudges.mutateAsync,
+    isSwapping: swapJudges.isPending,
     clearAssignments: clearAssignments.mutateAsync,
     isClearing: clearAssignments.isPending,
   };

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -37,6 +37,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import {
   ArrowLeft,
   Download,
@@ -98,6 +99,10 @@ export default function AdminJudgingSchedule() {
     addJudgeToPanel,
     isAddingJudge,
     moveTeam,
+    replaceJudge,
+    isReplacing,
+    swapJudges,
+    isSwapping,
     isMovingTeam,
   } = useJudgingAssignment(eventId);
 
@@ -180,7 +185,7 @@ export default function AdminJudgingSchedule() {
       const hasHubConflict = !!judgeHubId && panelTeamHubIds.has(judgeHubId);
       return {
         judgeId: j.judge_id,
-        judgeName: `${j.profiles?.first_name || ''} ${j.profiles?.last_name || ''}`.trim(),
+        judgeName: `${j.profiles?.first_name || ''} ${j.profiles?.last_name || ''}`.trim() || j.profiles?.email || 'Sin nombre',
         email: j.profiles?.email || '',
         hubId: judgeHubId,
         hubName: judgeHubId ? (hubsMap[judgeHubId] || null) : null,
@@ -197,6 +202,193 @@ export default function AdminJudgingSchedule() {
       };
     });
   });
+
+  // Judge manage dialog state
+  const [judgeManageDialog, setJudgeManageDialog] = useState<{
+    open: boolean;
+    judgeId: string;
+    judgeName: string;
+    hubName: string | null;
+    panelJudgeId: string;
+    panelId: string;
+    panelCode: string;
+  }>({ open: false, judgeId: '', judgeName: '', hubName: null, panelJudgeId: '', panelId: '', panelCode: '' });
+  const [manageAction, setManageAction] = useState<'replace' | 'swap' | 'deactivate'>('replace');
+  const [selectedReplaceJudgeId, setSelectedReplaceJudgeId] = useState('');
+  const [selectedSwapPanelJudgeId, setSelectedSwapPanelJudgeId] = useState('');
+  const [manageDeactivateReason, setManageDeactivateReason] = useState('');
+
+  // Judges grid data grouped by turn → session → room
+  const judgesGridData = useMemo(() => {
+    const turnMap = new Map<string, Map<number, Map<number, {
+      panelCode: string;
+      panelId: string;
+      judges: typeof allJudgeRows;
+    }>>>();
+
+    for (const panel of assignments) {
+      const turn = panel.turn;
+      if (!turnMap.has(turn)) turnMap.set(turn, new Map());
+      const sessMap = turnMap.get(turn)!;
+      if (!sessMap.has(panel.session_number)) sessMap.set(panel.session_number, new Map());
+      const roomMap = sessMap.get(panel.session_number)!;
+
+      const panelTeamHubIds = new Set(
+        (panel.judging_panel_teams || [])
+          .filter(t => t.is_active && t.teams?.hub_id)
+          .map(t => t.teams!.hub_id as string)
+      );
+
+      const judges = (panel.judging_panel_judges || []).map(j => {
+        const judgeHubId = j.profiles?.hub_id || null;
+        const hasHubConflict = !!judgeHubId && panelTeamHubIds.has(judgeHubId);
+        return {
+          judgeId: j.judge_id,
+          judgeName: `${j.profiles?.first_name || ''} ${j.profiles?.last_name || ''}`.trim() || j.profiles?.email || 'Sin nombre',
+          email: j.profiles?.email || '',
+          hubId: judgeHubId,
+          hubName: judgeHubId ? (hubsMap[judgeHubId] || null) : null,
+          hasHubConflict,
+          panelCode: panel.panel_code,
+          session: panel.session_number,
+          room: panel.room_number,
+          turn: panel.turn,
+          isActive: j.is_active,
+          assignmentType: j.assignment_type,
+          deactivatedReason: j.deactivated_reason,
+          panelJudgeId: j.id,
+          panelId: panel.id,
+        };
+      });
+
+      roomMap.set(panel.room_number, {
+        panelCode: panel.panel_code,
+        panelId: panel.id,
+        judges,
+      });
+    }
+
+    const turnOrder: ('morning' | 'afternoon')[] = ['morning', 'afternoon'];
+    return turnOrder
+      .filter(turn => turnMap.has(turn))
+      .map(turn => {
+        const sessMap = turnMap.get(turn)!;
+        const sessionNumbers = Array.from(sessMap.keys()).sort((a, b) => a - b);
+        return {
+          turn,
+          turnLabel: turn === 'morning' ? 'Mañana' : 'Tarde',
+          sessions: sessionNumbers.map(sessionNumber => {
+            const roomMap = sessMap.get(sessionNumber)!;
+            const allRoomNums = Array.from({ length: config?.total_rooms || 1 }, (_, i) => i + 1);
+            return {
+              sessionNumber,
+              rooms: allRoomNums.map(roomNumber => {
+                const data = roomMap.get(roomNumber);
+                return {
+                  roomNumber,
+                  panelCode: data?.panelCode || '',
+                  panelId: data?.panelId || '',
+                  judges: data?.judges || [],
+                  activeCount: (data?.judges || []).filter(j => j.isActive).length,
+                };
+              }),
+            };
+          }),
+        };
+      });
+  }, [assignments, hubsMap, config?.total_rooms]);
+
+  // All assigned active judges for swap list (flat)
+  const allAssignedActiveJudges = useMemo(() => {
+    return assignments.flatMap(p =>
+      (p.judging_panel_judges || [])
+        .filter(j => j.is_active)
+        .map(j => ({
+          panelJudgeId: j.id,
+          judgeId: j.judge_id,
+          name: `${j.profiles?.first_name || ''} ${j.profiles?.last_name || ''}`.trim() || j.profiles?.email || 'Sin nombre',
+          hubId: j.profiles?.hub_id || null,
+          hubName: j.profiles?.hub_id ? (hubsMap[j.profiles.hub_id] || null) : null,
+          panelCode: p.panel_code,
+          panelId: p.id,
+        }))
+    );
+  }, [assignments, hubsMap]);
+
+  // Hub conflict preview for swap target
+  const getSwapHubConflict = (targetPanelJudgeId: string): boolean => {
+    const targetJudge = allAssignedActiveJudges.find(j => j.panelJudgeId === targetPanelJudgeId);
+    if (!targetJudge) return false;
+    // Check if the current judge's hub conflicts with target's panel teams
+    const currentJudgeHubId = allJudgeRows.find(j => j.panelJudgeId === judgeManageDialog.panelJudgeId)?.hubId;
+    const targetPanel = assignments.find(p => p.id === targetJudge.panelId);
+    if (!currentJudgeHubId || !targetPanel) return false;
+    const targetPanelTeamHubIds = new Set(
+      (targetPanel.judging_panel_teams || [])
+        .filter(t => t.is_active && t.teams?.hub_id)
+        .map(t => t.teams!.hub_id as string)
+    );
+    return targetPanelTeamHubIds.has(currentJudgeHubId);
+  };
+
+  const openJudgeManageDialog = (judge: typeof allJudgeRows[0]) => {
+    // Close other dialogs (F10)
+    setDeactivateDialog({ open: false, panelJudgeId: '', judgeName: '' });
+    setAddJudgeDialog({ open: false, panelId: '', panelCode: '' });
+    setMoveTeamDialog({ open: false, teamId: '', teamName: '' });
+    // Open manage dialog
+    setJudgeManageDialog({
+      open: true,
+      judgeId: judge.judgeId,
+      judgeName: judge.judgeName,
+      hubName: judge.hubName,
+      panelJudgeId: judge.panelJudgeId,
+      panelId: judge.panelId,
+      panelCode: judge.panelCode,
+    });
+    setManageAction('replace');
+    setSelectedReplaceJudgeId('');
+    setSelectedSwapPanelJudgeId('');
+    setManageDeactivateReason('');
+  };
+
+  const handleManageConfirm = async () => {
+    try {
+      if (manageAction === 'replace') {
+        if (!selectedReplaceJudgeId) return;
+        await replaceJudge({
+          panelJudgeId: judgeManageDialog.panelJudgeId,
+          panelId: judgeManageDialog.panelId,
+          newJudgeId: selectedReplaceJudgeId,
+          userId: user?.id || '',
+        });
+      } else if (manageAction === 'swap') {
+        if (!selectedSwapPanelJudgeId) return;
+        await swapJudges({
+          panelJudgeAId: judgeManageDialog.panelJudgeId,
+          panelJudgeBId: selectedSwapPanelJudgeId,
+          userId: user?.id || '',
+        });
+      } else if (manageAction === 'deactivate') {
+        if (!manageDeactivateReason.trim()) return;
+        await deactivateJudgeFromPanel({
+          panelJudgeId: judgeManageDialog.panelJudgeId,
+          reason: manageDeactivateReason,
+        });
+      }
+      setJudgeManageDialog({ open: false, judgeId: '', judgeName: '', hubName: null, panelJudgeId: '', panelId: '', panelCode: '' });
+    } catch {
+      // handled by hook
+    }
+  };
+
+  const isManageDisabled = () => {
+    if (isReplacing || isSwapping || isDeactivating) return true;
+    if (manageAction === 'replace') return !selectedReplaceJudgeId;
+    if (manageAction === 'swap') return !selectedSwapPanelJudgeId;
+    if (manageAction === 'deactivate') return !manageDeactivateReason.trim();
+    return true;
+  };
 
   // Handlers
   const handleDeactivateJudge = async () => {
@@ -739,126 +931,119 @@ export default function AdminJudgingSchedule() {
             </Card>
           </TabsContent>
 
-          {/* ============ By Judges View ============ */}
+          {/* ============ By Judges View (Grid) ============ */}
           <TabsContent value="judges">
-            <Card>
-              <CardContent className="pt-6">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Juez</TableHead>
-                      <TableHead>Hub</TableHead>
-                      <TableHead>Panel</TableHead>
-                      <TableHead>Turno</TableHead>
-                      <TableHead>Conflicto</TableHead>
-                      <TableHead>Estado</TableHead>
-                      <TableHead className="text-right">Acciones</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {allJudgeRows
-                      .filter(j => turnFilter === 'all' || j.turn === turnFilter)
-                      .sort((a, b) => {
-                        // Conflicts first, then alphabetical
-                        if (a.hasHubConflict && !b.hasHubConflict) return -1;
-                        if (!a.hasHubConflict && b.hasHubConflict) return 1;
-                        return a.judgeName.localeCompare(b.judgeName);
-                      })
-                      .map((j, i) => (
-                        <TableRow
-                          key={`${j.judgeId}-${i}`}
-                          className={`${!j.isActive ? 'opacity-50' : ''} ${j.hasHubConflict && j.isActive ? 'bg-red-50' : ''}`}
-                        >
-                          <TableCell>
-                            <div>
-                              <span className={!j.isActive ? 'line-through text-red-500' : 'font-medium'}>
-                                {j.judgeName}
-                              </span>
-                              <p className="text-xs text-muted-foreground">{j.email}</p>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            {j.hubName ? (
-                              <Badge variant="outline" className="text-xs">{j.hubName}</Badge>
-                            ) : (
-                              <span className="text-xs text-muted-foreground">—</span>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            <span className="font-medium">{j.panelCode}</span>
-                            <span className="text-xs text-muted-foreground ml-1">
-                              (S{j.session})
-                            </span>
-                          </TableCell>
-                          <TableCell>{j.turn === 'morning' ? 'Mañana' : 'Tarde'}</TableCell>
-                          <TableCell>
-                            {j.hasHubConflict && j.isActive ? (
-                              <Badge variant="destructive" className="text-xs">
-                                Mismo hub
-                              </Badge>
-                            ) : (
-                              <span className="text-xs text-green-600">OK</span>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            {j.isActive ? (
-                              <Badge variant="outline" className="text-xs">Activo</Badge>
-                            ) : (
-                              <Badge variant="destructive" className="text-xs">
-                                Baja{j.deactivatedReason && `: ${j.deactivatedReason}`}
-                              </Badge>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {j.isActive && (
-                              <div className="flex gap-1 justify-end">
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-7 text-xs"
-                                  onClick={() => {
-                                    setMoveTeamDialog({ open: false, teamId: '', teamName: '' });
-                                    setAddJudgeDialog({ open: false, panelId: '', panelCode: '' });
-                                    setDeactivateDialog({ open: true, panelJudgeId: j.panelJudgeId, judgeName: j.judgeName });
-                                    setDeactivateReason('');
-                                  }}
-                                >
-                                  <UserMinus className="h-3 w-3 mr-1" />
-                                  Baja
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-7 text-xs"
-                                  onClick={() => {
-                                    setDeactivateDialog({ open: true, panelJudgeId: j.panelJudgeId, judgeName: j.judgeName });
-                                    setDeactivateReason('Reasignado a otro panel');
-                                  }}
-                                >
-                                  <ArrowRightLeft className="h-3 w-3 mr-1" />
-                                  Mover
-                                </Button>
-                              </div>
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                  </TableBody>
-                </Table>
+            {judgesGridData.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground">
+                No hay asignaciones. Ejecuta el algoritmo desde la página de asignación.
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {judgesGridData
+                  .filter(g => turnFilter === 'all' || g.turn === turnFilter)
+                  .map(turnData => (
+                    <div key={turnData.turn} className="border rounded-lg overflow-x-auto">
+                      {/* Turn banner */}
+                      <div className="bg-emerald-700 text-white px-3 py-2 font-bold text-sm">
+                        TURNO {turnData.turnLabel.toUpperCase()}
+                      </div>
+                      <table className="w-full text-xs border-collapse">
+                        <thead className="sticky top-0 z-10">
+                          <tr className="bg-blue-100">
+                            <th className="px-3 py-2 text-left w-[120px] border-r font-semibold sticky left-0 bg-blue-100 z-20" />
+                            {turnData.sessions[0]?.rooms.map(room => (
+                              <th key={room.roomNumber} className="px-4 py-2 text-center font-semibold border-l min-w-[200px]">
+                                Aula {room.roomNumber}
+                                <span className="ml-1 font-normal text-muted-foreground">
+                                  ({room.activeCount}/{config?.judges_per_group || '?'})
+                                </span>
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {turnData.sessions.map(session => (
+                            <React.Fragment key={session.sessionNumber}>
+                              {/* Panel codes row */}
+                              <tr className="bg-blue-50 border-b border-t-2 border-blue-200">
+                                <td className="px-3 py-1.5 font-bold sticky left-0 bg-blue-50 z-10 border-r">
+                                  Sesión {session.sessionNumber}
+                                </td>
+                                {session.rooms.map(room => (
+                                  <td key={room.roomNumber} className="px-3 py-1.5 text-center font-bold border-l">
+                                    {room.panelCode}
+                                  </td>
+                                ))}
+                              </tr>
+                              {/* Judges rows */}
+                              {(() => {
+                                const maxJudges = Math.max(...session.rooms.map(r => r.judges.length), 1);
+                                return Array.from({ length: maxJudges }, (_, rowIdx) => (
+                                  <tr key={`s${session.sessionNumber}-j-${rowIdx}`} className="border-b hover:bg-blue-50/30">
+                                    {rowIdx === 0 ? (
+                                      <td rowSpan={maxJudges} className="px-3 py-1 text-muted-foreground font-medium sticky left-0 bg-white z-10 border-r align-top text-[11px]">
+                                        Jueces
+                                      </td>
+                                    ) : null}
+                                    {session.rooms.map(room => {
+                                      const judge = room.judges[rowIdx];
+                                      if (!judge) return <td key={room.roomNumber} className="border-l" />;
+
+                                      return (
+                                        <td key={room.roomNumber} className="px-2 py-0.5 border-l align-top">
+                                          <div
+                                            role={judge.isActive ? 'button' : undefined}
+                                            tabIndex={judge.isActive ? 0 : undefined}
+                                            onClick={judge.isActive ? () => openJudgeManageDialog(judge) : undefined}
+                                            onKeyDown={judge.isActive ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openJudgeManageDialog(judge); } } : undefined}
+                                            className={`py-1 px-2 rounded max-w-[200px] ${
+                                              judge.isActive
+                                                ? judge.hasHubConflict
+                                                  ? 'bg-amber-100 border border-amber-300 cursor-pointer hover:bg-amber-200'
+                                                  : 'cursor-pointer hover:bg-gray-100'
+                                                : 'opacity-50 pointer-events-none'
+                                            }`}
+                                          >
+                                            <span className={`text-xs block truncate ${
+                                              !judge.isActive ? 'line-through text-red-500' : 'font-medium'
+                                            }`} title={judge.judgeName}>
+                                              {judge.judgeName}
+                                            </span>
+                                            {judge.hubName && (
+                                              <Badge variant="outline" className="text-[10px] px-1 py-0 mt-0.5">
+                                                {judge.hubName}
+                                              </Badge>
+                                            )}
+                                          </div>
+                                        </td>
+                                      );
+                                    })}
+                                  </tr>
+                                ));
+                              })()}
+                              {/* Gap between sessions */}
+                              <tr><td colSpan={(session.rooms.length || 1) + 1} className="h-3" /></tr>
+                            </React.Fragment>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ))}
 
                 {/* Unassigned judges pool */}
                 {unassignedJudges.length > 0 && (
-                  <div className="mt-6 border-t pt-4">
-                    <h4 className="text-sm font-medium mb-3">
+                  <div className="border border-amber-200 bg-amber-50/50 rounded-lg p-4">
+                    <h4 className="text-sm font-bold text-amber-800 mb-3">
                       Jueces sin asignar ({unassignedJudges.length})
                     </h4>
-                    <div className="flex flex-wrap gap-2 mb-3">
+                    <div className="flex flex-wrap gap-2">
                       {unassignedJudges.map(j => (
                         <Badge
                           key={j.id}
                           variant="outline"
                           className="cursor-pointer hover:bg-muted"
                           onClick={() => {
+                            setJudgeManageDialog({ open: false, judgeId: '', judgeName: '', hubName: null, panelJudgeId: '', panelId: '', panelCode: '' });
                             setSelectedJudgeId(j.id);
                             setAddJudgeDialog({ open: true, panelId: '', panelCode: 'Selecciona panel' });
                           }}
@@ -872,8 +1057,8 @@ export default function AdminJudgingSchedule() {
                     </div>
                   </div>
                 )}
-              </CardContent>
-            </Card>
+              </div>
+            )}
           </TabsContent>
         </Tabs>
 
@@ -902,6 +1087,7 @@ export default function AdminJudgingSchedule() {
           open={deactivateDialog.open}
           onOpenChange={(open) => {
             if (!open) setDeactivateDialog({ open: false, panelJudgeId: '', judgeName: '' });
+            else setJudgeManageDialog({ open: false, judgeId: '', judgeName: '', hubName: null, panelJudgeId: '', panelId: '', panelCode: '' });
           }}
         >
           <DialogContent>
@@ -942,6 +1128,7 @@ export default function AdminJudgingSchedule() {
           open={addJudgeDialog.open}
           onOpenChange={(open) => {
             if (!open) setAddJudgeDialog({ open: false, panelId: '', panelCode: '' });
+            else setJudgeManageDialog({ open: false, judgeId: '', judgeName: '', hubName: null, panelJudgeId: '', panelId: '', panelCode: '' });
           }}
         >
           <DialogContent>
@@ -990,6 +1177,7 @@ export default function AdminJudgingSchedule() {
           open={moveTeamDialog.open}
           onOpenChange={(open) => {
             if (!open) setMoveTeamDialog({ open: false, teamId: '', teamName: '' });
+            else setJudgeManageDialog({ open: false, judgeId: '', judgeName: '', hubName: null, panelJudgeId: '', panelId: '', panelCode: '' });
           }}
         >
           <DialogContent>
@@ -1038,6 +1226,123 @@ export default function AdminJudgingSchedule() {
               <Button onClick={handleMoveTeam} disabled={!targetPanelId || isMovingTeam}>
                 <ArrowRightLeft className="h-4 w-4 mr-2" />
                 Mover equipo
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Judge Manage Dialog (grid click) */}
+        <Dialog
+          open={judgeManageDialog.open}
+          onOpenChange={(open) => {
+            if (!open) setJudgeManageDialog({ open: false, judgeId: '', judgeName: '', hubName: null, panelJudgeId: '', panelId: '', panelCode: '' });
+          }}
+        >
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Gestionar juez: {judgeManageDialog.judgeName}</DialogTitle>
+              <DialogDescription>
+                {judgeManageDialog.hubName && (
+                  <Badge variant="outline" className="text-xs mr-2">{judgeManageDialog.hubName}</Badge>
+                )}
+                Panel: <span className="font-medium">{judgeManageDialog.panelCode}</span>
+              </DialogDescription>
+            </DialogHeader>
+
+            <RadioGroup value={manageAction} onValueChange={(v) => setManageAction(v as 'replace' | 'swap' | 'deactivate')} className="space-y-3">
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="replace" id="action-replace" />
+                <Label htmlFor="action-replace" className="cursor-pointer">Reemplazar por juez libre</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="swap" id="action-swap" />
+                <Label htmlFor="action-swap" className="cursor-pointer">Intercambiar con otro juez</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="deactivate" id="action-deactivate" />
+                <Label htmlFor="action-deactivate" className="cursor-pointer">Dar de baja</Label>
+              </div>
+            </RadioGroup>
+
+            <div className="space-y-2 mt-2">
+              {manageAction === 'replace' && (
+                <>
+                  <Label>Juez de reemplazo</Label>
+                  <Select value={selectedReplaceJudgeId} onValueChange={setSelectedReplaceJudgeId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Seleccionar juez..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {unassignedJudges.map(j => (
+                        <SelectItem key={j.id} value={j.id}>
+                          {j.name}
+                          {j.hubId && hubsMap[j.hubId] ? ` (${hubsMap[j.hubId]})` : ''}
+                        </SelectItem>
+                      ))}
+                      {unassignedJudges.length === 0 && (
+                        <SelectItem value="_none" disabled>No hay jueces sin asignar</SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
+                </>
+              )}
+
+              {manageAction === 'swap' && (
+                <>
+                  <Label>Intercambiar con</Label>
+                  <Select value={selectedSwapPanelJudgeId} onValueChange={setSelectedSwapPanelJudgeId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Seleccionar juez..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {allAssignedActiveJudges
+                        .filter(j => j.panelJudgeId !== judgeManageDialog.panelJudgeId && j.panelId !== judgeManageDialog.panelId)
+                        .map(j => (
+                          <SelectItem key={j.panelJudgeId} value={j.panelJudgeId}>
+                            {j.name}
+                            {j.hubName ? ` (${j.hubName})` : ''}
+                            {' — '}{j.panelCode}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                  {selectedSwapPanelJudgeId && getSwapHubConflict(selectedSwapPanelJudgeId) && (
+                    <p className="text-amber-600 text-xs mt-1">
+                      ⚠ Este intercambio generará un conflicto de hub en el panel destino
+                    </p>
+                  )}
+                </>
+              )}
+
+              {manageAction === 'deactivate' && (
+                <>
+                  <Label>Motivo de baja</Label>
+                  <Textarea
+                    value={manageDeactivateReason}
+                    onChange={(e) => setManageDeactivateReason(e.target.value)}
+                    placeholder="Ej: No puede asistir"
+                    maxLength={2000}
+                  />
+                </>
+              )}
+            </div>
+
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setJudgeManageDialog({ open: false, judgeId: '', judgeName: '', hubName: null, panelJudgeId: '', panelId: '', panelCode: '' })}
+              >
+                Cancelar
+              </Button>
+              <Button
+                variant={manageAction === 'deactivate' ? 'destructive' : 'default'}
+                onClick={handleManageConfirm}
+                disabled={isManageDisabled()}
+              >
+                {isReplacing || isSwapping || isDeactivating ? 'Procesando...' : (
+                  manageAction === 'replace' ? 'Reemplazar' :
+                  manageAction === 'swap' ? 'Intercambiar' : 'Dar de baja'
+                )}
               </Button>
             </DialogFooter>
           </DialogContent>
