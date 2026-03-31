@@ -22,6 +22,7 @@ export type UserWithRoles = Profile & {
   judge_schedule_preference?: string | null
   judge_conflict_other_text?: string | null
   judge_comments?: string | null
+  judge_external_id?: string | null
 }
 
 // Slugify column label to create a key
@@ -69,6 +70,7 @@ export function useAdminUsersData() {
         schedule_preference: string | null
         conflict_other_text: string | null
         comments: string | null
+        external_judge_id: string | null
         event: { id: string; name: string } | null
       }>(
         "judge_assignments",
@@ -120,6 +122,7 @@ export function useAdminUsersData() {
           judge_schedule_preference: judge?.schedule_preference || null,
           judge_conflict_other_text: judge?.conflict_other_text || null,
           judge_comments: judge?.comments || null,
+          judge_external_id: judge?.external_judge_id || null,
         } as UserWithRoles
       })
 

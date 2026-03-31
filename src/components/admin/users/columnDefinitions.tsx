@@ -49,8 +49,6 @@ export const COLUMN_LABELS: Record<string, string> = {
   is_volunteer: "Voluntario",
   is_judge: "Juez",
   is_active: "Activo",
-  judge_how_discovered_program: "Cómo Conoció el Programa",
-  judge_previous_participation: "Participación Previa",
   updated_at: "Última Actualización",
   terms_accepted_at: "Términos Aceptados",
   privacy_accepted_at: "Privacidad Aceptada",
@@ -60,6 +58,7 @@ export const COLUMN_LABELS: Record<string, string> = {
   judge_schedule_preference: "Preferencia Horario",
   judge_conflict_other_text: "Conflictos (Juez)",
   judge_comments: "Comentarios (Juez)",
+  judge_external_id: "ID Juez Externo",
 }
 
 // Fields that are handled by special "core" column renderers
@@ -87,8 +86,6 @@ const AUTO_TEXT_FIELDS: string[] = [
   "profile_type",
   "parent_email",
   "parent_name",
-  "judge_how_discovered_program",
-  "judge_previous_participation",
   "updated_at",
   "terms_accepted_at",
   "privacy_accepted_at",
@@ -106,6 +103,7 @@ const BOOLEAN_FIELDS: string[] = [
 const JUDGE_TEXT_FIELDS: string[] = [
   "judge_conflict_other_text",
   "judge_comments",
+  "judge_external_id",
 ]
 
 const JUDGE_BOOLEAN_FIELDS: string[] = [

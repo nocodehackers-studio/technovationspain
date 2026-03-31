@@ -18,15 +18,6 @@ export function hasMissingFields(profile: Record<string, unknown>): boolean {
   return REQUIRED_PROFILE_FIELDS.some(field => !profile[field]);
 }
 
-export const JUDGE_PROFILE_FIELDS = [
-  'judge_how_discovered_program',
-  'judge_previous_participation',
-] as const;
-
-export function getMissingJudgeFields(profile: Record<string, unknown>): string[] {
-  return JUDGE_PROFILE_FIELDS.filter(field => !profile[field]) as string[];
-}
-
 export function getMissingFields(profile: Record<string, unknown>): string[] {
   const missing: string[] = [];
   // Always-required fields

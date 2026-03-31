@@ -43,6 +43,7 @@ export const VIEWS: ViewConfig[] = [
     visibleColumns: [
       "name",
       "hub_name",
+      "judge_external_id",
       "judge_event_id",
       "judge_onboarding_completed",
       "judge_schedule_preference",

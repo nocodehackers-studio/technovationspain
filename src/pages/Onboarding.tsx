@@ -14,7 +14,7 @@ import { useToast } from '@/hooks/use-toast';
 import { User, Calendar, Mail, Building2, LogOut } from 'lucide-react';
 import { validateSpanishDNI } from '@/lib/validation-utils';
 import { isMinor } from '@/lib/age-utils';
-import { getMissingFields, getMissingJudgeFields, hasMissingFields, REQUIRED_PROFILE_FIELDS } from '@/lib/profile-fields';
+import { getMissingFields, hasMissingFields, REQUIRED_PROFILE_FIELDS } from '@/lib/profile-fields';
 import { getDashboardPath } from '@/lib/dashboard-routes';
 
 type OnboardingField = string;
@@ -41,8 +41,6 @@ interface FormData {
 }
 
 interface JudgeFormData {
-  judge_how_discovered_program: string;
-  judge_previous_participation: string;
   event_id: string;
   conflict_other_text: string;
   comments: string;
@@ -59,8 +57,6 @@ export default function Onboarding() {
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [privacyAccepted, setPrivacyAccepted] = useState(false);
   const [judgeFormData, setJudgeFormData] = useState<JudgeFormData>({
-    judge_how_discovered_program: (profile as any)?.judge_how_discovered_program || '',
-    judge_previous_participation: (profile as any)?.judge_previous_participation || '',
     event_id: '',
     conflict_other_text: '',
     comments: '',
@@ -124,12 +120,6 @@ export default function Onboarding() {
     },
     enabled: !!needsJudgeOnboarding,
   });
-
-  // Compute missing judge profile fields
-  const missingJudgeFields = useMemo(() => {
-    if (!profile || !needsJudgeOnboarding) return [];
-    return getMissingJudgeFields(profile as unknown as Record<string, unknown>);
-  }, [profile, needsJudgeOnboarding]);
 
   // Determine if user is a minor based on DOB (form value or existing profile)
   // Only evaluate when a DOB actually exists — no DOB means hide parent fields
@@ -277,15 +267,6 @@ export default function Onboarding() {
         profileUpdate.parent_email = formData.parent_email.trim() || null;
       }
 
-      // Add judge profile fields if needed
-      if (needsJudgeOnboarding) {
-        if (missingJudgeFields.includes('judge_how_discovered_program')) {
-          profileUpdate.judge_how_discovered_program = sanitizeText(judgeFormData.judge_how_discovered_program) || null;
-        }
-        if (missingJudgeFields.includes('judge_previous_participation')) {
-          profileUpdate.judge_previous_participation = sanitizeText(judgeFormData.judge_previous_participation) || null;
-        }
-      }
 
       const { error: profileError } = await supabase
         .from('profiles')
@@ -612,36 +593,6 @@ export default function Onboarding() {
                 </div>
               )}
 
-              {/* ── Judge Profile Fields ── */}
-              {needsJudgeOnboarding && missingJudgeFields.length > 0 && (
-                <div className="space-y-4 border-t pt-4">
-                  <p className="text-sm font-medium">Información de Juez</p>
-                  {missingJudgeFields.includes('judge_how_discovered_program') && (
-                    <div className="space-y-2">
-                      <Label htmlFor="judge_how_discovered_program">¿Cómo conociste el programa?</Label>
-                      <Input
-                        id="judge_how_discovered_program"
-                        placeholder="Ej: A través de una amiga, LinkedIn..."
-                        value={judgeFormData.judge_how_discovered_program}
-                        onChange={(e) => setJudgeFormData(prev => ({ ...prev, judge_how_discovered_program: e.target.value }))}
-                        maxLength={500}
-                      />
-                    </div>
-                  )}
-                  {missingJudgeFields.includes('judge_previous_participation') && (
-                    <div className="space-y-2">
-                      <Label htmlFor="judge_previous_participation">¿Has participado en Technovation Girls algún otro año? Si es así, ¿cuándo y en qué rol?</Label>
-                      <Input
-                        id="judge_previous_participation"
-                        placeholder="Ej: Sí, en 2024 como mentora"
-                        value={judgeFormData.judge_previous_participation}
-                        onChange={(e) => setJudgeFormData(prev => ({ ...prev, judge_previous_participation: e.target.value }))}
-                        maxLength={500}
-                      />
-                    </div>
-                  )}
-                </div>
-              )}
 
               {/* ── Judge Onboarding Fields ── */}
               {needsJudgeOnboarding && (
