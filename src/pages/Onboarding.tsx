@@ -297,14 +297,15 @@ export default function Onboarding() {
       // Save judge onboarding answers
       if (needsJudgeOnboarding) {
         // Derive schedule_preference from the selected event's start_time
-        const selectedEvent = regionalEvents?.find(e => e.id === judgeFormData.event_id);
+        const isNoPreference = judgeFormData.event_id === 'no_preference';
+        const selectedEvent = isNoPreference ? null : regionalEvents?.find(e => e.id === judgeFormData.event_id);
         let derivedPreference: string = 'no_preference';
         if (selectedEvent?.start_time) {
           const hour = parseInt(selectedEvent.start_time.split(':')[0], 10);
           derivedPreference = hour < 12 ? 'morning' : 'afternoon';
         }
 
-        const selectedEventId = judgeFormData.event_id || null;
+        const selectedEventId = isNoPreference ? null : (judgeFormData.event_id || null);
 
         const judgeOnboardingData = {
           schedule_preference: derivedPreference,
@@ -650,7 +651,7 @@ export default function Onboarding() {
                   {/* Event selection (replaces static schedule preference) */}
                   <div className="space-y-2">
                     <Label htmlFor="event_id">
-                      ¿En qué evento del 23 de mayo deseas participar como juez? *
+                      ¿En qué horario deseas participar como juez en la final regional del 23 de mayo? *
                     </Label>
                     {regionalEvents && regionalEvents.length > 0 ? (
                       <Select
@@ -675,6 +676,7 @@ export default function Onboarding() {
                               </SelectItem>
                             );
                           })}
+                          <SelectItem value="no_preference">Sin preferencia</SelectItem>
                         </SelectContent>
                       </Select>
                     ) : (
