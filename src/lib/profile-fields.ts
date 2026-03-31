@@ -1,7 +1,7 @@
 // Fields that are ALWAYS required from the user (never from CSV)
 export const REQUIRED_PROFILE_FIELDS = [
   'first_name', 'last_name', 'date_of_birth',
-  'dni', 'postal_code'
+  'postal_code'
 ] as const;
 
 // Fields that can come from CSV — hidden if populated, shown if empty
