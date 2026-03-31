@@ -235,7 +235,7 @@ export function AirtableDataTable<TData, TValue>({
                   <span className="hidden sm:inline">Columnas</span>
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuContent align="end" className="w-48 max-h-80 overflow-y-auto">
                 <DropdownMenuLabel>Mostrar columnas</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 {table
