@@ -43,3 +43,6 @@ verify_jwt = false
 
 [functions.deactivate-expired-judges]
 verify_jwt = false
+
+[functions.send-judge-welcome-email]
+verify_jwt = false
