@@ -85,6 +85,7 @@ interface AirtableDataTableProps<TData, TValue> {
   onRowClick?: (row: TData) => void;
   onActiveFiltersChange?: (filters: Record<string, string[]>) => void;
   filterBarContent?: React.ReactNode;
+  externalFilterMode?: boolean;
 }
 
 export function AirtableDataTable<TData, TValue>({
@@ -101,6 +102,7 @@ export function AirtableDataTable<TData, TValue>({
   onRowClick,
   onActiveFiltersChange,
   filterBarContent,
+  externalFilterMode = false,
 }: AirtableDataTableProps<TData, TValue>) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
@@ -233,7 +235,7 @@ export function AirtableDataTable<TData, TValue>({
                   <span className="hidden sm:inline">Columnas</span>
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuContent align="end" className="w-48 max-h-80 overflow-y-auto">
                 <DropdownMenuLabel>Mostrar columnas</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 {table
@@ -292,10 +294,10 @@ export function AirtableDataTable<TData, TValue>({
         </div>
 
         {/* Filters Row */}
-        {filterableColumns.length > 0 && (
+        {(filterableColumns.length > 0 || (externalFilterMode && filterBarContent)) && (
           <div className="flex flex-wrap items-center gap-2">
-            {/* Column Filters - Multi-select dropdowns */}
-            {filterableColumns.map((filter) => {
+            {/* Column Filters - Multi-select dropdowns (hidden in external filter mode) */}
+            {!externalFilterMode && filterableColumns.map((filter) => {
               const selected = activeFilters[filter.key] || [];
               const selectedCount = selected.length;
               return (
@@ -353,8 +355,8 @@ export function AirtableDataTable<TData, TValue>({
 
             {filterBarContent}
 
-            {/* Active Filter Tags */}
-            {Object.entries(activeFilters).flatMap(([key, values]) => {
+            {/* Active Filter Tags (hidden in external filter mode) */}
+            {!externalFilterMode && Object.entries(activeFilters).flatMap(([key, values]) => {
               const filterConfig = filterableColumns.find((f) => f.key === key);
               return values.map((value) => {
                 const optionLabel = filterConfig?.options.find(

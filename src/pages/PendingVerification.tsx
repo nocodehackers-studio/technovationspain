@@ -8,11 +8,11 @@ import { getDashboardPath } from '@/lib/dashboard-routes';
 
 export default function PendingVerification() {
   const navigate = useNavigate();
-  const { profile, isLoading, signOut, isVerified, role } = useAuth();
+  const { profile, isLoading, signOut, isVerified, role, isJudge } = useAuth();
 
   // Redirect if already verified - use role-based redirect
   if (!isLoading && isVerified) {
-    navigate(getDashboardPath(role), { replace: true });
+    navigate(getDashboardPath(role, isJudge), { replace: true });
     return null;
   }
 

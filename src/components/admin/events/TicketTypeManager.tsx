@@ -38,6 +38,7 @@ interface TicketType {
   is_active: boolean | null;
   sort_order: number | null;
   required_fields: string[] | null;
+  for_judges: boolean;
 }
 
 const COMPANION_FIELDS = [
@@ -61,7 +62,6 @@ interface TicketTypeManagerProps {
 const AVAILABLE_ROLES = [
   { value: "participant", label: "Participante" },
   { value: "mentor", label: "Mentor" },
-  { value: "judge", label: "Juez" },
 ];
 
 export function TicketTypeManager({ eventId, eventMaxCapacity }: TicketTypeManagerProps) {
@@ -81,6 +81,7 @@ const [formData, setFormData] = useState({
     requires_verification: true,
     requires_team: false,
     is_active: true,
+    for_judges: false,
   });
 
   const { data: ticketTypes, isLoading } = useQuery({
@@ -109,14 +110,15 @@ const createMutation = useMutation({
         max_companions: data.max_companions,
         companion_fields_config: companionConfig,
         allowed_roles: data.allowed_roles.length > 0 ? data.allowed_roles : null,
-        required_fields: data.required_fields.length > 0 
+        required_fields: data.required_fields.length > 0
           ? [...['first_name', 'last_name', 'email'], ...data.required_fields]
           : ['first_name', 'last_name', 'email'],
         requires_verification: data.requires_verification,
         requires_team: data.requires_team,
         is_active: data.is_active,
+        for_judges: data.for_judges,
         sort_order: (ticketTypes?.length || 0) + 1,
-      });
+      } as any);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -142,13 +144,14 @@ const updateMutation = useMutation({
           max_companions: data.max_companions,
           companion_fields_config: companionConfig,
           allowed_roles: data.allowed_roles.length > 0 ? data.allowed_roles : null,
-          required_fields: data.required_fields.length > 0 
+          required_fields: data.required_fields.length > 0
             ? [...['first_name', 'last_name', 'email'], ...data.required_fields]
             : ['first_name', 'last_name', 'email'],
           requires_verification: data.requires_verification,
           requires_team: data.requires_team,
           is_active: data.is_active,
-        })
+          for_judges: data.for_judges,
+        } as any)
         .eq("id", id);
       if (error) throw error;
     },
@@ -191,6 +194,7 @@ const resetForm = () => {
       requires_verification: true,
       requires_team: false,
       is_active: true,
+      for_judges: false,
     });
     setSelectedTicket(null);
   };
@@ -215,6 +219,7 @@ const openEditDialog = (ticket?: TicketType) => {
         requires_verification: ticket.requires_verification ?? true,
         requires_team: ticket.requires_team ?? false,
         is_active: ticket.is_active ?? true,
+        for_judges: (ticket as any).for_judges ?? false,
       });
     } else {
       resetForm();
@@ -354,7 +359,15 @@ const openEditDialog = (ticket?: TicketType) => {
                       )}
                       {ticket.allowed_roles && ticket.allowed_roles.length > 0 && (
                         <Badge variant="secondary">
-                          {ticket.allowed_roles.map((r) => AVAILABLE_ROLES.find((ar) => ar.value === r)?.label).join(", ")}
+                          {ticket.allowed_roles
+                            .map((r) => AVAILABLE_ROLES.find((ar) => ar.value === r)?.label)
+                            .filter(Boolean)
+                            .join(", ")}
+                        </Badge>
+                      )}
+                      {(ticket as any).for_judges && (
+                        <Badge variant="outline" className="bg-warning/10 text-warning border-warning/20">
+                          Jueces
                         </Badge>
                       )}
                       {ticket.requires_team && (
@@ -562,6 +575,17 @@ const openEditDialog = (ticket?: TicketType) => {
                       </div>
                     ))}
                   </div>
+                </div>
+
+                <div className="flex items-center justify-between p-3 rounded-md border mt-3">
+                  <div>
+                    <p className="text-sm font-medium">Exclusivo para jueces</p>
+                    <p className="text-xs text-muted-foreground">Solo usuarios con asignación de juez para este evento pueden usar este ticket</p>
+                  </div>
+                  <Switch
+                    checked={formData.for_judges}
+                    onCheckedChange={(checked) => setFormData(prev => ({ ...prev, for_judges: checked }))}
+                  />
                 </div>
 
                 <div className="space-y-3 pt-4 border-t">

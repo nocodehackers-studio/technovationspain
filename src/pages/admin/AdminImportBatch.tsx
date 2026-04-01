@@ -64,8 +64,10 @@ export default function AdminImportBatch() {
   const [step, setStep] = useState<Step>("upload");
   const [usersFile, setUsersFile] = useState<File | null>(null);
   const [teamsFile, setTeamsFile] = useState<File | null>(null);
+  const [judgesFile, setJudgesFile] = useState<File | null>(null);
   const [usersPreview, setUsersPreview] = useState<CsvPreview | null>(null);
   const [teamsPreview, setTeamsPreview] = useState<CsvPreview | null>(null);
+  const [judgesPreview, setJudgesPreview] = useState<CsvPreview | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [checkingImport, setCheckingImport] = useState(true);
   const [activeImportId, setActiveImportId] = useState<string | null>(null);
@@ -100,7 +102,7 @@ export default function AdminImportBatch() {
 
   const handleFileSelect = (
     file: File | null,
-    type: "users" | "teams"
+    type: "users" | "teams" | "judges"
   ) => {
     if (!file) return;
     const error = validateFile(file);
@@ -109,12 +111,13 @@ export default function AdminImportBatch() {
       return;
     }
     if (type === "users") setUsersFile(file);
-    else setTeamsFile(file);
+    else if (type === "teams") setTeamsFile(file);
+    else setJudgesFile(file);
   };
 
   // ─── Preview Generation ─────────────────────────────────────────
   const generatePreview = useCallback(async () => {
-    if (!usersFile && !teamsFile) {
+    if (!usersFile && !teamsFile && !judgesFile) {
       toast.error("Debes seleccionar al menos un archivo CSV");
       return;
     }
@@ -152,8 +155,25 @@ export default function AdminImportBatch() {
       });
     }
 
+    if (judgesFile) {
+      const parsed = await parseFile(judgesFile);
+      const breakdown: Record<string, number> = {};
+      for (const row of parsed.data as Record<string, string>[]) {
+        const email = row["Email"] || row["email"] || "";
+        const domain = email.includes("@") ? email.split("@")[1] : "unknown";
+        breakdown[domain] = (breakdown[domain] || 0) + 1;
+      }
+      setJudgesPreview({
+        fileName: judgesFile.name,
+        totalRows: parsed.data.length,
+        headers: parsed.meta.fields || [],
+        sampleRows: (parsed.data as Record<string, string>[]).slice(0, 5),
+        breakdown,
+      });
+    }
+
     setStep("preview");
-  }, [usersFile, teamsFile]);
+  }, [usersFile, teamsFile, judgesFile]);
 
   // ─── Start Import ───────────────────────────────────────────────
   const startImport = async () => {
@@ -180,16 +200,17 @@ export default function AdminImportBatch() {
       const importType = [
         usersFile ? "users" : "",
         teamsFile ? "teams" : "",
+        judgesFile ? "judges" : "",
       ]
         .filter(Boolean)
         .join("+");
 
-      const totalRecords = (usersPreview?.totalRows ?? 0) + (teamsPreview?.totalRows ?? 0);
+      const totalRecords = (usersPreview?.totalRows ?? 0) + (teamsPreview?.totalRows ?? 0) + (judgesPreview?.totalRows ?? 0);
 
       const { data: importRecord, error: insertErr } = await supabase
         .from("csv_imports")
         .insert({
-          file_name: [usersFile?.name, teamsFile?.name]
+          file_name: [usersFile?.name, teamsFile?.name, judgesFile?.name]
             .filter(Boolean)
             .join(", "),
           uploaded_by: user?.id,
@@ -214,7 +235,7 @@ export default function AdminImportBatch() {
       const sanitizeFileName = (name: string) =>
         name.replace(/[^a-zA-Z0-9._-]/g, '_');
 
-      const storagePaths: { users_csv?: string; teams_csv?: string } = {};
+      const storagePaths: { users_csv?: string; teams_csv?: string; judges_csv?: string } = {};
 
       if (usersFile) {
         const path = `imports/${importId}/${sanitizeFileName(usersFile.name)}`;
@@ -234,6 +255,15 @@ export default function AdminImportBatch() {
         storagePaths.teams_csv = path;
       }
 
+      if (judgesFile) {
+        const path = `imports/${importId}/judges.csv`;
+        const { error: upErr } = await supabase.storage
+          .from("csv-imports")
+          .upload(path, judgesFile);
+        if (upErr) throw new Error(`Error subiendo CSV de jueces: ${upErr.message}`);
+        storagePaths.judges_csv = path;
+      }
+
       // Update storage paths
       await supabase
         .from("csv_imports")
@@ -245,20 +275,40 @@ export default function AdminImportBatch() {
       setStep("done");
       toast.success("Importación iniciada correctamente");
 
-      // Invoke Edge Function (returns 202 immediately, processes in background)
-      const { error: invokeError } = await supabase.functions.invoke(
-        "process-csv-import",
-        { body: { importId } }
-      );
+      // Invoke Edge Functions (return 202 immediately, process in background)
+      if (usersFile || teamsFile) {
+        const { error: invokeError } = await supabase.functions.invoke(
+          "process-csv-import",
+          { body: { importId } }
+        );
 
-      if (invokeError) {
-        // Mark import as failed so it doesn't stay in limbo
-        await supabase
-          .from("csv_imports")
-          .update({ status: "failed", errors: [{ error: invokeError.message }] } as Record<string, unknown>)
-          .eq("id", importId);
-        console.error("Edge function invocation failed:", invokeError.message);
-        toast.error("Error al iniciar el procesamiento. Revisa el estado de la importación.");
+        if (invokeError) {
+          await supabase
+            .from("csv_imports")
+            .update({ status: "failed", errors: [{ error: invokeError.message }] } as Record<string, unknown>)
+            .eq("id", importId);
+          console.error("Edge function invocation failed:", invokeError.message);
+          toast.error("Error al iniciar el procesamiento. Revisa el estado de la importación.");
+        }
+      }
+
+      if (judgesFile) {
+        const { error: judgeInvokeError } = await supabase.functions.invoke(
+          "process-judge-csv",
+          { body: { importId } }
+        );
+
+        if (judgeInvokeError) {
+          if (!usersFile && !teamsFile) {
+            // Only judge import — mark as failed
+            await supabase
+              .from("csv_imports")
+              .update({ status: "failed", errors: [{ error: judgeInvokeError.message }] } as Record<string, unknown>)
+              .eq("id", importId);
+          }
+          console.error("Judge edge function invocation failed:", judgeInvokeError.message);
+          toast.error("Error al iniciar el procesamiento de jueces.");
+        }
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Error desconocido";
@@ -280,8 +330,10 @@ export default function AdminImportBatch() {
     setStep("upload");
     setUsersFile(null);
     setTeamsFile(null);
+    setJudgesFile(null);
     setUsersPreview(null);
     setTeamsPreview(null);
+    setJudgesPreview(null);
     setIsSubmitting(false);
   };
 
@@ -304,6 +356,7 @@ export default function AdminImportBatch() {
             <UploadStep
               usersFile={usersFile}
               teamsFile={teamsFile}
+              judgesFile={judgesFile}
               onSelectFile={handleFileSelect}
               onContinue={generatePreview}
             />
@@ -313,6 +366,7 @@ export default function AdminImportBatch() {
             <PreviewStep
               usersPreview={usersPreview}
               teamsPreview={teamsPreview}
+              judgesPreview={judgesPreview}
               isSubmitting={isSubmitting}
               onBack={() => setStep("upload")}
               onStart={startImport}
@@ -338,17 +392,19 @@ export default function AdminImportBatch() {
 function UploadStep({
   usersFile,
   teamsFile,
+  judgesFile,
   onSelectFile,
   onContinue,
 }: {
   usersFile: File | null;
   teamsFile: File | null;
-  onSelectFile: (file: File | null, type: "users" | "teams") => void;
+  judgesFile: File | null;
+  onSelectFile: (file: File | null, type: "users" | "teams" | "judges") => void;
   onContinue: () => void;
 }) {
   return (
     <>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <FileUploadCard
           title="CSV de Usuarios"
           description="Archivo de usuarios exportado desde Technovation Global"
@@ -361,12 +417,18 @@ function UploadStep({
           file={teamsFile}
           onSelect={(f) => onSelectFile(f, "teams")}
         />
+        <FileUploadCard
+          title="CSV de Jueces"
+          description="Archivo de jueces exportado desde Technovation Global"
+          file={judgesFile}
+          onSelect={(f) => onSelectFile(f, "judges")}
+        />
       </div>
 
       <div className="flex justify-end">
         <Button
           onClick={onContinue}
-          disabled={!usersFile && !teamsFile}
+          disabled={!usersFile && !teamsFile && !judgesFile}
           size="lg"
         >
           Continuar a Vista Previa
@@ -445,12 +507,14 @@ function FileUploadCard({
 function PreviewStep({
   usersPreview,
   teamsPreview,
+  judgesPreview,
   isSubmitting,
   onBack,
   onStart,
 }: {
   usersPreview: CsvPreview | null;
   teamsPreview: CsvPreview | null;
+  judgesPreview: CsvPreview | null;
   isSubmitting: boolean;
   onBack: () => void;
   onStart: () => void;
@@ -472,6 +536,15 @@ function PreviewStep({
           preview={teamsPreview}
           breakdownLabel="Por división"
           sampleColumns={["Name", "Division", "Student emails"]}
+        />
+      )}
+
+      {judgesPreview && (
+        <PreviewCard
+          title="CSV de Jueces"
+          preview={judgesPreview}
+          breakdownLabel="Por dominio de email"
+          sampleColumns={["Email", "First name", "Last name", "Get school company name"]}
         />
       )}
 

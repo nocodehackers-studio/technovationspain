@@ -12,6 +12,11 @@ interface AuthContextType {
   isLoading: boolean;
   isVerified: boolean;
   isVolunteer: boolean;
+  isJudge: boolean;
+  needsJudgeOnboarding: boolean;
+  judgeHasNoEvent: boolean;
+  activeJudgeEventId: string | null;
+  activeJudgeEventIds: string[];
   needsOnboarding: boolean;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
@@ -26,6 +31,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [role, setRole] = useState<AppRole | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [isProfileLoading, setIsProfileLoading] = useState(false);
+  const [activeJudgeEventIds, setActiveJudgeEventIds] = useState<string[]>([]);
+  const [judgeOnboardingCompleted, setJudgeOnboardingCompleted] = useState(true);
 
   // Combined loading state - true until both auth AND profile are loaded
   const isLoading = isAuthLoading || isProfileLoading;
@@ -47,6 +54,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       setProfile(profileData as unknown as Profile);
 
+      // Fetch judge assignments if user is a judge (multi-event support)
+      if ((profileData as any)?.is_judge) {
+        // (1) Event assignments where onboarding is done and judge_access_enabled is true
+        const { data: activeData } = await supabase
+          .from('judge_assignments')
+          .select('event_id, events!inner(judge_access_enabled)')
+          .eq('user_id', userId)
+          .eq('onboarding_completed', true)
+          .not('event_id', 'is', null)
+          .eq('events.judge_access_enabled', true)
+          .order('created_at', { ascending: true });
+
+        if (activeData && activeData.length > 0) {
+          setActiveJudgeEventIds(activeData.map(j => j.event_id!));
+        } else {
+          setActiveJudgeEventIds([]);
+        }
+
+        // (2) Onboarding check: ANY row with onboarding_completed=true (null-event or event-bound)
+        const { data: onboardingData } = await supabase
+          .from('judge_assignments')
+          .select('id')
+          .eq('user_id', userId)
+          .eq('onboarding_completed', true)
+          .limit(1);
+
+        setJudgeOnboardingCompleted(!!onboardingData && onboardingData.length > 0);
+      } else {
+        setActiveJudgeEventIds([]);
+        setJudgeOnboardingCompleted(true);
+      }
+
       // Fetch role - prioritize admin role if user has multiple roles
       const { data: rolesData, error: roleError } = await supabase
         .from('user_roles')
@@ -55,7 +94,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (!roleError && rolesData && rolesData.length > 0) {
         // Prioritize admin > chapter_ambassador > mentor > judge > participant
-        const rolePriority: AppRole[] = ['admin', 'chapter_ambassador', 'mentor', 'judge', 'participant'];
+        const rolePriority: AppRole[] = ['admin', 'chapter_ambassador', 'mentor', 'collaborator', 'participant'];
         const userRoles = rolesData.map(r => r.role as AppRole);
         const highestRole = rolePriority.find(r => userRoles.includes(r)) || userRoles[0];
         setRole(highestRole);
@@ -146,8 +185,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const isVerified = profile?.verification_status === 'verified';
   const isVolunteer = (profile as any)?.is_volunteer ?? false;
+  const isJudge = (profile as any)?.is_judge ?? false;
+  const activeJudgeEventId = activeJudgeEventIds[0] ?? null;
+  const needsJudgeOnboarding = isJudge && !judgeOnboardingCompleted;
+  const judgeHasNoEvent = isJudge && judgeOnboardingCompleted && activeJudgeEventIds.length === 0;
   const needsOnboarding = profile
-    ? !profile.terms_accepted_at || hasMissingFields(profile as unknown as Record<string, unknown>)
+    ? !profile.terms_accepted_at || hasMissingFields(profile as unknown as Record<string, unknown>) || needsJudgeOnboarding
     : false;
 
   return (
@@ -160,6 +203,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isLoading,
         isVerified,
         isVolunteer,
+        isJudge,
+        needsJudgeOnboarding,
+        judgeHasNoEvent,
+        activeJudgeEventId,
+        activeJudgeEventIds,
         needsOnboarding,
         signOut,
         refreshProfile,

@@ -12,6 +12,7 @@ import Index from "./pages/Index";
 import AuthCallback from "./pages/AuthCallback";
 import Onboarding from "./pages/Onboarding";
 import PendingVerification from "./pages/PendingVerification";
+import JudgePendingEvent from "./pages/JudgePendingEvent";
 import NotFound from "./pages/NotFound";
 import ParticipantDashboard from "./pages/ParticipantDashboard";
 
@@ -20,6 +21,9 @@ import VolunteerDashboard from "./pages/volunteer/VolunteerDashboard";
 
 // Mentor Pages
 import MentorDashboard from "./pages/mentor/MentorDashboard";
+
+// Judge Pages
+import JudgeDashboard from "./pages/judge/JudgeDashboard";
 
 // Admin Pages
 import AdminDashboard from "./pages/admin/AdminDashboard";
@@ -38,6 +42,8 @@ import AdminSettings from "./pages/admin/AdminSettings";
 import AdminTickets from "./pages/admin/AdminTickets";
 import AdminImportBatch from "./pages/admin/AdminImportBatch";
 import AdminEventAccreditations from "./pages/admin/AdminEventAccreditations";
+import AdminJudgingAssignment from "./pages/admin/AdminJudgingAssignment";
+import AdminJudgingSchedule from "./pages/admin/AdminJudgingSchedule";
 
 // Event Pages
 import EventsListPage from "./pages/events/EventsListPage";
@@ -72,6 +78,11 @@ const App = () => (
             {/* Public routes */}
             <Route path="/auth/callback" element={<AuthCallback />} />
             <Route path="/pending-verification" element={<PendingVerification />} />
+            <Route path="/judge-pending-event" element={
+              <ProtectedRoute>
+                <JudgePendingEvent />
+              </ProtectedRoute>
+            } />
 
             {/* Volunteer page (access controlled inside the component via is_volunteer) */}
             <Route path="/voluntario" element={
@@ -84,6 +95,13 @@ const App = () => (
             <Route path="/mentor/dashboard" element={
               <ProtectedRoute requiredRoles={["mentor", "admin"]}>
                 <MentorDashboard />
+              </ProtectedRoute>
+            } />
+
+            {/* Judge dashboard (protected — access gated by is_judge + judge_access_enabled) */}
+            <Route path="/judge/dashboard" element={
+              <ProtectedRoute>
+                <JudgeDashboard />
               </ProtectedRoute>
             } />
             {/* Protected routes */}
@@ -157,6 +175,16 @@ const App = () => (
             <Route path="/admin/events/:eventId/workshops/schedule" element={
               <ProtectedRoute requiredRoles={["admin", "chapter_ambassador"]}>
                 <AdminWorkshopSchedule />
+              </ProtectedRoute>
+            } />
+            <Route path="/admin/events/:eventId/judging/assign" element={
+              <ProtectedRoute requiredRoles={["admin"]}>
+                <AdminJudgingAssignment />
+              </ProtectedRoute>
+            } />
+            <Route path="/admin/events/:eventId/judging/schedule" element={
+              <ProtectedRoute requiredRoles={["admin"]}>
+                <AdminJudgingSchedule />
               </ProtectedRoute>
             } />
             <Route path="/admin/reports" element={

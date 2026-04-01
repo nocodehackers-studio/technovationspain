@@ -5,7 +5,7 @@ import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { RoleBadges } from "@/components/admin/RoleBadge";
 import { toast } from "sonner";
-import { Shield, Crown, Users, GraduationCap, Scale, Heart, Check } from "lucide-react";
+import { Shield, Crown, Users, GraduationCap, Scale, Heart, Check, Handshake } from "lucide-react";
 import { AppRole } from "@/types/database";
 
 interface MultiRoleSelectorProps {
@@ -16,7 +16,7 @@ interface MultiRoleSelectorProps {
 const PRIMARY_ROLES: { role: AppRole; label: string; icon: React.ReactNode }[] = [
   { role: "participant", label: "Participante", icon: <GraduationCap className="h-4 w-4" /> },
   { role: "mentor", label: "Mentor", icon: <Users className="h-4 w-4" /> },
-  { role: "judge", label: "Juez", icon: <Scale className="h-4 w-4" /> },
+  { role: "collaborator", label: "Colaborador", icon: <Handshake className="h-4 w-4" /> },
   { role: "chapter_ambassador", label: "Embajador", icon: <Crown className="h-4 w-4" /> },
 ];
 
@@ -43,6 +43,21 @@ export function MultiRoleSelector({ userId }: MultiRoleSelectorProps) {
         .single();
       if (error) throw error;
       return (data as any)?.is_volunteer ?? false;
+    },
+    enabled: !!userId,
+  });
+
+  // Fetch is_judge from profile
+  const { data: isJudgeProfile } = useQuery({
+    queryKey: ["user-judge", userId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("is_judge")
+        .eq("id", userId)
+        .single();
+      if (error) throw error;
+      return (data as any)?.is_judge ?? false;
     },
     enabled: !!userId,
   });
@@ -127,6 +142,25 @@ export function MultiRoleSelector({ userId }: MultiRoleSelectorProps) {
     },
     onError: (error) => {
       toast.error(`Error al actualizar voluntario: ${error.message}`);
+    },
+  });
+
+  // Independent judge toggle mutation
+  const judgeMutation = useMutation({
+    mutationFn: async (checked: boolean) => {
+      const { error } = await supabase
+        .from("profiles")
+        .update({ is_judge: checked } as any)
+        .eq("id", userId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["user-judge", userId] });
+      queryClient.invalidateQueries({ queryKey: ["admin-users"] });
+      toast.success("Estado de juez actualizado");
+    },
+    onError: (error) => {
+      toast.error(`Error al actualizar juez: ${error.message}`);
     },
   });
 
@@ -266,6 +300,22 @@ export function MultiRoleSelector({ userId }: MultiRoleSelectorProps) {
             checked={isVolunteerProfile ?? false}
             disabled={volunteerMutation.isPending}
             onCheckedChange={(checked) => volunteerMutation.mutate(checked)}
+          />
+        </div>
+
+        {/* Judge (is_judge on profile) */}
+        <div className="flex items-center justify-between p-3 rounded-md border">
+          <div className="flex items-center gap-3">
+            <div className="text-muted-foreground"><Scale className="h-4 w-4" /></div>
+            <div>
+              <p className="text-sm font-medium">Juez</p>
+              <p className="text-xs text-muted-foreground">Puede ser asignado como juez para eventos</p>
+            </div>
+          </div>
+          <Switch
+            checked={isJudgeProfile ?? false}
+            disabled={judgeMutation.isPending}
+            onCheckedChange={(checked) => judgeMutation.mutate(checked)}
           />
         </div>
 

@@ -7,16 +7,25 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { User, Calendar, Mail, Building2, LogOut } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { User, Calendar, Mail, Building2, LogOut, Info } from 'lucide-react';
 import { validateSpanishDNI } from '@/lib/validation-utils';
 import { isMinor } from '@/lib/age-utils';
 import { getMissingFields, hasMissingFields, REQUIRED_PROFILE_FIELDS } from '@/lib/profile-fields';
 import { getDashboardPath } from '@/lib/dashboard-routes';
 
 type OnboardingField = string;
+
+function sanitizeText(text: string): string {
+  return text
+    .replace(/<[^>]*>/g, '')
+    .trim()
+    .slice(0, 2000);
+}
 
 interface FormData {
   first_name: string;
@@ -32,15 +41,28 @@ interface FormData {
   parent_email: string;
 }
 
+interface JudgeFormData {
+  event_id: string;
+  conflict_other_text: string;
+  comments: string;
+  has_conflict: boolean;
+}
+
 export default function Onboarding() {
   const navigate = useNavigate();
-  const { user, profile, role, refreshProfile, signOut } = useAuth();
+  const { user, profile, role, refreshProfile, signOut, isJudge, needsJudgeOnboarding } = useAuth();
   const { toast } = useToast();
 
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [privacyAccepted, setPrivacyAccepted] = useState(false);
+  const [judgeFormData, setJudgeFormData] = useState<JudgeFormData>({
+    event_id: '',
+    conflict_other_text: '',
+    comments: '',
+    has_conflict: false,
+  });
 
   // Determine which fields are missing (dynamic)
   const missingFieldSet = useMemo(() => {
@@ -51,9 +73,9 @@ export default function Onboarding() {
   // Whether this is a first-time onboarding (need consent)
   const needsConsent = !profile?.terms_accepted_at;
 
-  // If no required fields missing and consent done, skip onboarding
-  if (profile && !needsConsent && !hasMissingFields(profile as unknown as Record<string, unknown>)) {
-    navigate(getDashboardPath(role), { replace: true });
+  // If no required fields missing, consent done, and no judge onboarding, skip
+  if (profile && !needsConsent && !hasMissingFields(profile as unknown as Record<string, unknown>) && !needsJudgeOnboarding) {
+    navigate(getDashboardPath(role, isJudge), { replace: true });
     return null;
   }
 
@@ -83,6 +105,21 @@ export default function Onboarding() {
       if (error) throw error;
       return data;
     },
+  });
+
+  // Fetch regional_final events for judge time preference
+  const { data: regionalEvents } = useQuery({
+    queryKey: ["regional-final-events"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("events")
+        .select("id, name, start_time, end_time, date")
+        .eq("event_type", "regional_final")
+        .order("start_time", { ascending: true });
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!needsJudgeOnboarding,
   });
 
   // Determine if user is a minor based on DOB (form value or existing profile)
@@ -142,6 +179,9 @@ export default function Onboarding() {
     if (missingFieldSet.has('postal_code') && !formData.postal_code.trim()) {
       newErrors.postal_code = 'El código postal es obligatorio';
     }
+    if (missingFieldSet.has('phone') && !formData.phone.trim()) {
+      newErrors.phone = 'El teléfono es obligatorio';
+    }
     // hub_id is optional — user can select "Sin hub asignado"
 
     // Parent fields validation (minors only)
@@ -174,8 +214,13 @@ export default function Onboarding() {
     if (showParentEmail && !formData.parent_email.trim()) return false;
     // Consent required for first-time
     if (needsConsent && (!termsAccepted || !privacyAccepted)) return false;
+    // Judge fields
+    if (needsJudgeOnboarding) {
+      if (!judgeFormData.event_id) return false;
+      if (judgeFormData.has_conflict && !judgeFormData.conflict_other_text.trim()) return false;
+    }
     return true;
-  }, [missingFieldSet, formData, showParentName, showParentEmail, needsConsent, termsAccepted, privacyAccepted]);
+  }, [missingFieldSet, formData, showParentName, showParentEmail, needsConsent, termsAccepted, privacyAccepted, needsJudgeOnboarding, judgeFormData]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -226,12 +271,62 @@ export default function Onboarding() {
         profileUpdate.parent_email = formData.parent_email.trim() || null;
       }
 
+
       const { error: profileError } = await supabase
         .from('profiles')
         .update(profileUpdate)
         .eq('id', user.id);
 
       if (profileError) throw profileError;
+
+      // Save judge onboarding answers
+      if (needsJudgeOnboarding) {
+        // Derive schedule_preference from the selected event's start_time
+        const isNoPreference = judgeFormData.event_id === 'no_preference';
+        const selectedEvent = isNoPreference ? null : regionalEvents?.find(e => e.id === judgeFormData.event_id);
+        let derivedPreference: string = 'no_preference';
+        if (selectedEvent?.start_time) {
+          const hour = parseInt(selectedEvent.start_time.split(':')[0], 10);
+          derivedPreference = hour < 12 ? 'morning' : 'afternoon';
+        }
+
+        const selectedEventId = isNoPreference ? null : (judgeFormData.event_id || null);
+
+        const judgeOnboardingData = {
+          schedule_preference: derivedPreference,
+          event_id: selectedEventId,
+          conflict_other_text: sanitizeText(judgeFormData.conflict_other_text) || null,
+          comments: sanitizeText(judgeFormData.comments),
+          onboarding_completed: true,
+        };
+
+        // Check for existing null-event row (may have been created by CSV import)
+        const { data: existingRow } = await supabase
+          .from('judge_assignments')
+          .select('id')
+          .eq('user_id', user.id)
+          .is('event_id', null)
+          .maybeSingle();
+
+        if (existingRow) {
+          // UPDATE existing null-event row — promote it to event-bound
+          const { error: judgeError } = await supabase
+            .from('judge_assignments')
+            .update(judgeOnboardingData)
+            .eq('id', existingRow.id);
+          if (judgeError) throw judgeError;
+        } else {
+          // INSERT new event-bound row
+          const { error: judgeError } = await supabase
+            .from('judge_assignments')
+            .insert({
+              user_id: user.id,
+              is_active: false,
+              ...judgeOnboardingData,
+            });
+          if (judgeError) throw judgeError;
+        }
+      }
 
       // If user has no role yet (manual registrant), assign 'participant' as default
       const { data: existingRoles } = await supabase
@@ -270,7 +365,7 @@ export default function Onboarding() {
         }
 
         toast({ title: '¡Bienvenida!', description: 'Tu cuenta está lista.' });
-        navigate(getDashboardPath(role), { replace: true });
+        navigate(getDashboardPath(role, isJudge), { replace: true });
       } else {
         toast({ title: 'Registro completado', description: 'Tu perfil está pendiente de verificación.' });
         navigate('/pending-verification', { replace: true });
@@ -284,7 +379,7 @@ export default function Onboarding() {
   };
 
   // Check if there are any fields to show
-  const hasFieldsToShow = missingFieldSet.size > 0 || needsConsent || showParentName || showParentEmail;
+  const hasFieldsToShow = missingFieldSet.size > 0 || needsConsent || showParentName || showParentEmail || needsJudgeOnboarding;
 
   // Render a field only if it's in the missing set
   const shouldShowField = (field: string) => missingFieldSet.has(field);
@@ -304,6 +399,14 @@ export default function Onboarding() {
             </CardDescription>
           </CardHeader>
           <CardContent>
+            {isJudge && (
+              <Alert className="mb-4 border-blue-200 bg-blue-50 text-blue-800">
+                <Info className="h-4 w-4 text-blue-600" />
+                <AlertDescription>
+                  Si vas a participar como juez en modalidad online, no es necesario que completes este formulario. Este registro es únicamente para jueces presenciales.
+                </AlertDescription>
+              </Alert>
+            )}
             <form onSubmit={handleSubmit} className="space-y-4">
               {/* Name fields */}
               {(shouldShowField('first_name') || shouldShowField('last_name')) && (
@@ -424,7 +527,7 @@ export default function Onboarding() {
                   )}
                   {shouldShowField('phone') && (
                     <div className="space-y-2">
-                      <Label htmlFor="phone">Teléfono</Label>
+                      <Label htmlFor="phone">Teléfono *</Label>
                       <Input
                         id="phone"
                         type="tel"
@@ -433,6 +536,7 @@ export default function Onboarding() {
                         onChange={(e) => updateField('phone', e.target.value)}
                         maxLength={20}
                       />
+                      {errors.phone && <p className="text-sm text-destructive">{errors.phone}</p>}
                     </div>
                   )}
                 </div>
@@ -502,6 +606,95 @@ export default function Onboarding() {
                 </div>
               )}
 
+
+              {/* ── Judge Onboarding Fields ── */}
+              {needsJudgeOnboarding && (
+                <div className="space-y-4 border-t pt-4">
+                  <p className="text-sm font-medium">Preferencias de participación</p>
+
+                  {/* Event selection (replaces static schedule preference) */}
+                  <div className="space-y-2">
+                    <Label htmlFor="event_id">
+                      ¿En qué horario deseas participar como juez en la final regional del 23 de mayo? *
+                    </Label>
+                    {regionalEvents && regionalEvents.length > 0 ? (
+                      <Select
+                        value={judgeFormData.event_id}
+                        onValueChange={(value) => setJudgeFormData(prev => ({ ...prev, event_id: value }))}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecciona el evento" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {regionalEvents.map((event) => {
+                            const startDisplay = event.start_time?.slice(0, 5) || '??:??';
+                            const endDisplay = event.end_time?.slice(0, 5) || '??:??';
+                            let timeLabel = 'Evento';
+                            if (event.start_time) {
+                              const hour = parseInt(event.start_time.split(':')[0], 10);
+                              timeLabel = hour < 12 ? 'Mañana' : 'Tarde';
+                            }
+                            return (
+                              <SelectItem key={event.id} value={event.id}>
+                                {timeLabel} ({startDisplay} - {endDisplay})
+                              </SelectItem>
+                            );
+                          })}
+                          <SelectItem value="no_preference">Sin preferencia</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">No hay eventos disponibles</p>
+                    )}
+                  </div>
+
+                  {/* Conflict of interest */}
+                  <div className="space-y-3">
+                    <div className="flex items-start space-x-3">
+                      <Checkbox
+                        id="has_conflict"
+                        checked={judgeFormData.has_conflict}
+                        onCheckedChange={(checked) => setJudgeFormData(prev => ({
+                          ...prev,
+                          has_conflict: !!checked,
+                          conflict_other_text: !checked ? '' : prev.conflict_other_text,
+                        }))}
+                      />
+                      <Label htmlFor="has_conflict" className="text-sm font-normal leading-snug">
+                        ¿Eres padre o madre de alguna chica participante?
+                      </Label>
+                    </div>
+
+                    {judgeFormData.has_conflict && (
+                      <div className="space-y-2 pl-6">
+                        <Label htmlFor="conflict_other">¿Puedes especificar de qué equipo o de qué niña?</Label>
+                        <Input
+                          id="conflict_other"
+                          placeholder="Nombre del equipo o de la participante"
+                          value={judgeFormData.conflict_other_text}
+                          onChange={(e) => setJudgeFormData(prev => ({ ...prev, conflict_other_text: e.target.value }))}
+                          maxLength={200}
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Comments */}
+                  <div className="space-y-2">
+                    <Label htmlFor="judge_comments">Indícanos si tienes alguna incompatibilidad adicional para valorar a un equipo</Label>
+                    <Textarea
+                      id="judge_comments"
+                      placeholder="Si tienes algún comentario o consulta, escríbelo aquí"
+                      value={judgeFormData.comments}
+                      onChange={(e) => setJudgeFormData(prev => ({ ...prev, comments: e.target.value }))}
+                      maxLength={2000}
+                      rows={3}
+                    />
+                    <p className="text-xs text-muted-foreground text-right">{judgeFormData.comments.length}/2000</p>
+                  </div>
+                </div>
+              )}
+
               {/* Legal consent (first-time only) */}
               {needsConsent && (
                 <div className="space-y-3 rounded-lg border p-4 bg-muted/30">
@@ -556,6 +749,7 @@ export default function Onboarding() {
                   'Completar registro'
                 )}
               </Button>
+
             </form>
           </CardContent>
         </Card>

@@ -560,7 +560,7 @@ export function EventStatsView({ eventId }: EventStatsViewProps) {
     const mentorsCount = confirmedRegs.filter(
       (r) =>
         r.ticket_type?.allowed_roles?.includes("mentor") ||
-        r.ticket_type?.allowed_roles?.includes("judge")
+        r.ticket_type?.allowed_roles?.includes("collaborator")
     ).length;
 
     const companionsCount = allCompanions?.length || 0;

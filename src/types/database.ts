@@ -1,13 +1,16 @@
 // Custom types for Technovation España
 // These extend the auto-generated Supabase types
 
-export type AppRole = 'participant' | 'mentor' | 'judge' | 'chapter_ambassador' | 'admin';
+export type AppRole = 'participant' | 'mentor' | 'chapter_ambassador' | 'admin' | 'collaborator';
 
 export type VerificationStatus = 'pending' | 'verified' | 'rejected' | 'manual_review';
 
 export type TeamCategory = 'beginner' | 'junior' | 'senior';
 
 export type EventType = 'intermediate' | 'regional_final' | 'workshop';
+
+export type TeamTurn = 'morning' | 'afternoon';
+export type TeamMatchType = 'exact' | 'fuzzy' | 'email' | 'manual' | 'tg_id';
 
 export type RegistrationStatus = 'confirmed' | 'cancelled' | 'checked_in' | 'waitlisted';
 
@@ -17,6 +20,10 @@ export interface Profile {
   parent_email?: string | null;
   tg_id?: string | null;
   is_volunteer?: boolean;
+  is_judge?: boolean;
+  is_active?: boolean;
+  judge_how_discovered_program?: string | null;
+  judge_previous_participation?: string | null;
   verification_status: VerificationStatus;
   first_name?: string | null;
   last_name?: string | null;
@@ -234,6 +241,88 @@ export interface AuditLog {
   timestamp: string;
 }
 
+// Judging system types
+export interface JudgingEventConfig {
+  id: string;
+  event_id: string;
+  total_rooms: number;
+  teams_per_group: number;
+  judges_per_group: number;
+  sessions_per_turn: number;
+  algorithm_run_at: string | null;
+  algorithm_run_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface JudgingPanel {
+  id: string;
+  event_id: string;
+  panel_code: string;
+  session_number: number;
+  room_number: number;
+  turn: 'morning' | 'afternoon';
+  created_at: string;
+  updated_at: string;
+}
+
+export interface JudgingPanelJudge {
+  id: string;
+  panel_id: string;
+  judge_id: string;
+  assignment_type: 'algorithm' | 'manual';
+  is_active: boolean;
+  assigned_by: string | null;
+  deactivated_at: string | null;
+  deactivated_reason: string | null;
+  manual_change_comment: string | null;
+  manual_change_by: string | null;
+  manual_change_at: string | null;
+  created_at: string;
+  updated_at: string;
+  // Relation joins (from .select())
+  profiles?: Pick<Profile, 'id' | 'first_name' | 'last_name' | 'email' | 'hub_id'>;
+  manual_change_by_profile?: { first_name: string; last_name: string } | null;
+}
+
+export interface JudgingPanelTeam {
+  id: string;
+  panel_id: string;
+  team_id: string;
+  team_code: string;
+  subsession: 1 | 2;
+  assignment_type: 'algorithm' | 'manual';
+  is_active: boolean;
+  assigned_by: string | null;
+  moved_from_panel_id: string | null;
+  display_order: number;
+  manual_change_comment: string | null;
+  manual_change_by: string | null;
+  manual_change_at: string | null;
+  created_at: string;
+  updated_at: string;
+  // Relation joins (from .select())
+  teams?: Pick<Team, 'id' | 'name' | 'category' | 'hub_id'>;
+  manual_change_by_profile?: { first_name: string; last_name: string } | null;
+}
+
+// NOTA: Usar EventTeamImportRecord, NO EventTeam (colisión con useEventTeams.ts)
+export interface EventTeamImportRecord {
+  id: string;
+  event_id: string;
+  team_id: string;
+  team_code: string;
+  category: TeamCategory;
+  turn: TeamTurn;
+  csv_team_name: string | null;
+  match_type: TeamMatchType;
+  is_active: boolean;
+  imported_at: string;
+  imported_by: string | null;
+  updated_at: string;
+  created_at: string;
+}
+
 // Extended types with relations
 export interface ProfileWithRole extends Profile {
   role?: AppRole;
@@ -253,6 +342,25 @@ export interface EventRegistrationWithDetails extends EventRegistration {
   team?: Team;
   companions?: Companion[];
   profile?: Profile;
+}
+
+export interface JudgeAssignment {
+  id: string;
+  user_id: string;
+  event_id: string | null;
+  is_active: boolean;
+  onboarding_completed: boolean;
+  schedule_preference?: 'morning' | 'afternoon' | 'no_preference' | 'online_only' | null;
+  external_judge_id?: string | null;
+  conflict_team_ids?: string[] | null;
+  conflict_other_text?: string | null;
+  comments?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface JudgeAssignmentWithEvent extends JudgeAssignment {
+  event?: Event;
 }
 
 export interface EventVolunteer {

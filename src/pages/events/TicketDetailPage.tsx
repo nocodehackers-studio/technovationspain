@@ -29,8 +29,8 @@ import {
 export default function TicketDetailPage() {
   const { registrationId } = useParams<{ registrationId: string }>();
   const navigate = useNavigate();
-  const { role, profile } = useAuth();
-  const dashboardPath = getDashboardPath(role);
+  const { role, profile, isJudge } = useAuth();
+  const dashboardPath = getDashboardPath(role, isJudge);
   const { data: registration, isLoading, error } = useRegistration(registrationId || '');
   const { data: companions, isLoading: companionsLoading } = useRegistrationCompanions(registrationId || '');
   const cancelMutation = useCancelRegistration();
