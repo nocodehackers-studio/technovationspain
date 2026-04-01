@@ -80,9 +80,11 @@ interface TeamForJudging {
 interface PanelWithRelations extends JudgingPanel {
   judging_panel_judges: (JudgingPanelJudge & {
     profiles: Pick<Profile, 'id' | 'first_name' | 'last_name' | 'email' | 'hub_id'>;
+    manual_change_by_profile: { first_name: string; last_name: string } | null;
   })[];
   judging_panel_teams: (JudgingPanelTeam & {
     teams: Pick<Team, 'id' | 'name' | 'category' | 'hub_id'>;
+    manual_change_by_profile: { first_name: string; last_name: string } | null;
   })[];
 }
 
@@ -103,11 +105,13 @@ export function useJudgingAssignment(eventId: string | undefined) {
           *,
           judging_panel_judges (
             *,
-            profiles:judge_id (id, first_name, last_name, email, hub_id)
+            profiles:judge_id (id, first_name, last_name, email, hub_id),
+            manual_change_by_profile:manual_change_by (first_name, last_name)
           ),
           judging_panel_teams!judging_panel_teams_panel_id_fkey (
             *,
-            teams:team_id (id, name, category, hub_id)
+            teams:team_id (id, name, category, hub_id),
+            manual_change_by_profile:manual_change_by (first_name, last_name)
           )
         `)
         .eq('event_id', eventId!)
@@ -138,7 +142,7 @@ export function useJudgingAssignment(eventId: string | undefined) {
       if (configErr) throw new Error('No se encontró configuración de judging');
       const config = configData as JudgingEventConfig;
 
-      // Get teams from event_teams (imported with turn already assigned)
+      // Get teams from event_teams (imported with turn already assigned, only active)
       const { data: eventTeamsData, error: etErr } = await supabase
         .from('event_teams')
         .select(`
@@ -148,7 +152,8 @@ export function useJudgingAssignment(eventId: string | undefined) {
           turn,
           teams:team_id (id, name, hub_id)
         `)
-        .eq('event_id', eventId);
+        .eq('event_id', eventId)
+        .eq('is_active', true);
 
       if (etErr) throw etErr;
 
@@ -672,7 +677,7 @@ export function useJudgingAssignment(eventId: string | undefined) {
 
   // Manual: add judge to panel
   const addJudgeToPanel = useMutation({
-    mutationFn: async ({ panelId, judgeId, userId }: { panelId: string; judgeId: string; userId: string }) => {
+    mutationFn: async ({ panelId, judgeId, userId, comment }: { panelId: string; judgeId: string; userId: string; comment?: string }) => {
       const { error } = await supabase
         .from('judging_panel_judges')
         .insert({
@@ -680,6 +685,9 @@ export function useJudgingAssignment(eventId: string | undefined) {
           judge_id: judgeId,
           assignment_type: 'manual',
           assigned_by: userId,
+          manual_change_comment: comment || null,
+          manual_change_by: userId,
+          manual_change_at: new Date().toISOString(),
         });
 
       if (error) throw error;
@@ -693,21 +701,27 @@ export function useJudgingAssignment(eventId: string | undefined) {
     },
   });
 
-  // Deactivate judge from panel (F13 fix: removed unused userId param)
+  // Deactivate judge from panel
   const deactivateJudgeFromPanel = useMutation({
     mutationFn: async ({
       panelJudgeId,
       reason,
+      userId,
     }: {
       panelJudgeId: string;
       reason: string;
+      userId?: string;
     }) => {
+      const now = new Date().toISOString();
       const { error } = await supabase
         .from('judging_panel_judges')
         .update({
           is_active: false,
-          deactivated_at: new Date().toISOString(),
+          deactivated_at: now,
           deactivated_reason: reason,
+          manual_change_comment: reason,
+          manual_change_by: userId || null,
+          manual_change_at: now,
         })
         .eq('id', panelJudgeId);
 
@@ -729,21 +743,26 @@ export function useJudgingAssignment(eventId: string | undefined) {
       targetPanelId,
       targetSubsession,
       userId,
+      comment,
     }: {
       teamId: string;
       targetPanelId: string;
       targetSubsession: 1 | 2;
       userId: string;
+      comment?: string;
     }) => {
-      // Find current active assignment
-      const { data: current, error: findErr } = await supabase
+      // Find current active assignment (limit 1 in case of duplicates)
+      const { data: currentRows, error: findErr } = await supabase
         .from('judging_panel_teams')
         .select('id, panel_id, team_code, subsession')
         .eq('team_id', teamId)
         .eq('is_active', true)
-        .single();
+        .limit(1);
 
-      if (findErr) throw new Error('No se encontró asignación activa del equipo');
+      if (findErr || !currentRows || currentRows.length === 0) {
+        throw new Error('No se encontró asignación activa del equipo');
+      }
+      const current = currentRows[0];
 
       // Same panel, same subsession — nothing to do
       if (current.panel_id === targetPanelId && current.subsession === targetSubsession) return;
@@ -786,6 +805,9 @@ export function useJudgingAssignment(eventId: string | undefined) {
           assignment_type: 'manual',
           assigned_by: userId,
           moved_from_panel_id: current.panel_id,
+          manual_change_comment: comment || null,
+          manual_change_by: userId,
+          manual_change_at: new Date().toISOString(),
         });
 
       if (insErr) {
@@ -819,11 +841,13 @@ export function useJudgingAssignment(eventId: string | undefined) {
       panelId,
       newJudgeId,
       userId,
+      comment,
     }: {
       panelJudgeId: string;
       panelId: string;
       newJudgeId: string;
       userId: string;
+      comment?: string;
     }) => {
       // Verify the new judge isn't already assigned to an active panel
       const { data: existing } = await supabase
@@ -838,12 +862,16 @@ export function useJudgingAssignment(eventId: string | undefined) {
       }
 
       // Deactivate original judge
+      const now = new Date().toISOString();
       const { error: deactErr } = await supabase
         .from('judging_panel_judges')
         .update({
           is_active: false,
-          deactivated_at: new Date().toISOString(),
-          deactivated_reason: 'Reemplazado por otro juez',
+          deactivated_at: now,
+          deactivated_reason: comment || 'Reemplazado por otro juez',
+          manual_change_comment: comment || 'Reemplazado por otro juez',
+          manual_change_by: userId,
+          manual_change_at: now,
         })
         .eq('id', panelJudgeId);
 
@@ -857,6 +885,9 @@ export function useJudgingAssignment(eventId: string | undefined) {
           judge_id: newJudgeId,
           assignment_type: 'manual',
           assigned_by: userId,
+          manual_change_comment: comment || null,
+          manual_change_by: userId,
+          manual_change_at: now,
         });
 
       if (insErr) {
@@ -887,10 +918,12 @@ export function useJudgingAssignment(eventId: string | undefined) {
       panelJudgeAId,
       panelJudgeBId,
       userId,
+      comment,
     }: {
       panelJudgeAId: string;
       panelJudgeBId: string;
       userId: string;
+      comment?: string;
     }) => {
       // Fetch both records to get judge_id and panel_id
       const [{ data: recordA, error: errA }, { data: recordB, error: errB }] = await Promise.all([
@@ -906,12 +939,17 @@ export function useJudgingAssignment(eventId: string | undefined) {
       }
 
       // Step 1: Deactivate both
+      const now = new Date().toISOString();
+      const swapComment = comment || 'Intercambiado con otro juez';
       const { error: deactAErr } = await supabase
         .from('judging_panel_judges')
         .update({
           is_active: false,
-          deactivated_at: new Date().toISOString(),
-          deactivated_reason: 'Intercambiado con otro juez',
+          deactivated_at: now,
+          deactivated_reason: swapComment,
+          manual_change_comment: swapComment,
+          manual_change_by: userId,
+          manual_change_at: now,
         })
         .eq('id', panelJudgeAId);
 
@@ -921,8 +959,11 @@ export function useJudgingAssignment(eventId: string | undefined) {
         .from('judging_panel_judges')
         .update({
           is_active: false,
-          deactivated_at: new Date().toISOString(),
-          deactivated_reason: 'Intercambiado con otro juez',
+          deactivated_at: now,
+          deactivated_reason: swapComment,
+          manual_change_comment: swapComment,
+          manual_change_by: userId,
+          manual_change_at: now,
         })
         .eq('id', panelJudgeBId);
 
@@ -940,6 +981,9 @@ export function useJudgingAssignment(eventId: string | undefined) {
           judge_id: recordA.judge_id,
           assignment_type: 'manual',
           assigned_by: userId,
+          manual_change_comment: swapComment,
+          manual_change_by: userId,
+          manual_change_at: now,
         })
         .select('id')
         .single();
@@ -961,6 +1005,9 @@ export function useJudgingAssignment(eventId: string | undefined) {
           judge_id: recordB.judge_id,
           assignment_type: 'manual',
           assigned_by: userId,
+          manual_change_comment: swapComment,
+          manual_change_by: userId,
+          manual_change_at: now,
         });
 
       if (insBErr) {
@@ -979,6 +1026,269 @@ export function useJudgingAssignment(eventId: string | undefined) {
     },
     onError: (error: Error) => {
       toast.error(error.message);
+    },
+  });
+
+  // Reorder teams within a panel subsession
+  const reorderTeams = useMutation({
+    mutationFn: async ({
+      panelId,
+      subsession,
+      orderedTeamIds,
+      userId,
+      comment,
+    }: {
+      panelId: string;
+      subsession: 1 | 2;
+      orderedTeamIds: string[]; // judging_panel_teams.id in new order
+      userId: string;
+      comment?: string;
+    }) => {
+      const now = new Date().toISOString();
+      const results = await Promise.all(
+        orderedTeamIds.map((id, index) =>
+          supabase
+            .from('judging_panel_teams')
+            .update({
+              display_order: index,
+              manual_change_by: userId,
+              manual_change_at: now,
+            })
+            .eq('id', id)
+        )
+      );
+      const failed = results.filter(r => r.error);
+      if (failed.length > 0) {
+        throw new Error(`Error al reordenar ${failed.length} equipos: ${failed[0].error!.message}`);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['judging-assignments', eventId] });
+    },
+    onError: (error: Error) => {
+      toast.error(`Error al reordenar: ${error.message}`);
+    },
+  });
+
+  // Drop team from event (deactivate in event_teams + all panel_teams)
+  const dropTeam = useMutation({
+    mutationFn: async ({
+      teamId,
+      eventId: evId,
+      userId,
+      comment,
+    }: {
+      teamId: string; // teams.id
+      eventId: string;
+      userId: string;
+      comment?: string;
+    }) => {
+      const now = new Date().toISOString();
+
+      // Step 1: Deactivate in event_teams
+      const { error: etErr } = await supabase
+        .from('event_teams')
+        .update({ is_active: false })
+        .eq('team_id', teamId)
+        .eq('event_id', evId);
+      if (etErr) throw new Error(`Error en event_teams: ${etErr.message}`);
+
+      // Step 2: Get panels for this event
+      const { data: panels, error: panelErr } = await supabase
+        .from('judging_panels')
+        .select('id')
+        .eq('event_id', evId);
+      if (panelErr) throw new Error(`Error obteniendo paneles: ${panelErr.message}`);
+      const panelIds = panels?.map(p => p.id) || [];
+
+      // Step 3: Deactivate in panel_teams (scoped to event)
+      if (panelIds.length > 0) {
+        const { error: ptErr } = await supabase
+          .from('judging_panel_teams')
+          .update({
+            is_active: false,
+            manual_change_comment: comment || null,
+            manual_change_by: userId,
+            manual_change_at: now,
+          })
+          .eq('team_id', teamId)
+          .in('panel_id', panelIds);
+        if (ptErr) throw new Error(`Error en panel_teams: ${ptErr.message}`);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['judging-assignments', eventId] });
+      queryClient.invalidateQueries({ queryKey: ['event-teams-for-schedule', eventId] });
+      toast.success('Equipo dado de baja');
+    },
+    onError: (error: Error) => {
+      toast.error(`Error al dar de baja: ${error.message}`);
+    },
+  });
+
+  // Reactivate team in event
+  const reactivateTeam = useMutation({
+    mutationFn: async ({
+      teamId,
+      eventId: evId,
+      userId,
+      comment,
+    }: {
+      teamId: string;
+      eventId: string;
+      userId: string;
+      comment?: string;
+    }) => {
+      const now = new Date().toISOString();
+
+      const { error: etErr } = await supabase
+        .from('event_teams')
+        .update({ is_active: true })
+        .eq('team_id', teamId)
+        .eq('event_id', evId);
+      if (etErr) throw new Error(`Error en event_teams: ${etErr.message}`);
+
+      const { data: panels, error: panelErr } = await supabase
+        .from('judging_panels')
+        .select('id')
+        .eq('event_id', evId);
+      if (panelErr) throw new Error(`Error obteniendo paneles: ${panelErr.message}`);
+      const panelIds = panels?.map(p => p.id) || [];
+
+      if (panelIds.length > 0) {
+        const { error: ptErr } = await supabase
+          .from('judging_panel_teams')
+          .update({
+            is_active: true,
+            manual_change_comment: comment || 'Reactivado',
+            manual_change_by: userId,
+            manual_change_at: now,
+          })
+          .eq('team_id', teamId)
+          .in('panel_id', panelIds);
+        if (ptErr) throw new Error(`Error en panel_teams: ${ptErr.message}`);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['judging-assignments', eventId] });
+      queryClient.invalidateQueries({ queryKey: ['event-teams-for-schedule', eventId] });
+      toast.success('Equipo reactivado');
+    },
+    onError: (error: Error) => {
+      toast.error(`Error al reactivar: ${error.message}`);
+    },
+  });
+
+  // Drop judge from entire event
+  const dropJudge = useMutation({
+    mutationFn: async ({
+      judgeId,
+      eventId: evId,
+      userId,
+      comment,
+    }: {
+      judgeId: string; // profiles.id
+      eventId: string;
+      userId: string;
+      comment?: string;
+    }) => {
+      const now = new Date().toISOString();
+
+      // Step 1: Deactivate in judge_assignments
+      const { error: jaErr } = await supabase
+        .from('judge_assignments')
+        .update({ is_active: false })
+        .eq('user_id', judgeId)
+        .eq('event_id', evId);
+      if (jaErr) throw new Error(`Error en judge_assignments: ${jaErr.message}`);
+
+      // Step 2: Get panels for this event
+      const { data: panels, error: panelErr } = await supabase
+        .from('judging_panels')
+        .select('id')
+        .eq('event_id', evId);
+      if (panelErr) throw new Error(`Error obteniendo paneles: ${panelErr.message}`);
+      const panelIds = panels?.map(p => p.id) || [];
+
+      // Step 3: Deactivate in panel_judges (scoped to event)
+      if (panelIds.length > 0) {
+        const { error: pjErr } = await supabase
+          .from('judging_panel_judges')
+          .update({
+            is_active: false,
+            deactivated_at: now,
+            deactivated_reason: comment || 'Baja del evento',
+            manual_change_comment: comment || 'Baja del evento',
+            manual_change_by: userId,
+            manual_change_at: now,
+          })
+          .eq('judge_id', judgeId)
+          .in('panel_id', panelIds);
+        if (pjErr) throw new Error(`Error en panel_judges: ${pjErr.message}`);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['judging-assignments', eventId] });
+      queryClient.invalidateQueries({ queryKey: ['event-judges', eventId] });
+      toast.success('Juez dado de baja del evento');
+    },
+    onError: (error: Error) => {
+      toast.error(`Error al dar de baja: ${error.message}`);
+    },
+  });
+
+  // Reactivate judge in event
+  const reactivateJudge = useMutation({
+    mutationFn: async ({
+      judgeId,
+      eventId: evId,
+      userId,
+      comment,
+    }: {
+      judgeId: string;
+      eventId: string;
+      userId: string;
+      comment?: string;
+    }) => {
+      const now = new Date().toISOString();
+
+      const { error: jaErr } = await supabase
+        .from('judge_assignments')
+        .update({ is_active: true })
+        .eq('user_id', judgeId)
+        .eq('event_id', evId);
+      if (jaErr) throw new Error(`Error en judge_assignments: ${jaErr.message}`);
+
+      const { data: panels, error: panelErr } = await supabase
+        .from('judging_panels')
+        .select('id')
+        .eq('event_id', evId);
+      if (panelErr) throw new Error(`Error obteniendo paneles: ${panelErr.message}`);
+      const panelIds = panels?.map(p => p.id) || [];
+
+      if (panelIds.length > 0) {
+        const { error: pjErr } = await supabase
+          .from('judging_panel_judges')
+          .update({
+            is_active: true,
+            deactivated_at: null,
+            deactivated_reason: null,
+            manual_change_comment: comment || 'Reactivado',
+            manual_change_by: userId,
+            manual_change_at: now,
+          })
+          .eq('judge_id', judgeId)
+          .in('panel_id', panelIds);
+        if (pjErr) throw new Error(`Error en panel_judges: ${pjErr.message}`);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['judging-assignments', eventId] });
+      queryClient.invalidateQueries({ queryKey: ['event-judges', eventId] });
+      toast.success('Juez reactivado en el evento');
+    },
+    onError: (error: Error) => {
+      toast.error(`Error al reactivar: ${error.message}`);
     },
   });
 
@@ -1026,6 +1336,16 @@ export function useJudgingAssignment(eventId: string | undefined) {
     isReplacing: replaceJudge.isPending,
     swapJudges: swapJudges.mutateAsync,
     isSwapping: swapJudges.isPending,
+    reorderTeams: reorderTeams.mutateAsync,
+    isReordering: reorderTeams.isPending,
+    dropTeam: dropTeam.mutateAsync,
+    isDroppingTeam: dropTeam.isPending,
+    reactivateTeam: reactivateTeam.mutateAsync,
+    isReactivatingTeam: reactivateTeam.isPending,
+    dropJudge: dropJudge.mutateAsync,
+    isDroppingJudge: dropJudge.isPending,
+    reactivateJudge: reactivateJudge.mutateAsync,
+    isReactivatingJudge: reactivateJudge.isPending,
     clearAssignments: clearAssignments.mutateAsync,
     isClearing: clearAssignments.isPending,
   };

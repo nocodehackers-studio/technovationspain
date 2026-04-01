@@ -2,6 +2,7 @@ import React from 'react';
 import { Badge } from '@/components/ui/badge';
 import { useJudgingAssignment } from '@/hooks/useJudgingAssignment';
 import { useJudgingConfig } from '@/hooks/useJudgingConfig';
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 
 interface JudgingSchedulePreviewProps {
   eventId: string;
@@ -53,12 +54,12 @@ export function JudgingSchedulePreview({ eventId }: JudgingSchedulePreviewProps)
 
             const maxSub1 = Math.max(
               ...sessionPanels.map(p =>
-                (p.judging_panel_teams || []).filter(t => t.subsession === 1 && t.is_active).length
+                (p.judging_panel_teams || []).filter(t => t.subsession === 1).length
               ), 0
             );
             const maxSub2 = Math.max(
               ...sessionPanels.map(p =>
-                (p.judging_panel_teams || []).filter(t => t.subsession === 2 && t.is_active).length
+                (p.judging_panel_teams || []).filter(t => t.subsession === 2).length
               ), 0
             );
 
@@ -98,16 +99,22 @@ export function JudgingSchedulePreview({ eventId }: JudgingSchedulePreviewProps)
                     {allRooms.map(room => {
                       const panel = sessionPanels.find(p => p.room_number === room);
                       if (!panel) return <td key={room} className="border-l" />;
-                      const teams = (panel.judging_panel_teams || []).filter(t => t.subsession === 1 && t.is_active);
+                      const teams = (panel.judging_panel_teams || [])
+                        .filter(t => t.subsession === 1)
+                        .sort((a, b) => {
+                          if (a.is_active !== b.is_active) return a.is_active ? -1 : 1;
+                          return (a.display_order || 0) - (b.display_order || 0);
+                        });
                       const team = teams[rowIdx];
                       if (!team) return <td key={room} className="border-l" />;
                       return (
                         <td key={room} className="px-1.5 py-0.5 border-l">
-                          <div className="flex items-center gap-1.5">
-                            <Badge variant="outline" className={`font-mono text-[9px] px-1 py-0 shrink-0 ${catColors[team.teams?.category || ''] || ''}`}>
+                          <div className={`flex items-center gap-1.5 ${!team.is_active ? 'opacity-60' : ''}`}>
+                            <Badge variant="outline" className={`font-mono text-[9px] px-1 py-0 shrink-0 ${!team.is_active ? 'text-red-400 line-through' : ''} ${catColors[team.teams?.category || ''] || ''}`}>
                               {team.team_code}
                             </Badge>
-                            <span className="truncate text-[11px]">{team.teams?.name}</span>
+                            <span className={`truncate text-[11px] ${!team.is_active ? 'text-red-400 line-through' : ''}`}>{team.teams?.name}</span>
+                            {!team.is_active && <Badge variant="destructive" className="text-[8px] px-0.5 py-0">BAJA</Badge>}
                           </div>
                         </td>
                       );
@@ -131,16 +138,22 @@ export function JudgingSchedulePreview({ eventId }: JudgingSchedulePreviewProps)
                     {allRooms.map(room => {
                       const panel = sessionPanels.find(p => p.room_number === room);
                       if (!panel) return <td key={room} className="border-l" />;
-                      const teams = (panel.judging_panel_teams || []).filter(t => t.subsession === 2 && t.is_active);
+                      const teams = (panel.judging_panel_teams || [])
+                        .filter(t => t.subsession === 2)
+                        .sort((a, b) => {
+                          if (a.is_active !== b.is_active) return a.is_active ? -1 : 1;
+                          return (a.display_order || 0) - (b.display_order || 0);
+                        });
                       const team = teams[rowIdx];
                       if (!team) return <td key={room} className="border-l" />;
                       return (
                         <td key={room} className="px-1.5 py-0.5 border-l">
-                          <div className="flex items-center gap-1.5">
-                            <Badge variant="outline" className={`font-mono text-[9px] px-1 py-0 shrink-0 ${catColors[team.teams?.category || ''] || ''}`}>
+                          <div className={`flex items-center gap-1.5 ${!team.is_active ? 'opacity-60' : ''}`}>
+                            <Badge variant="outline" className={`font-mono text-[9px] px-1 py-0 shrink-0 ${!team.is_active ? 'text-red-400 line-through' : ''} ${catColors[team.teams?.category || ''] || ''}`}>
                               {team.team_code}
                             </Badge>
-                            <span className="truncate text-[11px]">{team.teams?.name}</span>
+                            <span className={`truncate text-[11px] ${!team.is_active ? 'text-red-400 line-through' : ''}`}>{team.teams?.name}</span>
+                            {!team.is_active && <Badge variant="destructive" className="text-[8px] px-0.5 py-0">BAJA</Badge>}
                           </div>
                         </td>
                       );

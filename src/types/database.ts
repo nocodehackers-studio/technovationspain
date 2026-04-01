@@ -241,6 +241,71 @@ export interface AuditLog {
   timestamp: string;
 }
 
+// Judging system types
+export interface JudgingEventConfig {
+  id: string;
+  event_id: string;
+  total_rooms: number;
+  teams_per_group: number;
+  judges_per_group: number;
+  sessions_per_turn: number;
+  algorithm_run_at: string | null;
+  algorithm_run_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface JudgingPanel {
+  id: string;
+  event_id: string;
+  panel_code: string;
+  session_number: number;
+  room_number: number;
+  turn: 'morning' | 'afternoon';
+  created_at: string;
+  updated_at: string;
+}
+
+export interface JudgingPanelJudge {
+  id: string;
+  panel_id: string;
+  judge_id: string;
+  assignment_type: 'algorithm' | 'manual';
+  is_active: boolean;
+  assigned_by: string | null;
+  deactivated_at: string | null;
+  deactivated_reason: string | null;
+  manual_change_comment: string | null;
+  manual_change_by: string | null;
+  manual_change_at: string | null;
+  created_at: string;
+  updated_at: string;
+  // Relation joins (from .select())
+  profiles?: Pick<Profile, 'id' | 'first_name' | 'last_name' | 'email' | 'hub_id'>;
+  manual_change_by_profile?: { first_name: string; last_name: string } | null;
+}
+
+export interface JudgingPanelTeam {
+  id: string;
+  panel_id: string;
+  team_id: string;
+  team_code: string;
+  subsession: 1 | 2;
+  assignment_type: 'algorithm' | 'manual';
+  is_active: boolean;
+  assigned_by: string | null;
+  moved_from_panel_id: string | null;
+  display_order: number;
+  manual_change_comment: string | null;
+  manual_change_by: string | null;
+  manual_change_at: string | null;
+  created_at: string;
+  updated_at: string;
+  // Relation joins (from .select())
+  teams?: Pick<Team, 'id' | 'name' | 'category' | 'hub_id'>;
+  manual_change_by_profile?: { first_name: string; last_name: string } | null;
+}
+
 // NOTA: Usar EventTeamImportRecord, NO EventTeam (colisión con useEventTeams.ts)
 export interface EventTeamImportRecord {
   id: string;
@@ -251,6 +316,7 @@ export interface EventTeamImportRecord {
   turn: TeamTurn;
   csv_team_name: string | null;
   match_type: TeamMatchType;
+  is_active: boolean;
   imported_at: string;
   imported_by: string | null;
   updated_at: string;

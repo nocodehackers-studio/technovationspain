@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import React, { useState, useMemo, useCallback } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useJudgingAssignment } from '@/hooks/useJudgingAssignment';
@@ -7,13 +7,18 @@ import { useJudgingConfig } from '@/hooks/useJudgingConfig';
 import { useEventJudges } from '@/hooks/useEventJudges';
 import { useAuth } from '@/hooks/useAuth';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+} from '@/components/ui/tooltip';
 import {
   Select,
   SelectContent,
@@ -39,6 +44,21 @@ import {
 } from '@/components/ui/table';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import type { DragEndEvent } from '@dnd-kit/core';
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+  useSortable,
+  arrayMove,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import {
   ArrowLeft,
   Download,
   UserMinus,
@@ -48,20 +68,135 @@ import {
   Users,
   Gavel,
   Filter,
+  GripVertical,
+  MessageSquare,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
 type TurnFilter = 'all' | 'morning' | 'afternoon';
 
+// ============================================================================
+// SortableTeamItem — dnd-kit sortable item for intra-panel reorder
+// ============================================================================
+
+interface SortableTeamItemProps {
+  team: {
+    id: string;
+    team_id: string;
+    team_code: string;
+    subsession: number;
+    is_active: boolean;
+    assignment_type: string;
+    display_order: number;
+    manual_change_comment: string | null;
+    manual_change_by_profile: { first_name: string; last_name: string } | null;
+    manual_change_at: string | null;
+    teams: { id: string; name: string; category: string; hub_id: string | null } | null;
+  };
+  onMoveStart: (e: React.DragEvent, teamId: string, teamName: string, category: string) => void;
+  onDropTeam: (teamId: string, teamName: string) => void;
+  catColors: Record<string, string>;
+}
+
+const SortableTeamItem = React.memo(function SortableTeamItem({
+  team,
+  onMoveStart,
+  onDropTeam,
+  catColors,
+}: SortableTeamItemProps) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: team.id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  const teamName = team.teams?.name || team.team_code;
+  const category = team.teams?.category || '';
+
+  const badge = (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`flex items-center gap-1 ${team.assignment_type === 'manual' ? 'bg-amber-50 rounded px-0.5' : ''}`}
+    >
+      {/* Grip handle for intra-panel reorder (dnd-kit) */}
+      <span
+        {...attributes}
+        {...listeners}
+        onPointerDown={(e) => { e.stopPropagation(); (listeners as any)?.onPointerDown?.(e); }}
+        className="cursor-grab active:cursor-grabbing p-0.5 rounded hover:bg-muted shrink-0"
+      >
+        <GripVertical className="h-3 w-3 text-muted-foreground" />
+      </span>
+
+      <Badge variant="outline" className={`font-mono text-[10px] px-1 py-0 shrink-0 ${catColors[category] || ''}`}>
+        {team.team_code}
+      </Badge>
+      <span className="truncate text-xs">{teamName}</span>
+
+      {/* Move between panels button (native D&D) */}
+      <span
+        draggable
+        onDragStart={(e) => {
+          e.stopPropagation();
+          onMoveStart(e, team.team_id, teamName, category);
+        }}
+        className="cursor-grab p-0.5 rounded hover:bg-blue-100 shrink-0"
+      >
+        <ArrowRightLeft className="h-3 w-3 text-blue-500" />
+      </span>
+
+      {/* Drop team button */}
+      <button
+        onClick={(e) => { e.stopPropagation(); onDropTeam(team.team_id, teamName); }}
+        className="p-0.5 rounded hover:bg-red-100 shrink-0 opacity-0 group-hover/team:opacity-100 transition-opacity"
+      >
+        <UserMinus className="h-3 w-3 text-destructive" />
+      </button>
+    </div>
+  );
+
+  // Wrap manual items in audit tooltip
+  if (team.assignment_type === 'manual') {
+    const profileName = team.manual_change_by_profile
+      ? `${team.manual_change_by_profile.first_name} ${team.manual_change_by_profile.last_name}`.trim()
+      : null;
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <div className="group/team">{badge}</div>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="max-w-[250px]">
+          <p className="font-medium text-xs">Cambio manual</p>
+          {team.manual_change_comment && <p className="text-xs">{team.manual_change_comment}</p>}
+          {profileName && (
+            <p className="text-xs text-muted-foreground">
+              {profileName}{team.manual_change_at ? ` · ${new Date(team.manual_change_at).toLocaleDateString('es-ES')}` : ''}
+            </p>
+          )}
+        </TooltipContent>
+      </Tooltip>
+    );
+  }
+
+  return <div className="group/team">{badge}</div>;
+});
+
+// ============================================================================
+// Main Component
+// ============================================================================
+
 export default function AdminJudgingSchedule() {
   const { eventId } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const queryClient = useQueryClient();
   const [turnFilter, setTurnFilter] = useState<TurnFilter>('all');
   const [activeView, setActiveView] = useState('sessions');
 
-  // Drag & drop state
-  const [dragTeam, setDragTeam] = useState<{ teamId: string; teamName: string } | null>(null);
+  // Drag & drop state (native — cross-panel moves)
+  const [dragTeam, setDragTeam] = useState<{ teamId: string; teamName: string; category: string } | null>(null);
   const [dropTarget, setDropTarget] = useState<{ panelId: string; subsession: number } | null>(null);
 
   // Deactivate judge dialog
@@ -79,6 +214,7 @@ export default function AdminJudgingSchedule() {
     panelCode: string;
   }>({ open: false, panelId: '', panelCode: '' });
   const [selectedJudgeId, setSelectedJudgeId] = useState('');
+  const [addJudgeComment, setAddJudgeComment] = useState('');
 
   // Move team dialog
   const [moveTeamDialog, setMoveTeamDialog] = useState<{
@@ -88,6 +224,23 @@ export default function AdminJudgingSchedule() {
   }>({ open: false, teamId: '', teamName: '' });
   const [targetPanelId, setTargetPanelId] = useState('');
   const [targetSubsession, setTargetSubsession] = useState<'1' | '2'>('1');
+  const [moveComment, setMoveComment] = useState('');
+
+  // Drop team dialog (event-level deactivation)
+  const [dropTeamDialog, setDropTeamDialog] = useState<{
+    open: boolean;
+    teamId: string;
+    teamName: string;
+  }>({ open: false, teamId: '', teamName: '' });
+  const [dropTeamComment, setDropTeamComment] = useState('');
+
+  // Drop judge from event dialog
+  const [dropJudgeDialog, setDropJudgeDialog] = useState<{
+    open: boolean;
+    judgeId: string;
+    judgeName: string;
+  }>({ open: false, judgeId: '', judgeName: '' });
+  const [dropJudgeComment, setDropJudgeComment] = useState('');
 
   const { config } = useJudgingConfig(eventId);
   const { readyJudges } = useEventJudges(eventId);
@@ -104,7 +257,21 @@ export default function AdminJudgingSchedule() {
     swapJudges,
     isSwapping,
     isMovingTeam,
+    reorderTeams,
+    dropTeam,
+    isDroppingTeam,
+    reactivateTeam,
+    isReactivatingTeam,
+    dropJudge,
+    isDroppingJudge,
+    reactivateJudge,
+    isReactivatingJudge,
   } = useJudgingAssignment(eventId);
+
+  // dnd-kit sensors for intra-panel reorder
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
+  );
 
   // Filtered assignments
   const filteredPanels = assignments.filter(p =>
@@ -134,14 +301,33 @@ export default function AdminJudgingSchedule() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('event_teams')
-        .select('team_id, team_code, category, turn, teams:team_id (id, name)')
+        .select('id, team_id, team_code, category, turn, is_active, teams:team_id (id, name)')
         .eq('event_id', eventId!);
       if (error) throw error;
       return data || [];
     },
     enabled: !!eventId,
   });
-  const pendingTeams = allEventTeams.filter(et => !assignedTeamIds.has(et.team_id));
+  const pendingTeams = allEventTeams.filter(et => et.is_active !== false && !assignedTeamIds.has(et.team_id));
+
+  // Helper: get majority category of a panel's active teams
+  const getPanelMajorityCategory = useCallback((panelId: string): string | null => {
+    const panel = assignments.find(p => p.id === panelId);
+    if (!panel) return null;
+    const activeTeams = (panel.judging_panel_teams || []).filter(t => t.is_active);
+    if (activeTeams.length === 0) return null;
+    const catCounts: Record<string, number> = {};
+    for (const t of activeTeams) {
+      const cat = t.teams?.category || '';
+      catCounts[cat] = (catCounts[cat] || 0) + 1;
+    }
+    let maxCat = '';
+    let maxCount = 0;
+    for (const [cat, count] of Object.entries(catCounts)) {
+      if (count > maxCount) { maxCat = cat; maxCount = count; }
+    }
+    return maxCat;
+  }, [assignments]);
 
   // Build flat lists for "By Teams" and "By Judges" views
   const allTeamRows = assignments.flatMap(p =>
@@ -158,6 +344,10 @@ export default function AdminJudgingSchedule() {
       turn: p.turn,
       isActive: t.is_active,
       assignmentType: t.assignment_type,
+      displayOrder: t.display_order,
+      manualComment: t.manual_change_comment,
+      manualByProfile: t.manual_change_by_profile,
+      manualAt: t.manual_change_at,
       panelId: p.id,
     }))
   );
@@ -197,6 +387,9 @@ export default function AdminJudgingSchedule() {
         isActive: j.is_active,
         assignmentType: j.assignment_type,
         deactivatedReason: j.deactivated_reason,
+        manualComment: j.manual_change_comment,
+        manualByProfile: j.manual_change_by_profile,
+        manualAt: j.manual_change_at,
         panelJudgeId: j.id,
         panelId: p.id,
       };
@@ -213,10 +406,11 @@ export default function AdminJudgingSchedule() {
     panelId: string;
     panelCode: string;
   }>({ open: false, judgeId: '', judgeName: '', hubName: null, panelJudgeId: '', panelId: '', panelCode: '' });
-  const [manageAction, setManageAction] = useState<'replace' | 'swap' | 'deactivate'>('replace');
+  const [manageAction, setManageAction] = useState<'replace' | 'swap' | 'deactivate' | 'drop_event'>('replace');
   const [selectedReplaceJudgeId, setSelectedReplaceJudgeId] = useState('');
   const [selectedSwapPanelJudgeId, setSelectedSwapPanelJudgeId] = useState('');
   const [manageDeactivateReason, setManageDeactivateReason] = useState('');
+  const [manageComment, setManageComment] = useState('');
 
   // Judges grid data grouped by turn → session → room
   const judgesGridData = useMemo(() => {
@@ -256,6 +450,9 @@ export default function AdminJudgingSchedule() {
           isActive: j.is_active,
           assignmentType: j.assignment_type,
           deactivatedReason: j.deactivated_reason,
+          manualComment: j.manual_change_comment,
+          manualByProfile: j.manual_change_by_profile,
+          manualAt: j.manual_change_at,
           panelJudgeId: j.id,
           panelId: panel.id,
         };
@@ -319,7 +516,6 @@ export default function AdminJudgingSchedule() {
   const getSwapHubConflict = (targetPanelJudgeId: string): boolean => {
     const targetJudge = allAssignedActiveJudges.find(j => j.panelJudgeId === targetPanelJudgeId);
     if (!targetJudge) return false;
-    // Check if the current judge's hub conflicts with target's panel teams
     const currentJudgeHubId = allJudgeRows.find(j => j.panelJudgeId === judgeManageDialog.panelJudgeId)?.hubId;
     const targetPanel = assignments.find(p => p.id === targetJudge.panelId);
     if (!currentJudgeHubId || !targetPanel) return false;
@@ -332,11 +528,9 @@ export default function AdminJudgingSchedule() {
   };
 
   const openJudgeManageDialog = (judge: typeof allJudgeRows[0]) => {
-    // Close other dialogs (F10)
     setDeactivateDialog({ open: false, panelJudgeId: '', judgeName: '' });
     setAddJudgeDialog({ open: false, panelId: '', panelCode: '' });
     setMoveTeamDialog({ open: false, teamId: '', teamName: '' });
-    // Open manage dialog
     setJudgeManageDialog({
       open: true,
       judgeId: judge.judgeId,
@@ -350,6 +544,7 @@ export default function AdminJudgingSchedule() {
     setSelectedReplaceJudgeId('');
     setSelectedSwapPanelJudgeId('');
     setManageDeactivateReason('');
+    setManageComment('');
   };
 
   const handleManageConfirm = async () => {
@@ -361,6 +556,7 @@ export default function AdminJudgingSchedule() {
           panelId: judgeManageDialog.panelId,
           newJudgeId: selectedReplaceJudgeId,
           userId: user?.id || '',
+          comment: manageComment || undefined,
         });
       } else if (manageAction === 'swap') {
         if (!selectedSwapPanelJudgeId) return;
@@ -368,12 +564,22 @@ export default function AdminJudgingSchedule() {
           panelJudgeAId: judgeManageDialog.panelJudgeId,
           panelJudgeBId: selectedSwapPanelJudgeId,
           userId: user?.id || '',
+          comment: manageComment || undefined,
         });
       } else if (manageAction === 'deactivate') {
         if (!manageDeactivateReason.trim()) return;
         await deactivateJudgeFromPanel({
           panelJudgeId: judgeManageDialog.panelJudgeId,
           reason: manageDeactivateReason,
+          userId: user?.id || '',
+        });
+      } else if (manageAction === 'drop_event') {
+        if (!manageDeactivateReason.trim()) return;
+        await dropJudge({
+          judgeId: judgeManageDialog.judgeId,
+          eventId: eventId || '',
+          userId: user?.id || '',
+          comment: manageDeactivateReason,
         });
       }
       setJudgeManageDialog({ open: false, judgeId: '', judgeName: '', hubName: null, panelJudgeId: '', panelId: '', panelCode: '' });
@@ -383,10 +589,10 @@ export default function AdminJudgingSchedule() {
   };
 
   const isManageDisabled = () => {
-    if (isReplacing || isSwapping || isDeactivating) return true;
+    if (isReplacing || isSwapping || isDeactivating || isDroppingJudge) return true;
     if (manageAction === 'replace') return !selectedReplaceJudgeId;
     if (manageAction === 'swap') return !selectedSwapPanelJudgeId;
-    if (manageAction === 'deactivate') return !manageDeactivateReason.trim();
+    if (manageAction === 'deactivate' || manageAction === 'drop_event') return !manageDeactivateReason.trim();
     return true;
   };
 
@@ -396,10 +602,11 @@ export default function AdminJudgingSchedule() {
       await deactivateJudgeFromPanel({
         panelJudgeId: deactivateDialog.panelJudgeId,
         reason: deactivateReason,
+        userId: user?.id || '',
       });
       setDeactivateDialog({ open: false, panelJudgeId: '', judgeName: '' });
       setDeactivateReason('');
-    } catch (error) {
+    } catch {
       // handled by hook
     }
   };
@@ -411,10 +618,12 @@ export default function AdminJudgingSchedule() {
         panelId: addJudgeDialog.panelId,
         judgeId: selectedJudgeId,
         userId: user?.id || '',
+        comment: addJudgeComment || undefined,
       });
       setAddJudgeDialog({ open: false, panelId: '', panelCode: '' });
       setSelectedJudgeId('');
-    } catch (error) {
+      setAddJudgeComment('');
+    } catch {
       // handled by hook
     }
   };
@@ -427,22 +636,89 @@ export default function AdminJudgingSchedule() {
         targetPanelId,
         targetSubsession: Number(targetSubsession) as 1 | 2,
         userId: user?.id || '',
+        comment: moveComment || undefined,
       });
       setMoveTeamDialog({ open: false, teamId: '', teamName: '' });
       setTargetPanelId('');
-    } catch (error) {
+      setMoveComment('');
+    } catch {
       // handled by hook
     }
   };
 
-  // Drag & drop handlers
-  const handleDragStart = (e: React.DragEvent, teamId: string, teamName: string) => {
-    setDragTeam({ teamId, teamName });
+  const handleDropTeamConfirm = async () => {
+    if (!dropTeamDialog.teamId) return;
+    try {
+      await dropTeam({
+        teamId: dropTeamDialog.teamId,
+        eventId: eventId || '',
+        userId: user?.id || '',
+        comment: dropTeamComment || undefined,
+      });
+      setDropTeamDialog({ open: false, teamId: '', teamName: '' });
+      setDropTeamComment('');
+    } catch {
+      // handled by hook
+    }
+  };
+
+  const handleReactivateTeam = async (teamId: string) => {
+    try {
+      await reactivateTeam({
+        teamId,
+        eventId: eventId || '',
+        userId: user?.id || '',
+      });
+    } catch {
+      // handled by hook
+    }
+  };
+
+  const handleDropJudgeConfirm = async () => {
+    if (!dropJudgeDialog.judgeId) return;
+    try {
+      await dropJudge({
+        judgeId: dropJudgeDialog.judgeId,
+        eventId: eventId || '',
+        userId: user?.id || '',
+        comment: dropJudgeComment || undefined,
+      });
+      setDropJudgeDialog({ open: false, judgeId: '', judgeName: '' });
+      setDropJudgeComment('');
+    } catch {
+      // handled by hook
+    }
+  };
+
+  const handleReactivateJudge = async (judgeId: string) => {
+    try {
+      await reactivateJudge({
+        judgeId,
+        eventId: eventId || '',
+        userId: user?.id || '',
+      });
+    } catch {
+      // handled by hook
+    }
+  };
+
+  // Drag & drop handlers (native — cross-panel moves)
+  const handleDragStart = (e: React.DragEvent, teamId: string, teamName: string, category: string) => {
+    setDragTeam({ teamId, teamName, category });
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', teamId);
   };
 
   const handleDragOver = (e: React.DragEvent, panelId: string, subsession: number) => {
+    // Category validation: block drop if mismatch
+    if (dragTeam) {
+      const majorCat = getPanelMajorityCategory(panelId);
+      if (majorCat && majorCat !== dragTeam.category) {
+        e.dataTransfer.dropEffect = 'none';
+        setDropTarget({ panelId, subsession });
+        return; // Don't preventDefault → browser blocks the drop
+      }
+    }
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
     setDropTarget({ panelId, subsession });
@@ -452,18 +728,23 @@ export default function AdminJudgingSchedule() {
     setDropTarget(null);
   };
 
-  const queryClient = useQueryClient();
-
   const handleDrop = async (e: React.DragEvent, panelId: string, subsession: number) => {
     e.preventDefault();
     setDropTarget(null);
     if (!dragTeam) return;
 
+    // Category validation
+    const majorCat = getPanelMajorityCategory(panelId);
+    if (majorCat && majorCat !== dragTeam.category) {
+      toast.error('No se puede mover: la categoría del equipo no coincide con la del panel destino');
+      setDragTeam(null);
+      return;
+    }
+
     const isPending = pendingTeams.some(pt => pt.team_id === dragTeam.teamId);
 
     try {
       if (isPending) {
-        // Insert new assignment for pending team
         const pendingTeam = pendingTeams.find(pt => pt.team_id === dragTeam.teamId);
         const { error } = await supabase
           .from('judging_panel_teams')
@@ -474,20 +755,20 @@ export default function AdminJudgingSchedule() {
             subsession,
             assignment_type: 'manual',
             assigned_by: user?.id || null,
+            manual_change_by: user?.id || null,
+            manual_change_at: new Date().toISOString(),
           });
         if (error) throw error;
         queryClient.invalidateQueries({ queryKey: ['judging-assignments', eventId] });
         toast.success(`${dragTeam.teamName} asignado al panel`);
       } else {
-        // Move existing team between panels
-        await moveTeam({
-          teamId: dragTeam.teamId,
-          targetPanelId: panelId,
-          targetSubsession: subsession as 1 | 2,
-          userId: user?.id || '',
-        });
+        // Open move dialog for comment
+        setMoveTeamDialog({ open: true, teamId: dragTeam.teamId, teamName: dragTeam.teamName });
+        setTargetPanelId(panelId);
+        setTargetSubsession(String(subsession) as '1' | '2');
+        setMoveComment('');
       }
-    } catch (error) {
+    } catch {
       // handled by hook or shown above
     }
     setDragTeam(null);
@@ -498,11 +779,31 @@ export default function AdminJudgingSchedule() {
     setDropTarget(null);
   };
 
+  // dnd-kit handler for intra-panel reorder
+  const handleSortEnd = useCallback((panelId: string, subsession: number, teams: { id: string }[]) =>
+    (event: DragEndEvent) => {
+      const { active, over } = event;
+      if (!over || active.id === over.id) return;
+
+      const oldIndex = teams.findIndex(t => t.id === active.id);
+      const newIndex = teams.findIndex(t => t.id === over.id);
+      if (oldIndex === -1 || newIndex === -1) return;
+
+      const reordered = arrayMove(teams, oldIndex, newIndex);
+      reorderTeams({
+        panelId,
+        subsession: subsession as 1 | 2,
+        orderedTeamIds: reordered.map(t => t.id),
+        userId: user?.id || '',
+      });
+    }, [reorderTeams, user?.id]);
+
   // CSV Exports
   const exportScheduleCSV = () => {
-    const rows = [['Panel', 'Sesión', 'Aula', 'Turno', 'Tipo', 'Nombre', 'Código', 'Subsesión', 'Estado']];
+    const rows = [['Panel', 'Sesión', 'Aula', 'Turno', 'Tipo', 'Nombre', 'Código', 'Subsesión', 'Orden', 'Estado', 'Cambio Manual', 'Comentario', 'Modificado por', 'Fecha modificación']];
     for (const panel of assignments) {
       for (const j of panel.judging_panel_judges || []) {
+        const profileName = j.manual_change_by_profile ? `${j.manual_change_by_profile.first_name} ${j.manual_change_by_profile.last_name}`.trim() : '';
         rows.push([
           panel.panel_code,
           String(panel.session_number),
@@ -512,10 +813,21 @@ export default function AdminJudgingSchedule() {
           `${j.profiles?.first_name || ''} ${j.profiles?.last_name || ''}`.trim(),
           '',
           '',
+          '',
           j.is_active ? 'Activo' : 'Baja',
+          j.assignment_type === 'manual' ? 'Sí' : 'No',
+          j.manual_change_comment || '',
+          profileName,
+          j.manual_change_at ? new Date(j.manual_change_at).toLocaleDateString('es-ES') : '',
         ]);
       }
-      for (const t of panel.judging_panel_teams || []) {
+      const sortedTeams = [...(panel.judging_panel_teams || [])].sort((a, b) => {
+        if (a.subsession !== b.subsession) return a.subsession - b.subsession;
+        if (a.is_active !== b.is_active) return a.is_active ? -1 : 1;
+        return (a.display_order || 0) - (b.display_order || 0);
+      });
+      for (const t of sortedTeams) {
+        const profileName = t.manual_change_by_profile ? `${t.manual_change_by_profile.first_name} ${t.manual_change_by_profile.last_name}`.trim() : '';
         rows.push([
           panel.panel_code,
           String(panel.session_number),
@@ -525,7 +837,12 @@ export default function AdminJudgingSchedule() {
           t.teams?.name || '',
           t.team_code,
           String(t.subsession),
-          t.is_active ? 'Activo' : 'Movido',
+          String(t.display_order || 0),
+          t.is_active ? 'Activo' : 'Baja',
+          t.assignment_type === 'manual' ? 'Sí' : 'No',
+          t.manual_change_comment || '',
+          profileName,
+          t.manual_change_at ? new Date(t.manual_change_at).toLocaleDateString('es-ES') : '',
         ]);
       }
     }
@@ -533,8 +850,9 @@ export default function AdminJudgingSchedule() {
   };
 
   const exportJudgesCSV = () => {
-    const rows = [['Nombre', 'Email', 'Panel', 'Aula', 'Sesión', 'Turno', 'Estado']];
+    const rows = [['Nombre', 'Email', 'Panel', 'Aula', 'Sesión', 'Turno', 'Estado', 'Comentario', 'Modificado por']];
     for (const j of allJudgeRows) {
+      const profileName = j.manualByProfile ? `${j.manualByProfile.first_name} ${j.manualByProfile.last_name}`.trim() : '';
       rows.push([
         j.judgeName,
         j.email,
@@ -543,14 +861,20 @@ export default function AdminJudgingSchedule() {
         String(j.session),
         j.turn === 'morning' ? 'Mañana' : 'Tarde',
         j.isActive ? 'Activo' : 'Baja',
+        j.manualComment || '',
+        profileName,
       ]);
     }
     downloadCSV(rows, 'listado-jueces');
   };
 
   const exportTeamsCSV = () => {
-    const rows = [['Código', 'Nombre Equipo', 'Categoría', 'Panel', 'Aula', 'Sesión', 'Subsesión', 'Turno']];
-    for (const t of allTeamRows.filter(t => t.isActive)) {
+    const rows = [['Código', 'Nombre Equipo', 'Categoría', 'Panel', 'Aula', 'Sesión', 'Subsesión', 'Turno', 'Orden', 'Estado', 'Comentario']];
+    const sorted = [...allTeamRows].sort((a, b) => {
+      if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
+      return (a.displayOrder || 0) - (b.displayOrder || 0);
+    });
+    for (const t of sorted) {
       rows.push([
         t.teamCode,
         t.teamName,
@@ -560,13 +884,16 @@ export default function AdminJudgingSchedule() {
         String(t.session),
         String(t.subsession),
         t.turn === 'morning' ? 'Mañana' : 'Tarde',
+        String(t.displayOrder || 0),
+        t.isActive ? 'Activo' : 'Baja',
+        t.manualComment || '',
       ]);
     }
     downloadCSV(rows, 'listado-equipos');
   };
 
   const downloadCSV = (rows: string[][], name: string) => {
-    const csv = rows.map(r => r.map(c => `"${c.replace(/"/g, '""')}"`).join(',')).join('\n');
+    const csv = rows.map(r => r.map(c => `"${c.replace(/"/g, '""').replace(/[\r\n]+/g, ' ')}"`).join(',')).join('\n');
     const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -578,7 +905,12 @@ export default function AdminJudgingSchedule() {
 
   // Group panels by session for grid view
   const sessions = Array.from(new Set(filteredPanels.map(p => p.session_number))).sort();
-  const maxRooms = Math.max(...filteredPanels.map(p => p.room_number), 1); // F10 fix: min 1 for valid CSS
+
+  const catColors: Record<string, string> = {
+    senior: 'bg-green-100 text-green-800 border-green-300',
+    junior: 'bg-blue-100 text-blue-800 border-blue-300',
+    beginner: 'bg-amber-100 text-amber-800 border-amber-300',
+  };
 
   if (isLoading) {
     return (
@@ -589,6 +921,92 @@ export default function AdminJudgingSchedule() {
       </AdminLayout>
     );
   }
+
+  // Helper to render a subsession cell with sortable teams
+  const renderSubsessionCell = (panel: typeof assignments[0], subsession: 1 | 2) => {
+    const allTeams = (panel.judging_panel_teams || [])
+      .filter(t => t.subsession === subsession);
+    const activeTeams = allTeams
+      .filter(t => t.is_active)
+      .sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
+    const inactiveTeams = allTeams
+      .filter(t => !t.is_active)
+      .sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
+
+    // Capacity warning
+    const teamsPerGroup = config?.teams_per_group || 999;
+    const overCapacity = activeTeams.length > teamsPerGroup;
+
+    const isOver = dropTarget?.panelId === panel.id && dropTarget?.subsession === subsession;
+    // Category mismatch check for drop visual
+    const categoryMismatch = dragTeam ? (() => {
+      const majorCat = getPanelMajorityCategory(panel.id);
+      return majorCat && majorCat !== dragTeam.category;
+    })() : false;
+
+    return (
+      <div
+        className={`min-h-[28px] px-1 py-0.5 transition-colors ${
+          isOver
+            ? categoryMismatch
+              ? 'bg-red-50/30 ring-2 ring-inset ring-red-300'
+              : 'bg-blue-100 ring-2 ring-inset ring-blue-400'
+            : ''
+        } ${overCapacity ? 'border-l-2 border-l-orange-400' : ''}`}
+        onDragOver={(e) => handleDragOver(e, panel.id, subsession)}
+        onDragLeave={handleDragLeave}
+        onDrop={(e) => handleDrop(e, panel.id, subsession)}
+      >
+        {overCapacity && (
+          <Badge className="bg-orange-100 text-orange-800 border-orange-300 text-[9px] px-1 py-0 mb-0.5">
+            {activeTeams.length}/{teamsPerGroup}
+          </Badge>
+        )}
+
+        {activeTeams.length > 0 && (
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleSortEnd(panel.id, subsession, activeTeams)}
+          >
+            <SortableContext items={activeTeams.map(t => t.id)} strategy={verticalListSortingStrategy}>
+              {activeTeams.map(team => (
+                <SortableTeamItem
+                  key={team.id}
+                  team={team as any}
+                  onMoveStart={handleDragStart}
+                  onDropTeam={(teamId, teamName) =>
+                    setDropTeamDialog({ open: true, teamId, teamName })
+                  }
+                  catColors={catColors}
+                />
+              ))}
+            </SortableContext>
+          </DndContext>
+        )}
+
+        {/* Inactive teams (dropped) at the end */}
+        {inactiveTeams.map(team => (
+          <div
+            key={team.id}
+            className="flex items-center gap-1 bg-red-50 rounded px-0.5 opacity-60 group/dropped"
+          >
+            <Badge variant="outline" className={`font-mono text-[10px] px-1 py-0 shrink-0 text-red-400 line-through ${catColors[team.teams?.category || ''] || ''}`}>
+              {team.team_code}
+            </Badge>
+            <span className="truncate text-xs text-red-400 line-through">{team.teams?.name}</span>
+            <Badge variant="destructive" className="text-[9px] px-1 py-0">BAJA</Badge>
+            <button
+              onClick={() => handleReactivateTeam(team.team_id)}
+              className="p-0.5 rounded hover:bg-green-100 shrink-0 opacity-0 group-hover/dropped:opacity-100 transition-opacity"
+            >
+              <UserPlus className="h-3 w-3 text-green-600" />
+            </button>
+          </div>
+        ))}
+      </div>
+    );
+  };
 
   return (
     <AdminLayout>
@@ -646,22 +1064,13 @@ export default function AdminJudgingSchedule() {
                 No hay asignaciones. Ejecuta el algoritmo desde la página de asignación.
               </div>
             ) : (() => {
-              // Build room numbers from ALL panels (not just filtered)
-              // Always show all rooms from config, even if empty
               const configRooms = config?.total_rooms || 1;
               const allRooms = Array.from({ length: configRooms }, (_, i) => i + 1);
               const roomCount = allRooms.length;
 
-              const catColors: Record<string, string> = {
-                senior: 'bg-green-100 text-green-800 border-green-300',
-                junior: 'bg-blue-100 text-blue-800 border-blue-300',
-                beginner: 'bg-amber-100 text-amber-800 border-amber-300',
-              };
-
               return (
                 <div className="border rounded-lg overflow-x-auto">
                   <table className="w-full text-xs border-collapse">
-                    {/* Header row: Aulas */}
                     <thead className="sticky top-0 z-10">
                       <tr className="bg-green-600 text-white">
                         <th className="px-3 py-2 text-left w-[120px] border-r border-green-500 sticky left-0 bg-green-600 z-20" />
@@ -675,18 +1084,20 @@ export default function AdminJudgingSchedule() {
 
                     <tbody>
                       {sessions.map(session => {
-                        const isMorning = session <= (config?.sessions_per_turn || 2);
-                        const turnLabel = isMorning ? 'TURNO MAÑANA' : 'TURNO TARDE';
-                        const isFirstOfTurn = isMorning ? session === 1 : session === (config?.sessions_per_turn || 2) + 1;
-
                         const sessionPanels = filteredPanels
                           .filter(p => p.session_number === session)
                           .sort((a, b) => a.room_number - b.room_number);
 
-                        const maxSub1 = Math.max(...sessionPanels.map(p =>
-                          (p.judging_panel_teams || []).filter(t => t.subsession === 1 && t.is_active).length), 0);
-                        const maxSub2 = Math.max(...sessionPanels.map(p =>
-                          (p.judging_panel_teams || []).filter(t => t.subsession === 2 && t.is_active).length), 0);
+                        // Determine turn from actual panel data instead of session number heuristic
+                        const sessionTurn = sessionPanels[0]?.turn || 'morning';
+                        const isMorning = sessionTurn === 'morning';
+                        const turnLabel = isMorning ? 'TURNO MAÑANA' : 'TURNO TARDE';
+                        // Show turn banner on the first session of each turn
+                        const prevSession = sessions[sessions.indexOf(session) - 1];
+                        const prevTurn = prevSession
+                          ? filteredPanels.find(p => p.session_number === prevSession)?.turn
+                          : undefined;
+                        const isFirstOfTurn = !prevTurn || prevTurn !== sessionTurn;
 
                         return (
                           <React.Fragment key={session}>
@@ -714,118 +1125,42 @@ export default function AdminJudgingSchedule() {
                               })}
                             </tr>
 
-                            {/* Subsession 1 teams */}
-                            {Array.from({ length: Math.max(maxSub1, 1) }, (_, rowIdx) => (
-                              <tr key={`s${session}-a-${rowIdx}`} className="border-b hover:bg-green-50/30">
-                                {rowIdx === 0 ? (
-                                  <td rowSpan={Math.max(maxSub1, 1)} className="px-3 py-1 text-muted-foreground font-medium sticky left-0 bg-white z-10 border-r align-top text-[11px]">
-                                    Sub 1
+                            {/* Subsession 1 */}
+                            <tr className="border-b hover:bg-green-50/30">
+                              <td className="px-3 py-1 text-muted-foreground font-medium sticky left-0 bg-white z-10 border-r align-top text-[11px]">
+                                Sub 1
+                              </td>
+                              {allRooms.map(room => {
+                                const panel = sessionPanels.find(p => p.room_number === room);
+                                if (!panel) return <td key={room} className="border-l" />;
+                                return (
+                                  <td key={room} className="border-l align-top">
+                                    {renderSubsessionCell(panel, 1)}
                                   </td>
-                                ) : null}
-                                {allRooms.map(room => {
-                                  const panel = sessionPanels.find(p => p.room_number === room);
-                                  if (!panel) return (
-                                    <td key={room} className="border-l" />
-                                  );
-                                  const teams = (panel.judging_panel_teams || []).filter(t => t.subsession === 1 && t.is_active);
-                                  const team = teams[rowIdx];
-                                  const isOver = dropTarget?.panelId === panel.id && dropTarget?.subsession === 1;
-
-                                  if (!team) return (
-                                    <td
-                                      key={room}
-                                      className={`border-l transition-colors ${isOver ? 'bg-blue-100 ring-2 ring-inset ring-blue-400' : ''}`}
-                                      onDragOver={(e) => handleDragOver(e, panel.id, 1)}
-                                      onDragLeave={handleDragLeave}
-                                      onDrop={(e) => handleDrop(e, panel.id, 1)}
-                                    />
-                                  );
-
-                                  return (
-                                    <td
-                                      key={room}
-                                      draggable
-                                      onDragStart={(e) => handleDragStart(e, team.team_id, team.teams?.name || team.team_code)}
-                                      onDragEnd={handleDragEnd}
-                                      onDragOver={(e) => handleDragOver(e, panel.id, 1)}
-                                      onDragLeave={handleDragLeave}
-                                      onDrop={(e) => handleDrop(e, panel.id, 1)}
-                                      className={`px-2 py-1 border-l cursor-grab active:cursor-grabbing hover:bg-muted/50 transition-colors ${
-                                        team.assignment_type === 'manual' ? 'bg-amber-50' : ''
-                                      } ${isOver ? 'bg-blue-100 ring-2 ring-inset ring-blue-400' : ''} ${
-                                        dragTeam?.teamId === team.team_id ? 'opacity-40' : ''
-                                      }`}
-                                    >
-                                      <div className="flex items-center gap-2 pointer-events-none">
-                                        <Badge variant="outline" className={`font-mono text-[10px] px-1 py-0 shrink-0 ${catColors[team.teams?.category || ''] || ''}`}>
-                                          {team.team_code}
-                                        </Badge>
-                                        <span className="truncate">{team.teams?.name}</span>
-                                      </div>
-                                    </td>
-                                  );
-                                })}
-                              </tr>
-                            ))}
+                                );
+                              })}
+                            </tr>
 
                             {/* Separator between subsessions */}
                             <tr className="border-b-2 border-green-200">
                               <td colSpan={roomCount + 1} className="h-0.5 bg-green-100" />
                             </tr>
 
-                            {/* Subsession 2 teams */}
-                            {Array.from({ length: Math.max(maxSub2, 1) }, (_, rowIdx) => (
-                              <tr key={`s${session}-b-${rowIdx}`} className="border-b hover:bg-green-50/30">
-                                {rowIdx === 0 ? (
-                                  <td rowSpan={Math.max(maxSub2, 1)} className="px-3 py-1 text-muted-foreground font-medium sticky left-0 bg-white z-10 border-r align-top text-[11px]">
-                                    Sub 2
+                            {/* Subsession 2 */}
+                            <tr className="border-b hover:bg-green-50/30">
+                              <td className="px-3 py-1 text-muted-foreground font-medium sticky left-0 bg-white z-10 border-r align-top text-[11px]">
+                                Sub 2
+                              </td>
+                              {allRooms.map(room => {
+                                const panel = sessionPanels.find(p => p.room_number === room);
+                                if (!panel) return <td key={room} className="border-l" />;
+                                return (
+                                  <td key={room} className="border-l align-top">
+                                    {renderSubsessionCell(panel, 2)}
                                   </td>
-                                ) : null}
-                                {allRooms.map(room => {
-                                  const panel = sessionPanels.find(p => p.room_number === room);
-                                  if (!panel) return (
-                                    <td key={room} className="border-l" />
-                                  );
-                                  const teams = (panel.judging_panel_teams || []).filter(t => t.subsession === 2 && t.is_active);
-                                  const team = teams[rowIdx];
-                                  const isOver = dropTarget?.panelId === panel.id && dropTarget?.subsession === 2;
-
-                                  if (!team) return (
-                                    <td
-                                      key={room}
-                                      className={`border-l transition-colors ${isOver ? 'bg-blue-100 ring-2 ring-inset ring-blue-400' : ''}`}
-                                      onDragOver={(e) => handleDragOver(e, panel.id, 2)}
-                                      onDragLeave={handleDragLeave}
-                                      onDrop={(e) => handleDrop(e, panel.id, 2)}
-                                    />
-                                  );
-
-                                  return (
-                                    <td
-                                      key={room}
-                                      draggable
-                                      onDragStart={(e) => handleDragStart(e, team.team_id, team.teams?.name || team.team_code)}
-                                      onDragEnd={handleDragEnd}
-                                      onDragOver={(e) => handleDragOver(e, panel.id, 2)}
-                                      onDragLeave={handleDragLeave}
-                                      onDrop={(e) => handleDrop(e, panel.id, 2)}
-                                      className={`px-2 py-1 border-l cursor-grab active:cursor-grabbing hover:bg-muted/50 transition-colors ${
-                                        team.assignment_type === 'manual' ? 'bg-amber-50' : ''
-                                      } ${isOver ? 'bg-blue-100 ring-2 ring-inset ring-blue-400' : ''} ${
-                                        dragTeam?.teamId === team.team_id ? 'opacity-40' : ''
-                                      }`}
-                                    >
-                                      <div className="flex items-center gap-2 pointer-events-none">
-                                        <Badge variant="outline" className={`font-mono text-[10px] px-1 py-0 shrink-0 ${catColors[team.teams?.category || ''] || ''}`}>
-                                          {team.team_code}
-                                        </Badge>
-                                        <span className="truncate">{team.teams?.name}</span>
-                                      </div>
-                                    </td>
-                                  );
-                                })}
-                              </tr>
-                            ))}
+                                );
+                              })}
+                            </tr>
 
                             {/* Gap between sessions */}
                             <tr><td colSpan={roomCount + 1} className="h-3" /></tr>
@@ -850,16 +1185,11 @@ export default function AdminJudgingSchedule() {
                 <div className="flex flex-wrap gap-2">
                   {pendingTeams.map(pt => {
                     const team = pt.teams as { id: string; name: string } | null;
-                    const catColors: Record<string, string> = {
-                      senior: 'bg-green-100 text-green-800 border-green-300',
-                      junior: 'bg-blue-100 text-blue-800 border-blue-300',
-                      beginner: 'bg-amber-100 text-amber-800 border-amber-300',
-                    };
                     return (
                       <div
                         key={pt.team_id}
                         draggable
-                        onDragStart={(e) => handleDragStart(e, pt.team_id, team?.name || pt.team_code)}
+                        onDragStart={(e) => handleDragStart(e, pt.team_id, team?.name || pt.team_code, pt.category)}
                         onDragEnd={handleDragEnd}
                         className="flex items-center gap-1.5 px-2 py-1 border border-amber-300 rounded bg-white cursor-grab active:cursor-grabbing hover:shadow-md transition-shadow"
                       >
@@ -890,21 +1220,45 @@ export default function AdminJudgingSchedule() {
                       <TableHead>Subsesión</TableHead>
                       <TableHead>Turno</TableHead>
                       <TableHead>Estado</TableHead>
+                      <TableHead></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {allTeamRows
                       .filter(t => turnFilter === 'all' || t.turn === turnFilter)
-                      .sort((a, b) => a.teamCode.localeCompare(b.teamCode))
+                      .sort((a, b) => {
+                        if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
+                        return a.teamCode.localeCompare(b.teamCode);
+                      })
                       .map((t, i) => (
                         <TableRow
                           key={`${t.teamId}-${i}`}
-                          className={!t.isActive ? 'opacity-50' : ''}
+                          className={!t.isActive ? 'bg-red-50 opacity-60' : ''}
                         >
                           <TableCell>
-                            <Badge variant="outline">{t.teamCode}</Badge>
+                            <Badge variant="outline" className={!t.isActive ? 'line-through text-red-400' : ''}>
+                              {t.teamCode}
+                            </Badge>
                           </TableCell>
-                          <TableCell>{t.teamName}</TableCell>
+                          <TableCell className={!t.isActive ? 'line-through text-red-400' : ''}>
+                            {t.teamName}
+                            {t.assignmentType === 'manual' && t.manualComment && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <MessageSquare className="h-3 w-3 inline ml-1 text-muted-foreground cursor-help" />
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p className="text-xs">{t.manualComment}</p>
+                                  {t.manualByProfile && (
+                                    <p className="text-xs text-muted-foreground">
+                                      {t.manualByProfile.first_name} {t.manualByProfile.last_name}
+                                      {t.manualAt ? ` · ${new Date(t.manualAt).toLocaleDateString('es-ES')}` : ''}
+                                    </p>
+                                  )}
+                                </TooltipContent>
+                              </Tooltip>
+                            )}
+                          </TableCell>
                           <TableCell>
                             <Badge variant="secondary">{t.category}</Badge>
                           </TableCell>
@@ -920,7 +1274,26 @@ export default function AdminJudgingSchedule() {
                                 {t.assignmentType === 'manual' ? 'Manual' : 'Algoritmo'}
                               </Badge>
                             ) : (
-                              <Badge variant="destructive">Movido</Badge>
+                              <Badge variant="destructive">Baja</Badge>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {t.isActive ? (
+                              <button
+                                onClick={() => setDropTeamDialog({ open: true, teamId: t.teamId, teamName: t.teamName })}
+                                className="p-1 rounded hover:bg-red-100"
+                                title="Dar de baja"
+                              >
+                                <UserMinus className="h-3.5 w-3.5 text-destructive" />
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleReactivateTeam(t.teamId)}
+                                className="p-1 rounded hover:bg-green-100"
+                                title="Reactivar"
+                              >
+                                <UserPlus className="h-3.5 w-3.5 text-green-600" />
+                              </button>
                             )}
                           </TableCell>
                         </TableRow>
@@ -943,7 +1316,6 @@ export default function AdminJudgingSchedule() {
                   .filter(g => turnFilter === 'all' || g.turn === turnFilter)
                   .map(turnData => (
                     <div key={turnData.turn} className="border rounded-lg overflow-x-auto">
-                      {/* Turn banner */}
                       <div className="bg-emerald-700 text-white px-3 py-2 font-bold text-sm">
                         TURNO {turnData.turnLabel.toUpperCase()}
                       </div>
@@ -964,7 +1336,6 @@ export default function AdminJudgingSchedule() {
                         <tbody>
                           {turnData.sessions.map(session => (
                             <React.Fragment key={session.sessionNumber}>
-                              {/* Panel codes row */}
                               <tr className="bg-blue-50 border-b border-t-2 border-blue-200">
                                 <td className="px-3 py-1.5 font-bold sticky left-0 bg-blue-50 z-10 border-r">
                                   Sesión {session.sessionNumber}
@@ -975,7 +1346,6 @@ export default function AdminJudgingSchedule() {
                                   </td>
                                 ))}
                               </tr>
-                              {/* Judges rows */}
                               {(() => {
                                 const maxJudges = Math.max(...session.rooms.map(r => r.judges.length), 1);
                                 return Array.from({ length: maxJudges }, (_, rowIdx) => (
@@ -989,39 +1359,78 @@ export default function AdminJudgingSchedule() {
                                       const judge = room.judges[rowIdx];
                                       if (!judge) return <td key={room.roomNumber} className="border-l" />;
 
+                                      const judgeContent = (
+                                        <div
+                                          role={judge.isActive ? 'button' : undefined}
+                                          tabIndex={judge.isActive ? 0 : undefined}
+                                          onClick={judge.isActive ? () => openJudgeManageDialog(judge) : undefined}
+                                          onKeyDown={judge.isActive ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openJudgeManageDialog(judge); } } : undefined}
+                                          className={`py-1 px-2 rounded max-w-[200px] ${
+                                            judge.isActive
+                                              ? judge.hasHubConflict
+                                                ? 'bg-amber-100 border border-amber-300 cursor-pointer hover:bg-amber-200'
+                                                : 'cursor-pointer hover:bg-gray-100'
+                                              : 'bg-red-50 opacity-60'
+                                          }`}
+                                        >
+                                          <span className={`text-xs block truncate ${
+                                            !judge.isActive ? 'line-through text-red-500' : 'font-medium'
+                                          }`} title={judge.judgeName}>
+                                            {judge.judgeName}
+                                          </span>
+                                          {judge.hubName && (
+                                            <Badge variant="outline" className="text-[10px] px-1 py-0 mt-0.5">
+                                              {judge.hubName}
+                                            </Badge>
+                                          )}
+                                          {!judge.isActive && (
+                                            <div className="flex items-center gap-1 mt-0.5">
+                                              <Badge variant="destructive" className="text-[9px] px-1 py-0">BAJA</Badge>
+                                              <button
+                                                onClick={(e) => { e.stopPropagation(); handleReactivateJudge(judge.judgeId); }}
+                                                className="p-0.5 rounded hover:bg-green-100"
+                                              >
+                                                <UserPlus className="h-3 w-3 text-green-600" />
+                                              </button>
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+
+                                      // Wrap manual items with audit tooltip
+                                      if (judge.assignmentType === 'manual' && judge.isActive) {
+                                        const profileName = judge.manualByProfile
+                                          ? `${judge.manualByProfile.first_name} ${judge.manualByProfile.last_name}`.trim()
+                                          : null;
+                                        return (
+                                          <td key={room.roomNumber} className="px-2 py-0.5 border-l align-top">
+                                            <Tooltip>
+                                              <TooltipTrigger asChild>
+                                                {judgeContent}
+                                              </TooltipTrigger>
+                                              <TooltipContent side="top" className="max-w-[250px]">
+                                                <p className="font-medium text-xs">Cambio manual</p>
+                                                {judge.manualComment && <p className="text-xs">{judge.manualComment}</p>}
+                                                {profileName && (
+                                                  <p className="text-xs text-muted-foreground">
+                                                    {profileName}{judge.manualAt ? ` · ${new Date(judge.manualAt).toLocaleDateString('es-ES')}` : ''}
+                                                  </p>
+                                                )}
+                                              </TooltipContent>
+                                            </Tooltip>
+                                          </td>
+                                        );
+                                      }
+
                                       return (
                                         <td key={room.roomNumber} className="px-2 py-0.5 border-l align-top">
-                                          <div
-                                            role={judge.isActive ? 'button' : undefined}
-                                            tabIndex={judge.isActive ? 0 : undefined}
-                                            onClick={judge.isActive ? () => openJudgeManageDialog(judge) : undefined}
-                                            onKeyDown={judge.isActive ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openJudgeManageDialog(judge); } } : undefined}
-                                            className={`py-1 px-2 rounded max-w-[200px] ${
-                                              judge.isActive
-                                                ? judge.hasHubConflict
-                                                  ? 'bg-amber-100 border border-amber-300 cursor-pointer hover:bg-amber-200'
-                                                  : 'cursor-pointer hover:bg-gray-100'
-                                                : 'opacity-50 pointer-events-none'
-                                            }`}
-                                          >
-                                            <span className={`text-xs block truncate ${
-                                              !judge.isActive ? 'line-through text-red-500' : 'font-medium'
-                                            }`} title={judge.judgeName}>
-                                              {judge.judgeName}
-                                            </span>
-                                            {judge.hubName && (
-                                              <Badge variant="outline" className="text-[10px] px-1 py-0 mt-0.5">
-                                                {judge.hubName}
-                                              </Badge>
-                                            )}
-                                          </div>
+                                          {judgeContent}
                                         </td>
                                       );
                                     })}
                                   </tr>
                                 ));
                               })()}
-                              {/* Gap between sessions */}
                               <tr><td colSpan={(session.rooms.length || 1) + 1} className="h-3" /></tr>
                             </React.Fragment>
                           ))}
@@ -1127,7 +1536,7 @@ export default function AdminJudgingSchedule() {
         <Dialog
           open={addJudgeDialog.open}
           onOpenChange={(open) => {
-            if (!open) setAddJudgeDialog({ open: false, panelId: '', panelCode: '' });
+            if (!open) { setAddJudgeDialog({ open: false, panelId: '', panelCode: '' }); setAddJudgeComment(''); }
             else setJudgeManageDialog({ open: false, judgeId: '', judgeName: '', hubName: null, panelJudgeId: '', panelId: '', panelCode: '' });
           }}
         >
@@ -1157,11 +1566,18 @@ export default function AdminJudgingSchedule() {
                   )}
                 </SelectContent>
               </Select>
+              <Label>Motivo del cambio (opcional)</Label>
+              <Textarea
+                value={addJudgeComment}
+                onChange={(e) => setAddJudgeComment(e.target.value)}
+                placeholder="Motivo del cambio (opcional)"
+                rows={2}
+              />
             </div>
             <DialogFooter>
               <Button
                 variant="outline"
-                onClick={() => setAddJudgeDialog({ open: false, panelId: '', panelCode: '' })}
+                onClick={() => { setAddJudgeDialog({ open: false, panelId: '', panelCode: '' }); setAddJudgeComment(''); }}
               >
                 Cancelar
               </Button>
@@ -1176,7 +1592,7 @@ export default function AdminJudgingSchedule() {
         <Dialog
           open={moveTeamDialog.open}
           onOpenChange={(open) => {
-            if (!open) setMoveTeamDialog({ open: false, teamId: '', teamName: '' });
+            if (!open) { setMoveTeamDialog({ open: false, teamId: '', teamName: '' }); setMoveComment(''); }
             else setJudgeManageDialog({ open: false, judgeId: '', judgeName: '', hubName: null, panelJudgeId: '', panelId: '', panelCode: '' });
           }}
         >
@@ -1215,17 +1631,108 @@ export default function AdminJudgingSchedule() {
                   </SelectContent>
                 </Select>
               </div>
+              <div className="space-y-2">
+                <Label>Motivo del cambio (opcional)</Label>
+                <Textarea
+                  value={moveComment}
+                  onChange={(e) => setMoveComment(e.target.value)}
+                  placeholder="Motivo del cambio (opcional)"
+                  rows={2}
+                />
+              </div>
             </div>
             <DialogFooter>
               <Button
                 variant="outline"
-                onClick={() => setMoveTeamDialog({ open: false, teamId: '', teamName: '' })}
+                onClick={() => { setMoveTeamDialog({ open: false, teamId: '', teamName: '' }); setMoveComment(''); }}
               >
                 Cancelar
               </Button>
               <Button onClick={handleMoveTeam} disabled={!targetPanelId || isMovingTeam}>
                 <ArrowRightLeft className="h-4 w-4 mr-2" />
                 Mover equipo
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Drop Team Dialog (event-level) */}
+        <Dialog
+          open={dropTeamDialog.open}
+          onOpenChange={(open) => {
+            if (!open) { setDropTeamDialog({ open: false, teamId: '', teamName: '' }); setDropTeamComment(''); }
+          }}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>¿Dar de baja a {dropTeamDialog.teamName}?</DialogTitle>
+              <DialogDescription>
+                El equipo aparecerá en rojo al final de la lista. Se puede revertir.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2">
+              <Label>Motivo (opcional)</Label>
+              <Textarea
+                value={dropTeamComment}
+                onChange={(e) => setDropTeamComment(e.target.value)}
+                placeholder="Motivo de la baja (opcional)"
+                rows={2}
+              />
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => { setDropTeamDialog({ open: false, teamId: '', teamName: '' }); setDropTeamComment(''); }}
+              >
+                Cancelar
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={handleDropTeamConfirm}
+                disabled={isDroppingTeam}
+              >
+                Dar de baja
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Drop Judge from Event Dialog */}
+        <Dialog
+          open={dropJudgeDialog.open}
+          onOpenChange={(open) => {
+            if (!open) { setDropJudgeDialog({ open: false, judgeId: '', judgeName: '' }); setDropJudgeComment(''); }
+          }}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>¿Dar de baja del evento a {dropJudgeDialog.judgeName}?</DialogTitle>
+              <DialogDescription>
+                El juez será dado de baja de TODOS los paneles del evento. Se puede revertir.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2">
+              <Label>Motivo (opcional)</Label>
+              <Textarea
+                value={dropJudgeComment}
+                onChange={(e) => setDropJudgeComment(e.target.value)}
+                placeholder="Motivo de la baja (opcional)"
+                rows={2}
+              />
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => { setDropJudgeDialog({ open: false, judgeId: '', judgeName: '' }); setDropJudgeComment(''); }}
+              >
+                Cancelar
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={handleDropJudgeConfirm}
+                disabled={isDroppingJudge}
+              >
+                Dar de baja del evento
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -1249,7 +1756,7 @@ export default function AdminJudgingSchedule() {
               </DialogDescription>
             </DialogHeader>
 
-            <RadioGroup value={manageAction} onValueChange={(v) => setManageAction(v as 'replace' | 'swap' | 'deactivate')} className="space-y-3">
+            <RadioGroup value={manageAction} onValueChange={(v) => setManageAction(v as typeof manageAction)} className="space-y-3">
               <div className="flex items-center space-x-2">
                 <RadioGroupItem value="replace" id="action-replace" />
                 <Label htmlFor="action-replace" className="cursor-pointer">Reemplazar por juez libre</Label>
@@ -1260,7 +1767,11 @@ export default function AdminJudgingSchedule() {
               </div>
               <div className="flex items-center space-x-2">
                 <RadioGroupItem value="deactivate" id="action-deactivate" />
-                <Label htmlFor="action-deactivate" className="cursor-pointer">Dar de baja</Label>
+                <Label htmlFor="action-deactivate" className="cursor-pointer">Dar de baja del panel</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="drop_event" id="action-drop-event" />
+                <Label htmlFor="action-drop-event" className="cursor-pointer text-destructive">Dar de baja del evento</Label>
               </div>
             </RadioGroup>
 
@@ -1308,13 +1819,13 @@ export default function AdminJudgingSchedule() {
                   </Select>
                   {selectedSwapPanelJudgeId && getSwapHubConflict(selectedSwapPanelJudgeId) && (
                     <p className="text-amber-600 text-xs mt-1">
-                      ⚠ Este intercambio generará un conflicto de hub en el panel destino
+                      Este intercambio generará un conflicto de hub en el panel destino
                     </p>
                   )}
                 </>
               )}
 
-              {manageAction === 'deactivate' && (
+              {(manageAction === 'deactivate' || manageAction === 'drop_event') && (
                 <>
                   <Label>Motivo de baja</Label>
                   <Textarea
@@ -1322,6 +1833,19 @@ export default function AdminJudgingSchedule() {
                     onChange={(e) => setManageDeactivateReason(e.target.value)}
                     placeholder="Ej: No puede asistir"
                     maxLength={2000}
+                  />
+                </>
+              )}
+
+              {/* Comment field for replace/swap */}
+              {(manageAction === 'replace' || manageAction === 'swap') && (
+                <>
+                  <Label>Motivo del cambio (opcional)</Label>
+                  <Textarea
+                    value={manageComment}
+                    onChange={(e) => setManageComment(e.target.value)}
+                    placeholder="Motivo del cambio (opcional)"
+                    rows={2}
                   />
                 </>
               )}
@@ -1335,13 +1859,14 @@ export default function AdminJudgingSchedule() {
                 Cancelar
               </Button>
               <Button
-                variant={manageAction === 'deactivate' ? 'destructive' : 'default'}
+                variant={manageAction === 'deactivate' || manageAction === 'drop_event' ? 'destructive' : 'default'}
                 onClick={handleManageConfirm}
                 disabled={isManageDisabled()}
               >
-                {isReplacing || isSwapping || isDeactivating ? 'Procesando...' : (
+                {isReplacing || isSwapping || isDeactivating || isDroppingJudge ? 'Procesando...' : (
                   manageAction === 'replace' ? 'Reemplazar' :
-                  manageAction === 'swap' ? 'Intercambiar' : 'Dar de baja'
+                  manageAction === 'swap' ? 'Intercambiar' :
+                  manageAction === 'drop_event' ? 'Dar de baja del evento' : 'Dar de baja'
                 )}
               </Button>
             </DialogFooter>
