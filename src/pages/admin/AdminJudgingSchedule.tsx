@@ -72,6 +72,7 @@ import {
   MessageSquare,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import ExcelJS from 'exceljs';
 
 type TurnFilter = 'all' | 'morning' | 'afternoon';
 
@@ -938,6 +939,180 @@ export default function AdminJudgingSchedule() {
     URL.revokeObjectURL(url);
   };
 
+  // Excel export — visual layout matching the grid
+  const exportScheduleExcel = async () => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Escaleta');
+
+    const configRooms = config?.total_rooms || 1;
+    const allRooms = Array.from({ length: configRooms }, (_, i) => i + 1);
+    const colCount = allRooms.length + 1; // +1 for label column
+
+    // Styles
+    const greenHeader: Partial<ExcelJS.Fill> = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF16a34a' } };
+    const greenLight: Partial<ExcelJS.Fill> = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFf0fdf4' } };
+    const turnBanner: Partial<ExcelJS.Fill> = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF15803d' } };
+    const separatorFill: Partial<ExcelJS.Fill> = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFdcfce7' } };
+    const whiteFont: Partial<ExcelJS.Font> = { color: { argb: 'FFFFFFFF' }, bold: true };
+    const thinBorder: Partial<ExcelJS.Borders> = {
+      top: { style: 'thin', color: { argb: 'FFd1d5db' } },
+      left: { style: 'thin', color: { argb: 'FFd1d5db' } },
+      bottom: { style: 'thin', color: { argb: 'FFd1d5db' } },
+      right: { style: 'thin', color: { argb: 'FFd1d5db' } },
+    };
+    const catBg: Record<string, string> = {
+      senior: 'FF3b82f6',
+      junior: 'FFf59e0b',
+      beginner: 'FF22c55e',
+    };
+
+    // Column widths
+    ws.getColumn(1).width = 14;
+    for (let i = 2; i <= colCount; i++) ws.getColumn(i).width = 35;
+
+    // Header row — Aulas
+    const headerRow = ws.addRow(['', ...allRooms.map(r => `Aula ${r}`)]);
+    headerRow.height = 26;
+    headerRow.eachCell((cell, colNum) => {
+      cell.fill = greenHeader as ExcelJS.Fill;
+      cell.font = { ...whiteFont, size: 11 };
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      cell.border = thinBorder as ExcelJS.Borders;
+      if (colNum === 1) cell.value = '';
+    });
+
+    // Helper: format teams as rich text lines inside a cell
+    const fillTeamCell = (cell: ExcelJS.Cell, teams: typeof assignments[0]['judging_panel_teams']) => {
+      if (!teams || teams.length === 0) return;
+      const sorted = [...teams].sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
+      const lines = sorted.map(t => {
+        const hub = t.teams?.hub_id ? hubsMap[t.teams.hub_id] : '';
+        return `${t.team_code}  ${t.teams?.name || ''}${hub ? '  ' + hub : ''}`;
+      });
+      cell.value = lines.join('\n');
+      cell.alignment = { vertical: 'top', wrapText: true };
+      cell.font = { size: 9 };
+      cell.border = thinBorder as ExcelJS.Borders;
+    };
+
+    // Helper: format judges as text lines
+    const fillJudgesHeader = (cell: ExcelJS.Cell, panel: typeof assignments[0]) => {
+      const judges = (panel.judging_panel_judges || []).filter(j => j.is_active);
+      if (judges.length === 0) { cell.value = ''; return; }
+      const lines = judges.map(j => {
+        const name = `${j.profiles?.first_name || ''} ${j.profiles?.last_name || ''}`.trim();
+        const hub = j.profiles?.hub_id ? hubsMap[j.profiles.hub_id] : '';
+        return `${name}${hub ? '  (' + hub + ')' : ''}`;
+      });
+      cell.value = lines.join('\n');
+      cell.alignment = { vertical: 'top', wrapText: true };
+      cell.font = { size: 8, italic: true, color: { argb: 'FF6b7280' } };
+      cell.border = thinBorder as ExcelJS.Borders;
+    };
+
+    // Iterate sessions
+    let prevTurn: string | undefined;
+    for (const session of sessions) {
+      const sessionPanels = filteredPanels
+        .filter(p => p.session_number === session)
+        .sort((a, b) => a.room_number - b.room_number);
+      const sessionTurn = sessionPanels[0]?.turn || 'morning';
+      const isFirstOfTurn = !prevTurn || prevTurn !== sessionTurn;
+      prevTurn = sessionTurn;
+
+      // Turn banner
+      if (isFirstOfTurn) {
+        const turnRow = ws.addRow([sessionTurn === 'morning' ? 'TURNO MAÑANA' : 'TURNO TARDE']);
+        ws.mergeCells(turnRow.number, 1, turnRow.number, colCount);
+        turnRow.height = 24;
+        turnRow.getCell(1).fill = turnBanner as ExcelJS.Fill;
+        turnRow.getCell(1).font = { ...whiteFont, size: 11 };
+        turnRow.getCell(1).alignment = { horizontal: 'left', vertical: 'middle' };
+      }
+
+      // Session + Panel codes row
+      const panelCodesRow = ws.addRow([
+        `Sesión ${session}`,
+        ...allRooms.map(room => {
+          const panel = sessionPanels.find(p => p.room_number === room);
+          return panel?.panel_code || '';
+        }),
+      ]);
+      panelCodesRow.height = 22;
+      panelCodesRow.eachCell((cell) => {
+        cell.fill = greenLight as ExcelJS.Fill;
+        cell.font = { bold: true, size: 10 };
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        cell.border = thinBorder as ExcelJS.Borders;
+      });
+      panelCodesRow.getCell(1).alignment = { horizontal: 'left', vertical: 'middle' };
+
+      // Judges row
+      const judgesRow = ws.addRow([
+        'Jueces',
+        ...allRooms.map(() => ''),
+      ]);
+      for (const room of allRooms) {
+        const panel = sessionPanels.find(p => p.room_number === room);
+        if (panel) fillJudgesHeader(judgesRow.getCell(room + 1), panel);
+      }
+      judgesRow.getCell(1).font = { bold: true, size: 9, color: { argb: 'FF6b7280' } };
+      judgesRow.getCell(1).alignment = { vertical: 'top' };
+      judgesRow.getCell(1).border = thinBorder as ExcelJS.Borders;
+
+      // Sub 1
+      const sub1Row = ws.addRow([
+        'Sub 1',
+        ...allRooms.map(() => ''),
+      ]);
+      for (const room of allRooms) {
+        const panel = sessionPanels.find(p => p.room_number === room);
+        if (panel) {
+          const teams = (panel.judging_panel_teams || []).filter(t => t.subsession === 1 && t.is_active);
+          fillTeamCell(sub1Row.getCell(room + 1), teams);
+        }
+      }
+      sub1Row.getCell(1).font = { size: 9, color: { argb: 'FF6b7280' } };
+      sub1Row.getCell(1).alignment = { vertical: 'top' };
+      sub1Row.getCell(1).border = thinBorder as ExcelJS.Borders;
+
+      // Separator
+      const sepRow = ws.addRow(Array(colCount).fill(''));
+      sepRow.height = 4;
+      sepRow.eachCell(cell => { cell.fill = separatorFill as ExcelJS.Fill; });
+
+      // Sub 2
+      const sub2Row = ws.addRow([
+        'Sub 2',
+        ...allRooms.map(() => ''),
+      ]);
+      for (const room of allRooms) {
+        const panel = sessionPanels.find(p => p.room_number === room);
+        if (panel) {
+          const teams = (panel.judging_panel_teams || []).filter(t => t.subsession === 2 && t.is_active);
+          fillTeamCell(sub2Row.getCell(room + 1), teams);
+        }
+      }
+      sub2Row.getCell(1).font = { size: 9, color: { argb: 'FF6b7280' } };
+      sub2Row.getCell(1).alignment = { vertical: 'top' };
+      sub2Row.getCell(1).border = thinBorder as ExcelJS.Borders;
+
+      // Gap between sessions
+      const gapRow = ws.addRow(Array(colCount).fill(''));
+      gapRow.height = 8;
+    }
+
+    // Download
+    const buffer = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `escaleta-${new Date().toISOString().slice(0, 10)}.xlsx`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   // Group panels by session for grid view
   const sessions = Array.from(new Set(filteredPanels.map(p => p.session_number))).sort();
 
@@ -1514,9 +1689,13 @@ export default function AdminJudgingSchedule() {
         {/* Export Buttons */}
         {assignments.length > 0 && (
           <div className="flex flex-wrap gap-3">
+            <Button variant="default" onClick={exportScheduleExcel} className="bg-green-700 hover:bg-green-800">
+              <Download className="h-4 w-4 mr-2" />
+              Exportar Excel
+            </Button>
             <Button variant="outline" onClick={exportScheduleCSV}>
               <Download className="h-4 w-4 mr-2" />
-              Exportar Escaleta Completa
+              Exportar CSV Completo
             </Button>
             <Button variant="outline" onClick={exportJudgesCSV}>
               <Download className="h-4 w-4 mr-2" />
