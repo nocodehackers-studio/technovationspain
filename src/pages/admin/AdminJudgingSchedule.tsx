@@ -93,9 +93,10 @@ interface SortableTeamItemProps {
     manual_change_at: string | null;
     teams: { id: string; name: string; category: string; hub_id: string | null } | null;
   };
-  onMoveStart: (e: React.DragEvent, teamId: string, teamName: string, category: string) => void;
+  onMoveStart: (e: React.DragEvent, teamId: string, teamName: string, category: string, hubId?: string | null) => void;
   onDropTeam: (teamId: string, teamName: string) => void;
   catColors: Record<string, string>;
+  hubsMap: Record<string, string>;
 }
 
 const SortableTeamItem = React.memo(function SortableTeamItem({
@@ -103,6 +104,7 @@ const SortableTeamItem = React.memo(function SortableTeamItem({
   onMoveStart,
   onDropTeam,
   catColors,
+  hubsMap,
 }: SortableTeamItemProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: team.id });
   const style = {
@@ -118,7 +120,7 @@ const SortableTeamItem = React.memo(function SortableTeamItem({
     <div
       ref={setNodeRef}
       style={style}
-      className={`flex items-center gap-1 ${team.assignment_type === 'manual' ? 'bg-amber-50 rounded px-0.5' : ''}`}
+      className={`flex items-center gap-1 py-0.5 ${team.assignment_type === 'manual' ? 'bg-amber-50 rounded px-0.5' : ''}`}
     >
       {/* Grip handle for intra-panel reorder (dnd-kit) */}
       <span
@@ -134,13 +136,18 @@ const SortableTeamItem = React.memo(function SortableTeamItem({
         {team.team_code}
       </Badge>
       <span className="truncate text-xs">{teamName}</span>
+      {team.teams?.hub_id && hubsMap[team.teams.hub_id] && (
+        <Badge variant="outline" className="text-[9px] px-1 py-0 shrink-0 text-muted-foreground">
+          {hubsMap[team.teams.hub_id]}
+        </Badge>
+      )}
 
       {/* Move between panels button (native D&D) */}
       <span
         draggable
         onDragStart={(e) => {
           e.stopPropagation();
-          onMoveStart(e, team.team_id, teamName, category);
+          onMoveStart(e, team.team_id, teamName, category, team.teams?.hub_id);
         }}
         className="cursor-grab p-0.5 rounded hover:bg-blue-100 shrink-0"
       >
@@ -196,7 +203,7 @@ export default function AdminJudgingSchedule() {
   const [activeView, setActiveView] = useState('sessions');
 
   // Drag & drop state (native — cross-panel moves)
-  const [dragTeam, setDragTeam] = useState<{ teamId: string; teamName: string; category: string } | null>(null);
+  const [dragTeam, setDragTeam] = useState<{ teamId: string; teamName: string; category: string; hubId: string | null } | null>(null);
   const [dropTarget, setDropTarget] = useState<{ panelId: string; subsession: number } | null>(null);
 
   // Deactivate judge dialog
@@ -301,7 +308,7 @@ export default function AdminJudgingSchedule() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('event_teams')
-        .select('id, team_id, team_code, category, turn, is_active, teams:team_id (id, name)')
+        .select('id, team_id, team_code, category, turn, is_active, teams:team_id (id, name, hub_id)')
         .eq('event_id', eventId!);
       if (error) throw error;
       return data || [];
@@ -362,6 +369,20 @@ export default function AdminJudgingSchedule() {
       return map;
     },
   });
+
+  // Check if a team's hub conflicts with any judge's hub in a panel
+  const getPanelHubConflict = useCallback((panelId: string, teamHubId: string | null): string | null => {
+    if (!teamHubId) return null;
+    const panel = assignments.find(p => p.id === panelId);
+    if (!panel) return null;
+    const conflictJudge = (panel.judging_panel_judges || []).find(
+      j => j.is_active && j.profiles?.hub_id === teamHubId
+    );
+    if (!conflictJudge) return null;
+    const hubName = hubsMap[teamHubId] || 'desconocido';
+    const judgeName = `${conflictJudge.profiles?.first_name || ''} ${conflictJudge.profiles?.last_name || ''}`.trim();
+    return `Conflicto de Hub: el equipo y el juez "${judgeName}" comparten el hub ${hubName}`;
+  }, [assignments, hubsMap]);
 
   const allJudgeRows = assignments.flatMap(p => {
     const panelTeamHubIds = new Set(
@@ -703,20 +724,26 @@ export default function AdminJudgingSchedule() {
   };
 
   // Drag & drop handlers (native — cross-panel moves)
-  const handleDragStart = (e: React.DragEvent, teamId: string, teamName: string, category: string) => {
-    setDragTeam({ teamId, teamName, category });
+  const handleDragStart = (e: React.DragEvent, teamId: string, teamName: string, category: string, hubId?: string | null) => {
+    setDragTeam({ teamId, teamName, category, hubId: hubId || null });
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', teamId);
   };
 
   const handleDragOver = (e: React.DragEvent, panelId: string, subsession: number) => {
-    // Category validation: block drop if mismatch
     if (dragTeam) {
+      // Category validation: block drop if mismatch
       const majorCat = getPanelMajorityCategory(panelId);
       if (majorCat && majorCat !== dragTeam.category) {
         e.dataTransfer.dropEffect = 'none';
         setDropTarget({ panelId, subsession });
-        return; // Don't preventDefault → browser blocks the drop
+        return;
+      }
+      // Hub conflict: block drop if team shares hub with a judge
+      if (getPanelHubConflict(panelId, dragTeam.hubId)) {
+        e.dataTransfer.dropEffect = 'none';
+        setDropTarget({ panelId, subsession });
+        return;
       }
     }
     e.preventDefault();
@@ -733,10 +760,18 @@ export default function AdminJudgingSchedule() {
     setDropTarget(null);
     if (!dragTeam) return;
 
-    // Category validation
+    // Category validation (hard block)
     const majorCat = getPanelMajorityCategory(panelId);
     if (majorCat && majorCat !== dragTeam.category) {
       toast.error('No se puede mover: la categoría del equipo no coincide con la del panel destino');
+      setDragTeam(null);
+      return;
+    }
+
+    // Hub conflict validation (hard block)
+    const hubConflictMsg = getPanelHubConflict(panelId, dragTeam.hubId);
+    if (hubConflictMsg) {
+      toast.error(hubConflictMsg, { duration: 6000 });
       setDragTeam(null);
       return;
     }
@@ -943,6 +978,8 @@ export default function AdminJudgingSchedule() {
       const majorCat = getPanelMajorityCategory(panel.id);
       return majorCat && majorCat !== dragTeam.category;
     })() : false;
+    // Hub conflict check for drop visual
+    const hubConflict = dragTeam ? !!getPanelHubConflict(panel.id, dragTeam.hubId) : false;
 
     return (
       <div
@@ -950,7 +987,9 @@ export default function AdminJudgingSchedule() {
           isOver
             ? categoryMismatch
               ? 'bg-red-50/30 ring-2 ring-inset ring-red-300'
-              : 'bg-blue-100 ring-2 ring-inset ring-blue-400'
+              : hubConflict
+                ? 'bg-amber-50 ring-2 ring-inset ring-amber-400'
+                : 'bg-blue-100 ring-2 ring-inset ring-blue-400'
             : ''
         } ${overCapacity ? 'border-l-2 border-l-orange-400' : ''}`}
         onDragOver={(e) => handleDragOver(e, panel.id, subsession)}
@@ -979,6 +1018,7 @@ export default function AdminJudgingSchedule() {
                     setDropTeamDialog({ open: true, teamId, teamName })
                   }
                   catColors={catColors}
+                  hubsMap={hubsMap}
                 />
               ))}
             </SortableContext>
@@ -1184,12 +1224,12 @@ export default function AdminJudgingSchedule() {
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {pendingTeams.map(pt => {
-                    const team = pt.teams as { id: string; name: string } | null;
+                    const team = pt.teams as { id: string; name: string; hub_id?: string | null } | null;
                     return (
                       <div
                         key={pt.team_id}
                         draggable
-                        onDragStart={(e) => handleDragStart(e, pt.team_id, team?.name || pt.team_code, pt.category)}
+                        onDragStart={(e) => handleDragStart(e, pt.team_id, team?.name || pt.team_code, pt.category, team?.hub_id)}
                         onDragEnd={handleDragEnd}
                         className="flex items-center gap-1.5 px-2 py-1 border border-amber-300 rounded bg-white cursor-grab active:cursor-grabbing hover:shadow-md transition-shadow"
                       >
