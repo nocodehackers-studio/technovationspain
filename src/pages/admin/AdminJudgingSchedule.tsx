@@ -43,6 +43,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Switch } from '@/components/ui/switch';
 import {
   DndContext,
   closestCenter,
@@ -70,6 +71,7 @@ import {
   Filter,
   GripVertical,
   MessageSquare,
+  AlertTriangle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import ExcelJS from 'exceljs';
@@ -202,6 +204,8 @@ export default function AdminJudgingSchedule() {
   const queryClient = useQueryClient();
   const [turnFilter, setTurnFilter] = useState<TurnFilter>('all');
   const [activeView, setActiveView] = useState('sessions');
+  const [hideInactive, setHideInactive] = useState(false);
+  const [incompDialog, setIncompDialog] = useState(false);
 
   // Drag & drop state (native — cross-panel moves)
   const [dragTeam, setDragTeam] = useState<{ teamId: string; teamName: string; category: string; hubId: string | null } | null>(null);
@@ -251,7 +255,7 @@ export default function AdminJudgingSchedule() {
   const [dropJudgeComment, setDropJudgeComment] = useState('');
 
   const { config } = useJudgingConfig(eventId);
-  const { readyJudges } = useEventJudges(eventId);
+  const { judges: eventJudges, readyJudges } = useEventJudges(eventId);
   const {
     assignments,
     isLoading,
@@ -517,6 +521,10 @@ export default function AdminJudgingSchedule() {
       });
   }, [assignments, hubsMap, config?.total_rooms]);
 
+  // Helper: distinguish swap/replace from permanent drop
+  const isSwapOrReplace = (reason: string | null): boolean =>
+    !!reason && (/reemplazado/i.test(reason) || /intercambiado/i.test(reason));
+
   // All assigned active judges for swap list (flat)
   const allAssignedActiveJudges = useMemo(() => {
     return assignments.flatMap(p =>
@@ -530,9 +538,113 @@ export default function AdminJudgingSchedule() {
           hubName: j.profiles?.hub_id ? (hubsMap[j.profiles.hub_id] || null) : null,
           panelCode: p.panel_code,
           panelId: p.id,
+          sessionNumber: p.session_number,
         }))
     );
   }, [assignments, hubsMap]);
+
+  // Incompatibilities detection
+  type IncompatibilityType = 'hub_conflict' | 'over_capacity' | 'conflict_team' | 'judge_deficit';
+  interface Incompatibility {
+    type: IncompatibilityType;
+    severity: 'error' | 'warning';
+    panelCode: string;
+    panelId: string;
+    sessionNumber: number;
+    turn: 'morning' | 'afternoon';
+    description: string;
+    judgeId?: string;
+    judgeName?: string;
+    teamId?: string;
+    teamName?: string;
+  }
+
+  const incompatibilities = useMemo(() => {
+    const issues: Incompatibility[] = [];
+    const eventJudgesMap = new Map(eventJudges.map(j => [j.id, j]));
+    for (const panel of assignments) {
+      const activeTeams = (panel.judging_panel_teams || []).filter(t => t.is_active);
+      const activeJudges = (panel.judging_panel_judges || []).filter(j => j.is_active);
+      const teamHubIds = new Set(activeTeams.map(t => t.teams?.hub_id).filter(Boolean) as string[]);
+      const teamIds = new Set(activeTeams.map(t => t.team_id));
+
+      // Hub conflicts
+      for (const j of activeJudges) {
+        const judgeHubId = j.profiles?.hub_id;
+        if (judgeHubId && teamHubIds.has(judgeHubId)) {
+          const judgeName = `${j.profiles?.first_name || ''} ${j.profiles?.last_name || ''}`.trim();
+          const hubName = hubsMap[judgeHubId] || 'desconocido';
+          issues.push({
+            type: 'hub_conflict',
+            severity: 'warning',
+            panelCode: panel.panel_code,
+            panelId: panel.id,
+            sessionNumber: panel.session_number,
+            turn: panel.turn as 'morning' | 'afternoon',
+            description: `Juez "${judgeName}" comparte hub "${hubName}" con equipo(s) del panel`,
+            judgeId: j.judge_id,
+            judgeName,
+          });
+        }
+      }
+
+      // Conflict team IDs
+      for (const j of activeJudges) {
+        const judgeData = eventJudgesMap.get(j.judge_id);
+        if (!judgeData?.conflictTeamIds?.length) continue;
+        for (const conflictTid of judgeData.conflictTeamIds) {
+          if (teamIds.has(conflictTid)) {
+            const judgeName = `${j.profiles?.first_name || ''} ${j.profiles?.last_name || ''}`.trim();
+            const conflictTeam = activeTeams.find(t => t.team_id === conflictTid);
+            issues.push({
+              type: 'conflict_team',
+              severity: 'error',
+              panelCode: panel.panel_code,
+              panelId: panel.id,
+              sessionNumber: panel.session_number,
+              turn: panel.turn as 'morning' | 'afternoon',
+              description: `Juez "${judgeName}" tiene incompatibilidad declarada con equipo "${conflictTeam?.teams?.name || conflictTid}"`,
+              judgeId: j.judge_id,
+              judgeName,
+              teamId: conflictTid,
+              teamName: conflictTeam?.teams?.name || undefined,
+            });
+          }
+        }
+      }
+
+      // Over-capacity (teams per subsession)
+      const sub1Active = activeTeams.filter(t => t.subsession === 1).length;
+      const sub2Active = activeTeams.filter(t => t.subsession === 2).length;
+      const teamsPerGroup = config?.teams_per_group || 999;
+      if (sub1Active > teamsPerGroup || sub2Active > teamsPerGroup) {
+        issues.push({
+          type: 'over_capacity',
+          severity: 'warning',
+          panelCode: panel.panel_code,
+          panelId: panel.id,
+          sessionNumber: panel.session_number,
+          turn: panel.turn as 'morning' | 'afternoon',
+          description: `Panel excede capacidad: Sub1=${sub1Active}, Sub2=${sub2Active} (máx ${teamsPerGroup})`,
+        });
+      }
+
+      // Judge deficit
+      const judgesPerGroup = config?.judges_per_group || 0;
+      if (judgesPerGroup > 0 && activeJudges.length < judgesPerGroup) {
+        issues.push({
+          type: 'judge_deficit',
+          severity: 'error',
+          panelCode: panel.panel_code,
+          panelId: panel.id,
+          sessionNumber: panel.session_number,
+          turn: panel.turn as 'morning' | 'afternoon',
+          description: `Panel tiene ${activeJudges.length}/${judgesPerGroup} jueces`,
+        });
+      }
+    }
+    return issues;
+  }, [assignments, eventJudges, hubsMap, config]);
 
   // Hub conflict preview for swap target
   const getSwapHubConflict = (targetPanelJudgeId: string): boolean => {
@@ -850,7 +962,7 @@ export default function AdminJudgingSchedule() {
           '',
           '',
           '',
-          j.is_active ? 'Activo' : 'Baja',
+          j.is_active ? 'Activo' : isSwapOrReplace(j.deactivated_reason) ? 'Cambio' : 'Baja',
           j.assignment_type === 'manual' ? 'Sí' : 'No',
           j.manual_change_comment || '',
           profileName,
@@ -896,7 +1008,7 @@ export default function AdminJudgingSchedule() {
         String(j.room),
         String(j.session),
         j.turn === 'morning' ? 'Mañana' : 'Tarde',
-        j.isActive ? 'Activo' : 'Baja',
+        j.isActive ? 'Activo' : isSwapOrReplace(j.deactivatedReason) ? 'Cambio' : 'Baja',
         j.manualComment || '',
         profileName,
       ]);
@@ -1240,7 +1352,17 @@ export default function AdminJudgingSchedule() {
               </p>
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-4 items-center">
+            <div className="flex items-center gap-2">
+              <label htmlFor="hide-inactive" className="text-sm text-muted-foreground whitespace-nowrap">
+                Ocultar bajas/cambios
+              </label>
+              <Switch
+                id="hide-inactive"
+                checked={hideInactive}
+                onCheckedChange={setHideInactive}
+              />
+            </div>
             <Select value={turnFilter} onValueChange={(v: TurnFilter) => setTurnFilter(v)}>
               <SelectTrigger className="w-[160px]">
                 <Filter className="h-4 w-4 mr-2" />
@@ -1542,7 +1664,10 @@ export default function AdminJudgingSchedule() {
                               <th key={room.roomNumber} className="px-4 py-2 text-center font-semibold border-l min-w-[200px]">
                                 Aula {room.roomNumber}
                                 <span className="ml-1 font-normal text-muted-foreground">
-                                  ({room.activeCount}/{config?.judges_per_group || '?'})
+                                  {hideInactive
+                                    ? `(${room.activeCount})`
+                                    : `(${room.activeCount}/${config?.judges_per_group || '?'})`
+                                  }
                                 </span>
                               </th>
                             ))}
@@ -1562,7 +1687,9 @@ export default function AdminJudgingSchedule() {
                                 ))}
                               </tr>
                               {(() => {
-                                const maxJudges = Math.max(...session.rooms.map(r => r.judges.length), 1);
+                                const getVisibleJudges = (judges: typeof room.judges) =>
+                                  hideInactive ? judges.filter(j => j.isActive) : judges;
+                                const maxJudges = Math.max(...session.rooms.map(r => getVisibleJudges(r.judges).length), 1);
                                 return Array.from({ length: maxJudges }, (_, rowIdx) => (
                                   <tr key={`s${session.sessionNumber}-j-${rowIdx}`} className="border-b hover:bg-blue-50/30">
                                     {rowIdx === 0 ? (
@@ -1571,7 +1698,8 @@ export default function AdminJudgingSchedule() {
                                       </td>
                                     ) : null}
                                     {session.rooms.map(room => {
-                                      const judge = room.judges[rowIdx];
+                                      const visibleJudges = getVisibleJudges(room.judges);
+                                      const judge = visibleJudges[rowIdx];
                                       if (!judge) return <td key={room.roomNumber} className="border-l" />;
 
                                       const judgeContent = (
@@ -1599,14 +1727,23 @@ export default function AdminJudgingSchedule() {
                                             </Badge>
                                           )}
                                           {!judge.isActive && (
-                                            <div className="flex items-center gap-1 mt-0.5">
-                                              <Badge variant="destructive" className="text-[9px] px-1 py-0">BAJA</Badge>
-                                              <button
-                                                onClick={(e) => { e.stopPropagation(); handleReactivateJudge(judge.judgeId); }}
-                                                className="p-0.5 rounded hover:bg-green-100"
-                                              >
-                                                <UserPlus className="h-3 w-3 text-green-600" />
-                                              </button>
+                                            <div className="flex flex-col gap-0.5 mt-0.5">
+                                              <div className="flex items-center gap-1">
+                                                {isSwapOrReplace(judge.deactivatedReason) ? (
+                                                  <Badge className="text-[9px] px-1 py-0 bg-amber-100 text-amber-800 border-amber-300">CAMBIO</Badge>
+                                                ) : (
+                                                  <Badge variant="destructive" className="text-[9px] px-1 py-0">BAJA</Badge>
+                                                )}
+                                                <button
+                                                  onClick={(e) => { e.stopPropagation(); handleReactivateJudge(judge.judgeId); }}
+                                                  className="p-0.5 rounded hover:bg-green-100"
+                                                >
+                                                  <UserPlus className="h-3 w-3 text-green-600" />
+                                                </button>
+                                              </div>
+                                              {isSwapOrReplace(judge.deactivatedReason) && (
+                                                <span className="text-[9px] text-muted-foreground">desde S.{judge.session}</span>
+                                              )}
                                             </div>
                                           )}
                                         </div>
@@ -1704,6 +1841,19 @@ export default function AdminJudgingSchedule() {
             <Button variant="outline" onClick={exportTeamsCSV}>
               <Download className="h-4 w-4 mr-2" />
               Exportar Listado de Equipos
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => setIncompDialog(true)}
+              className={incompatibilities.length > 0 ? 'border-red-300 text-red-700 hover:bg-red-50' : ''}
+            >
+              <AlertTriangle className="h-4 w-4 mr-2" />
+              Incompatibilidades
+              {incompatibilities.length > 0 && (
+                <Badge variant="destructive" className="ml-2 text-[10px] px-1.5 py-0">
+                  {incompatibilities.length}
+                </Badge>
+              )}
             </Button>
           </div>
         )}
@@ -2031,7 +2181,7 @@ export default function AdminJudgingSchedule() {
                           <SelectItem key={j.panelJudgeId} value={j.panelJudgeId}>
                             {j.name}
                             {j.hubName ? ` (${j.hubName})` : ''}
-                            {' — '}{j.panelCode}
+                            {' — '}{j.panelCode} · S.{j.sessionNumber}
                           </SelectItem>
                         ))}
                     </SelectContent>
@@ -2089,6 +2239,59 @@ export default function AdminJudgingSchedule() {
                 )}
               </Button>
             </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Incompatibilities Dialog */}
+        <Dialog open={incompDialog} onOpenChange={setIncompDialog}>
+          <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Incompatibilidades detectadas ({incompatibilities.length})</DialogTitle>
+              <DialogDescription>
+                Revisa y resuelve manualmente cada conflicto.
+              </DialogDescription>
+            </DialogHeader>
+            {incompatibilities.length === 0 ? (
+              <p className="text-center text-muted-foreground py-4">No se detectaron incompatibilidades.</p>
+            ) : (
+              <div className="space-y-3">
+                {incompatibilities.map((inc, i) => (
+                  <div key={`${inc.panelId}-${inc.type}-${inc.judgeId || ''}-${inc.teamId || ''}-${i}`} className={`p-3 rounded-lg border ${inc.severity === 'error' ? 'border-red-200 bg-red-50' : 'border-amber-200 bg-amber-50'}`}>
+                    <div className="flex items-center justify-between mb-1">
+                      <Badge className={inc.severity === 'error' ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'}>
+                        {inc.type === 'hub_conflict' ? 'Conflicto Hub' :
+                         inc.type === 'conflict_team' ? 'Incompatibilidad Declarada' :
+                         inc.type === 'over_capacity' ? 'Sobre-capacidad' : 'Déficit Jueces'}
+                      </Badge>
+                      <span className="text-xs text-muted-foreground">
+                        {inc.panelCode} · S.{inc.sessionNumber} · {inc.turn === 'morning' ? 'Mañana' : 'Tarde'}
+                      </span>
+                    </div>
+                    <p className="text-sm">{inc.description}</p>
+                    {(inc.type === 'hub_conflict' || inc.type === 'conflict_team') && inc.judgeId && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="mt-2"
+                        onClick={() => {
+                          setIncompDialog(false);
+                          const judgeRow = allJudgeRows.find(
+                            j => j.judgeId === inc.judgeId && j.panelId === inc.panelId && j.isActive
+                          );
+                          if (judgeRow) {
+                            openJudgeManageDialog(judgeRow);
+                          } else {
+                            toast.error('Juez no encontrado en el panel. Es posible que los datos hayan cambiado.');
+                          }
+                        }}
+                      >
+                        Gestionar juez
+                      </Button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </DialogContent>
         </Dialog>
       </div>
