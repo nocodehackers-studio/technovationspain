@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { AdminLayout } from "@/components/admin/AdminLayout";
@@ -18,13 +18,15 @@ import {
   ChartTooltipContent,
 } from "@/components/ui/chart";
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, CartesianGrid } from "recharts";
-import { Download, Users, Calendar, FileText, Database } from "lucide-react";
+import { Download, Users, Calendar, FileText, Database, Scale } from "lucide-react";
 import { toast } from "sonner";
 import { startOfWeek, addWeeks, addDays, format } from "date-fns";
 import { es } from "date-fns/locale";
 
 export default function AdminReports() {
   const [selectedEventId, setSelectedEventId] = useState<string>("");
+  const [selectedJudgeEventId, setSelectedJudgeEventId] = useState<string>("");
+  const [selectedHubId, setSelectedHubId] = useState<string>("");
 
   // Fetch events
   const { data: events } = useQuery({
@@ -34,6 +36,18 @@ export default function AdminReports() {
         .from("events")
         .select("id, name, date")
         .order("date", { ascending: false });
+      return data || [];
+    },
+  });
+
+  // Fetch hubs for judge filters
+  const { data: hubs } = useQuery({
+    queryKey: ["admin-reports-hubs"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("hubs")
+        .select("id, name")
+        .order("name");
       return data || [];
     },
   });
@@ -159,6 +173,131 @@ export default function AdminReports() {
       };
     },
   });
+
+  // Fetch judge assignments (F1: added .limit, F3: typed result)
+  interface JudgeRow {
+    user_id: string;
+    is_active: boolean;
+    onboarding_completed: boolean;
+    schedule_preference: string | null;
+    profiles: { hub_id: string | null } | null;
+  }
+
+  const { data: rawJudgeData, isLoading: judgesLoading } = useQuery({
+    queryKey: ["admin-reports-judges", selectedJudgeEventId],
+    queryFn: async () => {
+      let query = supabase
+        .from("judge_assignments")
+        .select(`
+          user_id,
+          is_active,
+          onboarding_completed,
+          schedule_preference,
+          profiles!judge_assignments_user_id_fkey (hub_id)
+        `)
+        .limit(10000);
+
+      if (selectedJudgeEventId) {
+        query = query.eq("event_id", selectedJudgeEventId);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+      return (data || []) as JudgeRow[];
+    },
+  });
+
+  // (F2: shared helper to compute stats from a normalized judge list)
+  type NormalizedJudge = { is_active: boolean; onboarding_completed: boolean; schedule_preference: string | null; hub_id: string | null };
+
+  const computeJudgeStats = (judges: NormalizedJudge[], hubLookup: { id: string; name: string }[]) => {
+    const total = judges.length;
+    const active = judges.filter((j) => j.is_active).length;
+    const inactive = total - active;
+
+    const onboardingCompleted = judges.filter((j) => j.onboarding_completed).length;
+    const onboardingPending = total - onboardingCompleted;
+
+    const prefCounts: Record<string, number> = { morning: 0, afternoon: 0, no_preference: 0 };
+    judges.forEach((j) => {
+      const pref = j.schedule_preference || "no_preference";
+      if (pref in prefCounts) prefCounts[pref]++;
+      else prefCounts["no_preference"]++;
+    });
+
+    const hubCounts: Record<string, number> = {};
+    judges.forEach((j) => {
+      if (j.hub_id) {
+        hubCounts[j.hub_id] = (hubCounts[j.hub_id] || 0) + 1;
+      }
+    });
+
+    return {
+      total,
+      active,
+      inactive,
+      onboardingData: [
+        { name: "Completado", value: onboardingCompleted },
+        { name: "Pendiente", value: onboardingPending },
+      ],
+      preferenceData: [
+        { name: "Mañana", value: prefCounts.morning },
+        { name: "Tarde", value: prefCounts.afternoon },
+        { name: "Indiferente", value: prefCounts.no_preference },
+      ],
+      hubDistribution: Object.entries(hubCounts).map(([hubId, count]) => ({
+        name: hubLookup.find((h) => h.id === hubId)?.name || hubId,
+        value: count,
+      })),
+    };
+  };
+
+  // Process judge stats with hub filter (client-side)
+  const judgeStats = useMemo(() => {
+    // (F8: wait for both queries before computing)
+    if (!rawJudgeData || !hubs) return null;
+
+    let rows = rawJudgeData;
+
+    // Apply hub filter
+    if (selectedHubId) {
+      rows = rows.filter((r) => r.profiles?.hub_id === selectedHubId);
+    }
+
+    if (!selectedJudgeEventId) {
+      // Global: dedup by user_id — aggregate across events
+      const userMap = new Map<string, NormalizedJudge>();
+
+      for (const r of rows) {
+        const existing = userMap.get(r.user_id);
+        if (!existing) {
+          userMap.set(r.user_id, {
+            is_active: r.is_active,
+            onboarding_completed: r.onboarding_completed,
+            schedule_preference: r.schedule_preference,
+            hub_id: r.profiles?.hub_id || null,
+          });
+        } else {
+          if (r.is_active) existing.is_active = true;
+          if (r.onboarding_completed) existing.onboarding_completed = true;
+          if (!existing.schedule_preference && r.schedule_preference) {
+            existing.schedule_preference = r.schedule_preference;
+          }
+        }
+      }
+
+      return computeJudgeStats(Array.from(userMap.values()), hubs);
+    } else {
+      // Per-event: no dedup needed
+      const normalized: NormalizedJudge[] = rows.map((r) => ({
+        is_active: r.is_active,
+        onboarding_completed: r.onboarding_completed,
+        schedule_preference: r.schedule_preference,
+        hub_id: r.profiles?.hub_id || null,
+      }));
+      return computeJudgeStats(normalized, hubs);
+    }
+  }, [rawJudgeData, selectedJudgeEventId, selectedHubId, hubs]);
 
   // Fetch audit logs
   const { data: auditLogs } = useQuery({
@@ -534,6 +673,10 @@ export default function AdminReports() {
               <Calendar className="h-4 w-4" />
               <span className="hidden sm:inline">Eventos</span>
             </TabsTrigger>
+            <TabsTrigger value="judges" className="gap-2">
+              <Scale className="h-4 w-4" />
+              <span className="hidden sm:inline">Jueces</span>
+            </TabsTrigger>
             <TabsTrigger value="activity" className="gap-2">
               <FileText className="h-4 w-4" />
               <span className="hidden sm:inline">Actividad</span>
@@ -710,6 +853,154 @@ export default function AdminReports() {
                 </CardContent>
               </Card>
             )}
+          </TabsContent>
+
+          {/* Judges Tab */}
+          <TabsContent value="judges" className="space-y-4">
+            {/* Filters */}
+            <div className="flex flex-col sm:flex-row gap-3">
+              <Select value={selectedJudgeEventId || "all"} onValueChange={(v) => setSelectedJudgeEventId(v === "all" ? "" : v)}>
+                <SelectTrigger className="w-full sm:w-[250px]">
+                  <SelectValue placeholder="Todos los eventos" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos los eventos</SelectItem>
+                  {events?.map((event) => (
+                    <SelectItem key={event.id} value={event.id}>
+                      {event.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={selectedHubId || "all"} onValueChange={(v) => setSelectedHubId(v === "all" ? "" : v)}>
+                <SelectTrigger className="w-full sm:w-[250px]">
+                  <SelectValue placeholder="Todos los hubs" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos los hubs</SelectItem>
+                  {hubs?.map((hub) => (
+                    <SelectItem key={hub.id} value={hub.id}>
+                      {hub.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Loading state (F7) */}
+            {judgesLoading && (
+              <Card>
+                <CardContent className="flex h-32 sm:h-40 items-center justify-center text-muted-foreground text-sm">
+                  Cargando datos de jueces...
+                </CardContent>
+              </Card>
+            )}
+
+            {/* KPIs + Charts */}
+            {!judgesLoading && <>
+              <div className="grid gap-4 grid-cols-2 md:grid-cols-3">
+                <Card>
+                  <CardContent className="pt-4 sm:pt-6">
+                    <div className="text-2xl sm:text-3xl font-bold">{judgeStats?.total ?? 0}</div>
+                    <p className="text-xs sm:text-sm text-muted-foreground">Total Jueces</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-4 sm:pt-6">
+                    <div className="text-2xl sm:text-3xl font-bold text-green-600">{judgeStats?.active ?? 0}</div>
+                    <p className="text-xs sm:text-sm text-muted-foreground">Activos</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-4 sm:pt-6">
+                    <div className="text-2xl sm:text-3xl font-bold text-muted-foreground">{judgeStats?.inactive ?? 0}</div>
+                    <p className="text-xs sm:text-sm text-muted-foreground">Inactivos</p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Donut Charts */}
+              <div className="grid gap-4 md:grid-cols-2">
+                {/* Onboarding Status */}
+                <Card>
+                  <CardHeader className="pb-2 sm:pb-6">
+                    <CardTitle className="text-base sm:text-lg">Estado de Onboarding</CardTitle>
+                    <CardDescription className="text-xs sm:text-sm">Completado vs pendiente</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <ChartContainer config={chartConfig} className="h-[200px] sm:h-[300px]">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={judgeStats?.onboardingData || []}
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={60}
+                            outerRadius={100}
+                            dataKey="value"
+                            label={({ name, value }) => `${name}: ${value}`}
+                          >
+                            <Cell fill="hsl(150, 80%, 42%)" />
+                            <Cell fill="hsl(35, 95%, 55%)" />
+                          </Pie>
+                          <ChartTooltip content={<ChartTooltipContent />} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </ChartContainer>
+                  </CardContent>
+                </Card>
+
+                {/* Schedule Preference */}
+                <Card>
+                  <CardHeader className="pb-2 sm:pb-6">
+                    <CardTitle className="text-base sm:text-lg">Preferencia Horaria</CardTitle>
+                    <CardDescription className="text-xs sm:text-sm">Distribución de preferencias</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <ChartContainer config={chartConfig} className="h-[200px] sm:h-[300px]">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={judgeStats?.preferenceData || []}
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={60}
+                            outerRadius={100}
+                            dataKey="value"
+                            label={({ name, value }) => `${name}: ${value}`}
+                          >
+                            <Cell fill="hsl(200, 90%, 50%)" />
+                            <Cell fill="hsl(270, 80%, 55%)" />
+                            <Cell fill="hsl(175, 80%, 45%)" />
+                          </Pie>
+                          <ChartTooltip content={<ChartTooltipContent />} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </ChartContainer>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Hub Distribution */}
+              <Card>
+                <CardHeader className="pb-2 sm:pb-6">
+                  <CardTitle className="text-base sm:text-lg">Distribución por Hub</CardTitle>
+                  <CardDescription className="text-xs sm:text-sm">Jueces por hub</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <ChartContainer config={chartConfig} className="h-[200px] sm:h-[300px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={judgeStats?.hubDistribution || []} layout="vertical">
+                        <XAxis type="number" />
+                        <YAxis dataKey="name" type="category" width={150} tick={{ fontSize: 11 }} />
+                        <ChartTooltip content={<ChartTooltipContent />} />
+                        <Bar dataKey="value" fill="hsl(270, 80%, 55%)" radius={[0, 4, 4, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </ChartContainer>
+                </CardContent>
+              </Card>
+            </>}
           </TabsContent>
 
           {/* Activity Tab */}
