@@ -6,7 +6,7 @@ import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { ArrowLeft, Save, Info, MapPin, Ticket, Calendar, Eye, Mail, BarChart3, Heart, GraduationCap, FileSpreadsheet, Gavel } from "lucide-react";
+import { ArrowLeft, Save, Info, MapPin, Ticket, Calendar, Eye, Mail, BarChart3, Heart, GraduationCap, FileSpreadsheet, Gavel, ScanLine } from "lucide-react";
 import { EventBasicInfoForm } from "@/components/admin/events/EventBasicInfoForm";
 import { EventLocationForm } from "@/components/admin/events/EventLocationForm";
 import { TicketTypeManager } from "@/components/admin/events/TicketTypeManager";
@@ -19,6 +19,7 @@ import { WorkshopManager } from "@/components/admin/events/WorkshopManager";
 import { Event, EventType, TeamTurn } from "@/types/database";
 import { EventTeamImport } from "@/components/admin/events/EventTeamImport";
 import { JudgingManager } from "@/components/admin/events/JudgingManager";
+import { EventCheckinView } from "@/components/admin/events/EventCheckinView";
 
 interface EventFormData {
   name: string;
@@ -343,7 +344,7 @@ export default function AdminEventEditor() {
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className={`grid w-full ${formData.event_type === 'regional_final' ? 'grid-cols-11' : 'grid-cols-9'}`}>
+          <TabsList className={`grid w-full ${formData.event_type === 'regional_final' ? 'grid-cols-12' : 'grid-cols-9'}`}>
             <TabsTrigger value="basic" className="gap-2">
               <Info className="h-4 w-4" />
               <span className="hidden sm:inline">Info</span>
@@ -386,6 +387,12 @@ export default function AdminEventEditor() {
               <TabsTrigger value="judging" className="gap-2" disabled={!isEditing}>
                 <Gavel className="h-4 w-4" />
                 <span className="hidden sm:inline">Jurados</span>
+              </TabsTrigger>
+            )}
+            {formData.event_type === 'regional_final' && (
+              <TabsTrigger value="checkin" className="gap-2" disabled={!isEditing}>
+                <ScanLine className="h-4 w-4" />
+                <span className="hidden sm:inline">Check-in</span>
               </TabsTrigger>
             )}
             <TabsTrigger value="publish" className="gap-2" disabled={!isEditing}>
@@ -459,6 +466,12 @@ export default function AdminEventEditor() {
             {formData.event_type === 'regional_final' && (
               <TabsContent value="judging">
                 {eventId && <JudgingManager eventId={eventId} />}
+              </TabsContent>
+            )}
+
+            {formData.event_type === 'regional_final' && (
+              <TabsContent value="checkin">
+                {eventId && <EventCheckinView eventId={eventId} />}
               </TabsContent>
             )}
 
