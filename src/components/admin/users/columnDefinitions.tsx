@@ -43,6 +43,7 @@ export const COLUMN_LABELS: Record<string, string> = {
   hub_name: "Hub",
   team_name: "Equipo",
   profile_type: "Tipo de Perfil",
+  email: "Email",
   parent_email: "Email del Padre/Madre",
   parent_name: "Nombre del Padre/Madre",
   onboarding_completed: "Registro Completado",
@@ -72,6 +73,7 @@ const CORE_COLUMN_IDS = new Set([
 
 // Fields that get auto-generated as simple text columns
 const AUTO_TEXT_FIELDS: string[] = [
+  "email",
   "tg_id",
   "phone",
   "dni",
@@ -133,7 +135,6 @@ const SKIP_AUTO_DETECT = new Set([
   "hub_id",
   "hub",
   "custom_fields",
-  "email", // shown inside "name" column
   "first_name", // shown inside "name" column
   "last_name", // shown inside "name" column
 ])
