@@ -350,6 +350,8 @@ export default function AdminUsers() {
       switch (colId) {
         case "name":
           return `${row.first_name || ""} ${row.last_name || ""}`.trim()
+        case "email":
+          return row.email || ""
         case "tg_id":
           return row.tg_id || ""
         case "roles":
