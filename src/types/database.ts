@@ -317,6 +317,8 @@ export interface EventTeamImportRecord {
   csv_team_name: string | null;
   match_type: TeamMatchType;
   is_active: boolean;
+  checked_in_at: string | null;
+  checked_in_by: string | null;
   imported_at: string;
   imported_by: string | null;
   updated_at: string;
