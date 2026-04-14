@@ -79,7 +79,7 @@ interface TeamForJudging {
 // Typed Supabase response for assignments query
 interface PanelWithRelations extends JudgingPanel {
   judging_panel_judges: (JudgingPanelJudge & {
-    profiles: Pick<Profile, 'id' | 'first_name' | 'last_name' | 'email' | 'hub_id'>;
+    profiles: Pick<Profile, 'id' | 'first_name' | 'last_name' | 'email' | 'hub_id' | 'chapter' | 'city' | 'state'>;
     manual_change_by_profile: { first_name: string; last_name: string } | null;
   })[];
   judging_panel_teams: (JudgingPanelTeam & {
@@ -105,7 +105,7 @@ export function useJudgingAssignment(eventId: string | undefined) {
           *,
           judging_panel_judges (
             *,
-            profiles:judge_id (id, first_name, last_name, email, hub_id),
+            profiles:judge_id (id, first_name, last_name, email, hub_id, chapter, city, state),
             manual_change_by_profile:manual_change_by (first_name, last_name)
           ),
           judging_panel_teams!judging_panel_teams_panel_id_fkey (
