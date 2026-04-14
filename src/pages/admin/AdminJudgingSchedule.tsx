@@ -76,7 +76,6 @@ import {
 import { toast } from 'sonner';
 import ExcelJS from 'exceljs';
 
-type TurnFilter = 'all' | 'morning' | 'afternoon';
 
 // ============================================================================
 // SortableTeamItem — dnd-kit sortable item for intra-panel reorder
@@ -202,10 +201,19 @@ export default function AdminJudgingSchedule() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const queryClient = useQueryClient();
-  const [turnFilter, setTurnFilter] = useState<TurnFilter>('all');
+  const [turnFilters, setTurnFilters] = useState<Set<string>>(new Set());
   const [activeView, setActiveView] = useState('sessions');
   const [hideInactive, setHideInactive] = useState(false);
   const [incompDialog, setIncompDialog] = useState(false);
+  const [chapterFilter, setChapterFilter] = useState<string>('all');
+  const [stateFilter, setStateFilter] = useState<string>('all');
+  const [cityFilter, setCityFilter] = useState<string>('all');
+
+  const toggleTurnFilter = (turn: string) => setTurnFilters(prev => {
+    const next = new Set(prev);
+    next.has(turn) ? next.delete(turn) : next.add(turn);
+    return next;
+  });
 
   // Drag & drop state (native — cross-panel moves)
   const [dragTeam, setDragTeam] = useState<{ teamId: string; teamName: string; category: string; hubId: string | null } | null>(null);
@@ -255,7 +263,7 @@ export default function AdminJudgingSchedule() {
   const [dropJudgeComment, setDropJudgeComment] = useState('');
 
   const { config } = useJudgingConfig(eventId);
-  const { judges: eventJudges, readyJudges } = useEventJudges(eventId);
+  const { judges: eventJudges, readyJudges, bajaJudges } = useEventJudges(eventId);
   const {
     assignments,
     isLoading,
@@ -287,7 +295,7 @@ export default function AdminJudgingSchedule() {
 
   // Filtered assignments
   const filteredPanels = assignments.filter(p =>
-    turnFilter === 'all' ? true : p.turn === turnFilter
+    turnFilters.size === 0 || turnFilters.has(p.turn)
   );
 
   // Get all assigned judge IDs to show unassigned in add dialog
@@ -418,6 +426,9 @@ export default function AdminJudgingSchedule() {
         manualAt: j.manual_change_at,
         panelJudgeId: j.id,
         panelId: p.id,
+        chapter: j.profiles?.chapter ?? null,
+        city: j.profiles?.city ?? null,
+        state: j.profiles?.state ?? null,
       };
     });
   });
@@ -431,7 +442,8 @@ export default function AdminJudgingSchedule() {
     panelJudgeId: string;
     panelId: string;
     panelCode: string;
-  }>({ open: false, judgeId: '', judgeName: '', hubName: null, panelJudgeId: '', panelId: '', panelCode: '' });
+    comments: string | null;
+  }>({ open: false, judgeId: '', judgeName: '', hubName: null, panelJudgeId: '', panelId: '', panelCode: '', comments: null });
   const [manageAction, setManageAction] = useState<'replace' | 'swap' | 'deactivate' | 'drop_event'>('replace');
   const [selectedReplaceJudgeId, setSelectedReplaceJudgeId] = useState('');
   const [selectedSwapPanelJudgeId, setSelectedSwapPanelJudgeId] = useState('');
@@ -481,6 +493,9 @@ export default function AdminJudgingSchedule() {
           manualAt: j.manual_change_at,
           panelJudgeId: j.id,
           panelId: panel.id,
+          chapter: j.profiles?.chapter ?? null,
+          city: j.profiles?.city ?? null,
+          state: j.profiles?.state ?? null,
         };
       });
 
@@ -520,6 +535,23 @@ export default function AdminJudgingSchedule() {
         };
       });
   }, [assignments, hubsMap, config?.total_rooms]);
+
+  const geoFilterOptions = useMemo(() => {
+    const activeJudges = eventJudges.filter(j => j.isEventActive);
+    return {
+      chapters: [...new Set(activeJudges.map(j => j.chapter).filter(Boolean))].sort() as string[],
+      states: [...new Set(activeJudges.map(j => j.state).filter(Boolean))].sort() as string[],
+      cities: [...new Set(activeJudges.map(j => j.city).filter(Boolean))].sort() as string[],
+    };
+  }, [eventJudges]);
+
+  const matchesGeoFilter = useCallback(
+    (judge: { chapter: string | null; state: string | null; city: string | null }) =>
+      (chapterFilter === 'all' || judge.chapter === chapterFilter) &&
+      (stateFilter === 'all' || judge.state === stateFilter) &&
+      (cityFilter === 'all' || judge.city === cityFilter),
+    [chapterFilter, stateFilter, cityFilter]
+  );
 
   // Helper: distinguish swap/replace from permanent drop
   const isSwapOrReplace = (reason: string | null): boolean =>
@@ -665,6 +697,7 @@ export default function AdminJudgingSchedule() {
     setDeactivateDialog({ open: false, panelJudgeId: '', judgeName: '' });
     setAddJudgeDialog({ open: false, panelId: '', panelCode: '' });
     setMoveTeamDialog({ open: false, teamId: '', teamName: '' });
+    const judgeData = eventJudges.find(j => j.id === judge.judgeId);
     setJudgeManageDialog({
       open: true,
       judgeId: judge.judgeId,
@@ -673,6 +706,7 @@ export default function AdminJudgingSchedule() {
       panelJudgeId: judge.panelJudgeId,
       panelId: judge.panelId,
       panelCode: judge.panelCode,
+      comments: judgeData?.comments ?? null,
     });
     setManageAction('replace');
     setSelectedReplaceJudgeId('');
@@ -716,7 +750,7 @@ export default function AdminJudgingSchedule() {
           comment: manageDeactivateReason,
         });
       }
-      setJudgeManageDialog({ open: false, judgeId: '', judgeName: '', hubName: null, panelJudgeId: '', panelId: '', panelCode: '' });
+      setJudgeManageDialog({ open: false, judgeId: '', judgeName: '', hubName: null, panelJudgeId: '', panelId: '', panelCode: '', comments: null });
     } catch {
       // handled by hook
     }
@@ -1363,17 +1397,50 @@ export default function AdminJudgingSchedule() {
                 onCheckedChange={setHideInactive}
               />
             </div>
-            <Select value={turnFilter} onValueChange={(v: TurnFilter) => setTurnFilter(v)}>
-              <SelectTrigger className="w-[160px]">
-                <Filter className="h-4 w-4 mr-2" />
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos los turnos</SelectItem>
-                <SelectItem value="morning">Mañana</SelectItem>
-                <SelectItem value="afternoon">Tarde</SelectItem>
-              </SelectContent>
-            </Select>
+            <div className="flex items-center gap-3 border rounded-md px-3 py-1.5">
+              <Filter className="h-4 w-4 text-muted-foreground" />
+              {turnFilters.size === 0 && (
+                <span className="text-sm text-muted-foreground">Todos los turnos</span>
+              )}
+              {(['morning', 'afternoon'] as const).map(turn => (
+                <label key={turn} className="flex items-center gap-1.5 cursor-pointer text-sm">
+                  <input
+                    type="checkbox"
+                    checked={turnFilters.has(turn)}
+                    onChange={() => toggleTurnFilter(turn)}
+                    className="rounded"
+                  />
+                  {turn === 'morning' ? 'Mañana' : 'Tarde'}
+                </label>
+              ))}
+            </div>
+            {geoFilterOptions.chapters.length > 0 && (
+              <Select value={chapterFilter} onValueChange={setChapterFilter}>
+                <SelectTrigger className="w-[140px]"><SelectValue placeholder="Chapter" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos los chapters</SelectItem>
+                  {geoFilterOptions.chapters.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            )}
+            {geoFilterOptions.states.length > 0 && (
+              <Select value={stateFilter} onValueChange={setStateFilter}>
+                <SelectTrigger className="w-[140px]"><SelectValue placeholder="Comunidad" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas las comunidades</SelectItem>
+                  {geoFilterOptions.states.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            )}
+            {geoFilterOptions.cities.length > 0 && (
+              <Select value={cityFilter} onValueChange={setCityFilter}>
+                <SelectTrigger className="w-[140px]"><SelectValue placeholder="Ciudad" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas las ciudades</SelectItem>
+                  {geoFilterOptions.cities.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            )}
           </div>
         </div>
 
@@ -1562,7 +1629,7 @@ export default function AdminJudgingSchedule() {
                   </TableHeader>
                   <TableBody>
                     {allTeamRows
-                      .filter(t => turnFilter === 'all' || t.turn === turnFilter)
+                      .filter(t => turnFilters.size === 0 || turnFilters.has(t.turn))
                       .sort((a, b) => {
                         if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
                         return a.teamCode.localeCompare(b.teamCode);
@@ -1650,7 +1717,7 @@ export default function AdminJudgingSchedule() {
             ) : (
               <div className="space-y-4">
                 {judgesGridData
-                  .filter(g => turnFilter === 'all' || g.turn === turnFilter)
+                  .filter(g => turnFilters.size === 0 || turnFilters.has(g.turn))
                   .map(turnData => (
                     <div key={turnData.turn} className="border rounded-lg overflow-x-auto">
                       <div className="bg-emerald-700 text-white px-3 py-2 font-bold text-sm">
@@ -1660,17 +1727,23 @@ export default function AdminJudgingSchedule() {
                         <thead className="sticky top-0 z-10">
                           <tr className="bg-blue-100">
                             <th className="px-3 py-2 text-left w-[120px] border-r font-semibold sticky left-0 bg-blue-100 z-20" />
-                            {turnData.sessions[0]?.rooms.map(room => (
-                              <th key={room.roomNumber} className="px-4 py-2 text-center font-semibold border-l min-w-[200px]">
-                                Aula {room.roomNumber}
-                                <span className="ml-1 font-normal text-muted-foreground">
-                                  {hideInactive
-                                    ? `(${room.activeCount})`
-                                    : `(${room.activeCount}/${config?.judges_per_group || '?'})`
-                                  }
-                                </span>
-                              </th>
-                            ))}
+                            {turnData.sessions[0]?.rooms.map(room => {
+                              const visibleCount = (hideInactive
+                                ? room.judges.filter(j => j.isActive)
+                                : room.judges
+                              ).filter(j => matchesGeoFilter(j)).length;
+                              return (
+                                <th key={room.roomNumber} className="px-4 py-2 text-center font-semibold border-l min-w-[200px]">
+                                  Aula {room.roomNumber}
+                                  <span className="ml-1 font-normal text-muted-foreground">
+                                    {hideInactive
+                                      ? `(${visibleCount})`
+                                      : `(${visibleCount}/${config?.judges_per_group || '?'})`
+                                    }
+                                  </span>
+                                </th>
+                              );
+                            })}
                           </tr>
                         </thead>
                         <tbody>
@@ -1687,8 +1760,10 @@ export default function AdminJudgingSchedule() {
                                 ))}
                               </tr>
                               {(() => {
-                                const getVisibleJudges = (judges: typeof room.judges) =>
-                                  hideInactive ? judges.filter(j => j.isActive) : judges;
+                                const getVisibleJudges = (judges: typeof room.judges) => {
+                                  let result = hideInactive ? judges.filter(j => j.isActive) : judges;
+                                  return result.filter(j => matchesGeoFilter(j));
+                                };
                                 const maxJudges = Math.max(...session.rooms.map(r => getVisibleJudges(r.judges).length), 1);
                                 return Array.from({ length: maxJudges }, (_, rowIdx) => (
                                   <tr key={`s${session.sessionNumber}-j-${rowIdx}`} className="border-b hover:bg-blue-50/30">
@@ -1804,7 +1879,7 @@ export default function AdminJudgingSchedule() {
                           variant="outline"
                           className="cursor-pointer hover:bg-muted"
                           onClick={() => {
-                            setJudgeManageDialog({ open: false, judgeId: '', judgeName: '', hubName: null, panelJudgeId: '', panelId: '', panelCode: '' });
+                            setJudgeManageDialog({ open: false, judgeId: '', judgeName: '', hubName: null, panelJudgeId: '', panelId: '', panelCode: '', comments: null });
                             setSelectedJudgeId(j.id);
                             setAddJudgeDialog({ open: true, panelId: '', panelCode: 'Selecciona panel' });
                           }}
@@ -1812,6 +1887,24 @@ export default function AdminJudgingSchedule() {
                           {j.name}
                           {j.hubId && hubsMap[j.hubId] && (
                             <span className="ml-1 text-muted-foreground">({hubsMap[j.hubId]})</span>
+                          )}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {bajaJudges.length > 0 && (
+                  <div className="border border-red-200 bg-red-50/50 rounded-lg p-4 mt-3">
+                    <h4 className="text-sm font-bold text-red-800 mb-3">
+                      Bajas del evento ({bajaJudges.length})
+                    </h4>
+                    <div className="flex flex-wrap gap-2">
+                      {bajaJudges.map(j => (
+                        <Badge key={j.id} variant="destructive" className="opacity-75">
+                          {j.name}
+                          {j.hubId && hubsMap[j.hubId] && (
+                            <span className="ml-1 opacity-75">({hubsMap[j.hubId]})</span>
                           )}
                         </Badge>
                       ))}
@@ -1865,7 +1958,7 @@ export default function AdminJudgingSchedule() {
           open={deactivateDialog.open}
           onOpenChange={(open) => {
             if (!open) setDeactivateDialog({ open: false, panelJudgeId: '', judgeName: '' });
-            else setJudgeManageDialog({ open: false, judgeId: '', judgeName: '', hubName: null, panelJudgeId: '', panelId: '', panelCode: '' });
+            else setJudgeManageDialog({ open: false, judgeId: '', judgeName: '', hubName: null, panelJudgeId: '', panelId: '', panelCode: '', comments: null });
           }}
         >
           <DialogContent>
@@ -1906,7 +1999,7 @@ export default function AdminJudgingSchedule() {
           open={addJudgeDialog.open}
           onOpenChange={(open) => {
             if (!open) { setAddJudgeDialog({ open: false, panelId: '', panelCode: '' }); setAddJudgeComment(''); }
-            else setJudgeManageDialog({ open: false, judgeId: '', judgeName: '', hubName: null, panelJudgeId: '', panelId: '', panelCode: '' });
+            else setJudgeManageDialog({ open: false, judgeId: '', judgeName: '', hubName: null, panelJudgeId: '', panelId: '', panelCode: '', comments: null });
           }}
         >
           <DialogContent>
@@ -1962,7 +2055,7 @@ export default function AdminJudgingSchedule() {
           open={moveTeamDialog.open}
           onOpenChange={(open) => {
             if (!open) { setMoveTeamDialog({ open: false, teamId: '', teamName: '' }); setMoveComment(''); }
-            else setJudgeManageDialog({ open: false, judgeId: '', judgeName: '', hubName: null, panelJudgeId: '', panelId: '', panelCode: '' });
+            else setJudgeManageDialog({ open: false, judgeId: '', judgeName: '', hubName: null, panelJudgeId: '', panelId: '', panelCode: '', comments: null });
           }}
         >
           <DialogContent>
@@ -2111,7 +2204,7 @@ export default function AdminJudgingSchedule() {
         <Dialog
           open={judgeManageDialog.open}
           onOpenChange={(open) => {
-            if (!open) setJudgeManageDialog({ open: false, judgeId: '', judgeName: '', hubName: null, panelJudgeId: '', panelId: '', panelCode: '' });
+            if (!open) setJudgeManageDialog({ open: false, judgeId: '', judgeName: '', hubName: null, panelJudgeId: '', panelId: '', panelCode: '', comments: null });
           }}
         >
           <DialogContent className="max-w-md">
@@ -2124,6 +2217,13 @@ export default function AdminJudgingSchedule() {
                 Panel: <span className="font-medium">{judgeManageDialog.panelCode}</span>
               </DialogDescription>
             </DialogHeader>
+
+            {judgeManageDialog.comments && (
+              <div className="rounded-md bg-muted px-3 py-2 text-sm">
+                <span className="font-medium text-muted-foreground">Comentario del juez:</span>
+                <p className="mt-0.5">{judgeManageDialog.comments}</p>
+              </div>
+            )}
 
             <RadioGroup value={manageAction} onValueChange={(v) => setManageAction(v as typeof manageAction)} className="space-y-3">
               <div className="flex items-center space-x-2">
@@ -2223,7 +2323,7 @@ export default function AdminJudgingSchedule() {
             <DialogFooter>
               <Button
                 variant="outline"
-                onClick={() => setJudgeManageDialog({ open: false, judgeId: '', judgeName: '', hubName: null, panelJudgeId: '', panelId: '', panelCode: '' })}
+                onClick={() => setJudgeManageDialog({ open: false, judgeId: '', judgeName: '', hubName: null, panelJudgeId: '', panelId: '', panelCode: '', comments: null })}
               >
                 Cancelar
               </Button>
