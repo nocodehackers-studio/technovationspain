@@ -10,6 +10,11 @@ export interface JudgeForAssignment {
   conflictTeamIds: string[];
   conflictOtherText: string | null;
   onboardingCompleted: boolean;
+  comments: string | null;
+  isEventActive: boolean;
+  chapter: string | null;
+  city: string | null;
+  state: string | null;
 }
 
 export function useEventJudges(eventId: string | undefined) {
@@ -26,17 +31,20 @@ export function useEventJudges(eventId: string | undefined) {
           schedule_preference,
           conflict_team_ids,
           conflict_other_text,
+          comments,
           profiles!judge_assignments_user_id_fkey (
             id,
             first_name,
             last_name,
             email,
             hub_id,
-            is_active
+            is_active,
+            chapter,
+            city,
+            state
           )
         `)
-        .eq('event_id', eventId!)
-        .eq('is_active', true);
+        .eq('event_id', eventId!);
 
       if (error) throw error;
 
@@ -49,18 +57,25 @@ export function useEventJudges(eventId: string | undefined) {
         conflictTeamIds: (ja.conflict_team_ids || []) as string[],
         conflictOtherText: ja.conflict_other_text as string | null,
         onboardingCompleted: ja.onboarding_completed as boolean,
+        comments: ja.comments as string | null,
+        isEventActive: ja.is_active as boolean,
+        chapter: ja.profiles.chapter as string | null,
+        city: ja.profiles.city as string | null,
+        state: ja.profiles.state as string | null,
       })) as JudgeForAssignment[];
     },
     enabled: !!eventId,
   });
 
-  const readyJudges = (judgesQuery.data || []).filter(j => j.onboardingCompleted);
-  const pendingJudges = (judgesQuery.data || []).filter(j => !j.onboardingCompleted);
+  const readyJudges = (judgesQuery.data || []).filter(j => j.isEventActive && j.onboardingCompleted);
+  const pendingJudges = (judgesQuery.data || []).filter(j => j.isEventActive && !j.onboardingCompleted);
+  const bajaJudges = (judgesQuery.data || []).filter(j => !j.isEventActive);
 
   return {
     judges: judgesQuery.data || [],
     readyJudges,
     pendingJudges,
+    bajaJudges,
     isLoading: judgesQuery.isLoading,
     error: judgesQuery.error,
   };
