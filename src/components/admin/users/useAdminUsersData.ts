@@ -23,6 +23,7 @@ export type UserWithRoles = Profile & {
   judge_conflict_other_text?: string | null
   judge_comments?: string | null
   judge_external_id?: string | null
+  judge_excluded?: boolean
 }
 
 // Slugify column label to create a key
@@ -197,6 +198,24 @@ export function useAdminUsersData() {
     },
   })
 
+  // Toggle judge excluded mutation
+  const toggleJudgeExcludedMutation = useMutation({
+    mutationFn: async ({ userId, excluded }: { userId: string; excluded: boolean }) => {
+      const { error } = await supabase
+        .from("profiles")
+        .update({ judge_excluded: excluded })
+        .eq("id", userId)
+      if (error) throw error
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin-users"] })
+      toast.success("Estado de exclusión actualizado")
+    },
+    onError: (error) => {
+      toast.error(`Error al actualizar exclusión: ${error.message}`)
+    },
+  })
+
   // Update custom field mutation
   const updateCustomFieldMutation = useMutation({
     mutationFn: async ({
@@ -296,6 +315,14 @@ export function useAdminUsersData() {
     []
   )
 
+  const toggleJudgeExcluded = useCallback(
+    (userId: string, excluded: boolean) => {
+      toggleJudgeExcludedMutation.mutate({ userId, excluded })
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  )
+
   const updateCustomField = useCallback(
     (userId: string, fieldKey: string, value: string, currentCustomFields: Record<string, unknown>) => {
       updateCustomFieldMutation.mutate({ userId, fieldKey, value, currentCustomFields })
@@ -334,6 +361,7 @@ export function useAdminUsersData() {
     regionalFinalEvents: regionalFinalEvents || [],
     customColumns: customColumns || [],
     updateJudgeEvent,
+    toggleJudgeExcluded,
     updateCustomField,
     deleteUser,
     deleteUserMutation,

@@ -51,6 +51,7 @@ export default function AdminUsers() {
     regionalFinalEvents,
     customColumns,
     updateJudgeEvent,
+    toggleJudgeExcluded,
     updateCustomField,
     deleteUser,
     deleteUserMutation,
@@ -250,6 +251,7 @@ export default function AdminUsers() {
       onSaveCustomField: updateCustomField,
       onDeleteColumn: deleteColumn,
       onUpdateJudgeEvent: updateJudgeEvent,
+      onToggleJudgeExcluded: toggleJudgeExcluded,
       dataKeys,
     })
 

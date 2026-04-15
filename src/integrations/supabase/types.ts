@@ -911,6 +911,7 @@ export type Database = {
           is_active: boolean
           is_judge: boolean
           is_volunteer: boolean
+          judge_excluded: boolean
           judge_how_discovered_program: string | null
           judge_previous_participation: string | null
           last_name: string | null
@@ -945,6 +946,7 @@ export type Database = {
           is_active?: boolean
           is_judge?: boolean
           is_volunteer?: boolean
+          judge_excluded?: boolean
           judge_how_discovered_program?: string | null
           judge_previous_participation?: string | null
           last_name?: string | null
@@ -979,6 +981,7 @@ export type Database = {
           is_active?: boolean
           is_judge?: boolean
           is_volunteer?: boolean
+          judge_excluded?: boolean
           judge_how_discovered_program?: string | null
           judge_previous_participation?: string | null
           last_name?: string | null

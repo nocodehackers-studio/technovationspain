@@ -1,0 +1,1 @@
+ALTER TABLE profiles ADD COLUMN judge_excluded BOOLEAN NOT NULL DEFAULT false;

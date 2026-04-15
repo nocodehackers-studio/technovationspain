@@ -183,15 +183,17 @@ export function useJudgingAssignment(eventId: string | undefined) {
           conflict_team_ids,
           conflict_other_text,
           onboarding_completed,
-          profiles:user_id (id, first_name, last_name, email, hub_id)
+          profiles:user_id (id, first_name, last_name, email, hub_id, judge_excluded)
         `)
         .eq('event_id', eventId)
         .eq('is_active', true);
 
       if (judgeErr) throw judgeErr;
 
-      const allJudges: JudgeForAssignment[] = (judgeData || []).map((ja) => {
-        const p = ja.profiles as { id: string; first_name: string | null; last_name: string | null; email: string; hub_id: string | null };
+      const allJudges: JudgeForAssignment[] = (judgeData || [])
+        .filter((ja) => !(ja.profiles as any).judge_excluded)
+        .map((ja) => {
+        const p = ja.profiles as { id: string; first_name: string | null; last_name: string | null; email: string; hub_id: string | null; judge_excluded: boolean };
         return {
           id: p.id,
           name: `${p.first_name || ''} ${p.last_name || ''}`.trim(),
