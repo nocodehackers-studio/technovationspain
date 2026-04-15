@@ -12,6 +12,7 @@ export interface JudgeForAssignment {
   onboardingCompleted: boolean;
   comments: string | null;
   isEventActive: boolean;
+  judgeExcluded: boolean;
   chapter: string | null;
   city: string | null;
   state: string | null;
@@ -39,6 +40,7 @@ export function useEventJudges(eventId: string | undefined) {
             email,
             hub_id,
             is_active,
+            judge_excluded,
             chapter,
             city,
             state
@@ -59,10 +61,11 @@ export function useEventJudges(eventId: string | undefined) {
         onboardingCompleted: ja.onboarding_completed as boolean,
         comments: ja.comments as string | null,
         isEventActive: ja.is_active as boolean,
+        judgeExcluded: ja.profiles.judge_excluded as boolean,
         chapter: ja.profiles.chapter as string | null,
         city: ja.profiles.city as string | null,
         state: ja.profiles.state as string | null,
-      })) as JudgeForAssignment[];
+      })).filter((j: any) => !j.judgeExcluded) as JudgeForAssignment[];
     },
     enabled: !!eventId,
   });

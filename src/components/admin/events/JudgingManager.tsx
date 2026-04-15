@@ -94,7 +94,7 @@ export function JudgingManager({ eventId }: JudgingManagerProps) {
         // Batch send emails and mark as sent
         const emailPromises = (judges || []).map(async (judge: any) => {
           try {
-            const { error: invokeError } = await supabase.functions.invoke('send-judge-welcome-email', {
+            const { error: invokeError } = await supabase.functions.invoke('send-judge-event-email', {
               body: {
                 email: judge.profiles.email,
                 firstName: judge.profiles.first_name,

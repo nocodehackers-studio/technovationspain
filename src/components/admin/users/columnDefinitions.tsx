@@ -13,6 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
 import { StatusBadge } from "@/components/admin/StatusBadge"
 import { RoleBadges } from "@/components/admin/RoleBadge"
 import { EditableCell } from "@/components/admin/EditableCell"
@@ -60,6 +61,7 @@ export const COLUMN_LABELS: Record<string, string> = {
   judge_conflict_other_text: "Conflictos (Juez)",
   judge_comments: "Comentarios (Juez)",
   judge_external_id: "ID Juez Externo",
+  judge_excluded: "Excluido",
 }
 
 // Fields that are handled by special "core" column renderers
@@ -128,6 +130,7 @@ const SKIP_AUTO_DETECT = new Set([
   ...JUDGE_BOOLEAN_FIELDS,
   "judge_schedule_preference",
   "judge_event_id",
+  "judge_excluded",
   "judge_assignment_id",
   "judge_event_name",
   // Internal/join fields not useful as columns
@@ -151,6 +154,7 @@ interface BuildColumnsOptions {
   onSaveCustomField: (userId: string, fieldKey: string, value: string, currentCustomFields: Record<string, unknown>) => void
   onDeleteColumn: (columnId: string) => void
   onUpdateJudgeEvent: (userId: string, eventId: string | null, existingAssignmentId: string | null) => void
+  onToggleJudgeExcluded: (userId: string, excluded: boolean) => void
   /** Pass actual user data keys for auto-detection of new fields */
   dataKeys?: string[]
 }
@@ -162,6 +166,7 @@ export function buildColumns(options: BuildColumnsOptions): ColumnDef<UserWithRo
     onSaveCustomField,
     onDeleteColumn,
     onUpdateJudgeEvent,
+    onToggleJudgeExcluded,
     dataKeys = [],
   } = options
 
@@ -331,6 +336,25 @@ export function buildColumns(options: BuildColumnsOptions): ColumnDef<UserWithRo
               ))}
             </SelectContent>
           </Select>
+        </div>
+      )
+    },
+  })
+
+  // Judge excluded toggle
+  cols.push({
+    accessorKey: "judge_excluded",
+    header: "Excluido",
+    enableHiding: true,
+    cell: ({ row }) => {
+      const user = row.original
+      const excluded = user.judge_excluded ?? false
+      return (
+        <div onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
+          <Switch
+            checked={excluded}
+            onCheckedChange={(checked) => onToggleJudgeExcluded(user.id, checked)}
+          />
         </div>
       )
     },

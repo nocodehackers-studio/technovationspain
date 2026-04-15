@@ -27,3 +27,10 @@ dist-ssr
 # Supabase temp files
 supabase/.temp/
 supabase/migrations_backup/
+
+# BMAD
+_bmad
+_bmad-output
+
+# Claude
+.claude

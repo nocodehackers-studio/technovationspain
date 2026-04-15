@@ -326,6 +326,12 @@ export default function Onboarding() {
             });
           if (judgeError) throw judgeError;
         }
+
+        // Send judge welcome email on onboarding completion
+        const judgeName = formData.first_name || (profile as any)?.first_name || 'juez';
+        supabase.functions.invoke('send-judge-welcome-email', {
+          body: { email: user.email, firstName: judgeName },
+        }).catch((err) => console.error('Judge welcome email error:', err));
       }
 
       // If user has no role yet (manual registrant), assign 'participant' as default
