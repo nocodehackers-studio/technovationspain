@@ -152,7 +152,21 @@ export function useWorkshopAssignment(eventId: string) {
       }
 
       // 4. Unir todos los team_ids encontrados
-      const allTeamIds = [...new Set([...directTeamIds, ...membershipTeamIds])];
+      const mergedTeamIds = [...new Set([...directTeamIds, ...membershipTeamIds])];
+
+      // 4b. Excluir equipos dados de baja del evento
+      let bajaTeamIds = new Set<string>();
+      if (mergedTeamIds.length > 0) {
+        const { data: bajaTeamsData } = await supabase
+          .from('event_teams')
+          .select('team_id')
+          .eq('event_id', eventId)
+          .eq('is_active', false);
+        bajaTeamIds = new Set(
+          (bajaTeamsData || []).map(t => t.team_id).filter((id): id is string => !!id)
+        );
+      }
+      const allTeamIds = mergedTeamIds.filter(id => !bajaTeamIds.has(id));
 
       // 5. Obtener info de equipos descubiertos vía membership (no en registros directos)
       const teamsFromMembership = allTeamIds.filter(id => !directTeamIds.has(id));
@@ -877,7 +891,7 @@ export function useWorkshopAssignment(eventId: string) {
       // Calcular estadísticas
       const stats: AssignmentStats = {
         totalTeams: results.length,
-        excludedTeams: teamsAll.length - teams.length,
+        excludedTeams: teamsAll.length - teams.length + bajaTeamIds.size,
         fullyAssigned: results.filter(r => r.workshopA && r.workshopB).length,
         partiallyAssigned: results.filter(r => (r.workshopA && !r.workshopB) || (!r.workshopA && r.workshopB)).length,
         unassigned: results.filter(r => !r.workshopA && !r.workshopB).length,
