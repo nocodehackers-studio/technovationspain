@@ -241,42 +241,28 @@ Deno.serve(async (req)=>{
           }
           await supabase.from("profiles").update(profileUpdate).eq("id", existing.id);
           // Do NOT touch user_roles for existing users
-          // Upsert judge_assignments row with external_judge_id if present
-          if (externalJudgeId) {
-            // Look for null-event row first, then any existing row (e.g. event-bound from onboarding)
-            const { data: nullEventRow, error: nullLookupErr } = await supabase
-              .from("judge_assignments")
-              .select("id")
-              .eq("user_id", existing.id)
-              .is("event_id", null)
-              .maybeSingle();
-            if (nullLookupErr) throw nullLookupErr;
-            if (nullEventRow) {
+          // Ensure a judge_assignments row exists; never create a duplicate
+          const { data: existingAssign, error: assignLookupErr } = await supabase
+            .from("judge_assignments")
+            .select("id")
+            .eq("user_id", existing.id)
+            .limit(1)
+            .maybeSingle();
+          if (assignLookupErr) throw assignLookupErr;
+          if (existingAssign) {
+            if (externalJudgeId) {
               const { error: assignUpdateErr } = await supabase.from("judge_assignments")
                 .update({ external_judge_id: externalJudgeId })
-                .eq("id", nullEventRow.id);
+                .eq("id", existingAssign.id);
               if (assignUpdateErr) throw assignUpdateErr;
-            } else {
-              // Check if judge already has any assignment (e.g. completed onboarding promoted it to event-bound)
-              const { data: anyAssignment, error: anyLookupErr } = await supabase
-                .from("judge_assignments")
-                .select("id")
-                .eq("user_id", existing.id)
-                .limit(1)
-                .maybeSingle();
-              if (anyLookupErr) throw anyLookupErr;
-              if (anyAssignment) {
-                // Update external_judge_id on existing row, don't create orphan
-                const { error: assignUpdateErr } = await supabase.from("judge_assignments")
-                  .update({ external_judge_id: externalJudgeId })
-                  .eq("id", anyAssignment.id);
-                if (assignUpdateErr) throw assignUpdateErr;
-              } else {
-                const { error: assignInsertErr } = await supabase.from("judge_assignments")
-                  .insert({ user_id: existing.id, event_id: null, is_active: false, external_judge_id: externalJudgeId });
-                if (assignInsertErr) throw assignInsertErr;
-              }
             }
+          } else {
+            const { error: assignInsertErr } = await supabase.from("judge_assignments")
+              .insert({
+                user_id: existing.id, event_id: null, is_active: false,
+                ...(externalJudgeId ? { external_judge_id: externalJudgeId } : {})
+              });
+            if (assignInsertErr) throw assignInsertErr;
           }
           counters.records_updated++;
         } else {
@@ -335,10 +321,27 @@ Deno.serve(async (req)=>{
             user_id: userId,
             role: "collaborator"
           });
-          // Create judge_assignments row with external_judge_id if present
-          if (externalJudgeId) {
+          // Ensure a judge_assignments row exists; guard against "already registered" recovery
+          const { data: existingAssign, error: assignLookupErr } = await supabase
+            .from("judge_assignments")
+            .select("id")
+            .eq("user_id", userId)
+            .limit(1)
+            .maybeSingle();
+          if (assignLookupErr) throw assignLookupErr;
+          if (existingAssign) {
+            if (externalJudgeId) {
+              const { error: assignUpdateErr } = await supabase.from("judge_assignments")
+                .update({ external_judge_id: externalJudgeId })
+                .eq("id", existingAssign.id);
+              if (assignUpdateErr) throw assignUpdateErr;
+            }
+          } else {
             const { error: assignInsertErr } = await supabase.from("judge_assignments")
-              .insert({ user_id: userId, event_id: null, is_active: false, external_judge_id: externalJudgeId });
+              .insert({
+                user_id: userId, event_id: null, is_active: false,
+                ...(externalJudgeId ? { external_judge_id: externalJudgeId } : {})
+              });
             if (assignInsertErr) throw assignInsertErr;
           }
           counters.records_new++;
