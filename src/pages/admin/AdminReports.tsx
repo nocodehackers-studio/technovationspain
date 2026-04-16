@@ -19,6 +19,8 @@ import {
 } from "@/components/ui/chart";
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, CartesianGrid } from "recharts";
 import { Download, Users, Calendar, FileText, Database, Scale } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
 import { startOfWeek, addWeeks, addDays, format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -180,7 +182,14 @@ export default function AdminReports() {
     is_active: boolean;
     onboarding_completed: boolean;
     schedule_preference: string | null;
-    profiles: { hub_id: string | null } | null;
+    profiles: {
+      hub_id: string | null;
+      company_name: string | null;
+      state: string | null;
+      first_name: string | null;
+      last_name: string | null;
+      email: string | null;
+    } | null;
   }
 
   const { data: rawJudgeData, isLoading: judgesLoading } = useQuery({
@@ -193,7 +202,7 @@ export default function AdminReports() {
           is_active,
           onboarding_completed,
           schedule_preference,
-          profiles!judge_assignments_user_id_fkey (hub_id)
+          profiles!judge_assignments_user_id_fkey (hub_id, company_name, state, first_name, last_name, email)
         `)
         .limit(10000);
 
@@ -208,7 +217,17 @@ export default function AdminReports() {
   });
 
   // (F2: shared helper to compute stats from a normalized judge list)
-  type NormalizedJudge = { is_active: boolean; onboarding_completed: boolean; schedule_preference: string | null; hub_id: string | null };
+  type NormalizedJudge = {
+    is_active: boolean;
+    onboarding_completed: boolean;
+    schedule_preference: string | null;
+    hub_id: string | null;
+    company_name: string | null;
+    state: string | null;
+    first_name: string | null;
+    last_name: string | null;
+    email: string | null;
+  };
 
   const computeJudgeStats = (judges: NormalizedJudge[], hubLookup: { id: string; name: string }[]) => {
     const total = judges.length;
@@ -232,6 +251,11 @@ export default function AdminReports() {
       }
     });
 
+    const stateCounts: Record<string, number> = {};
+    judges.forEach(j => {
+      if (j.state) stateCounts[j.state] = (stateCounts[j.state] || 0) + 1;
+    });
+
     return {
       total,
       active,
@@ -249,6 +273,9 @@ export default function AdminReports() {
         name: hubLookup.find((h) => h.id === hubId)?.name || hubId,
         value: count,
       })),
+      stateDistribution: Object.entries(stateCounts)
+        .map(([state, count]) => ({ name: state, value: count }))
+        .sort((a, b) => b.value - a.value),
     };
   };
 
@@ -276,6 +303,11 @@ export default function AdminReports() {
             onboarding_completed: r.onboarding_completed,
             schedule_preference: r.schedule_preference,
             hub_id: r.profiles?.hub_id || null,
+            company_name: r.profiles?.company_name || null,
+            state: r.profiles?.state || null,
+            first_name: r.profiles?.first_name || null,
+            last_name: r.profiles?.last_name || null,
+            email: r.profiles?.email || null,
           });
         } else {
           if (r.is_active) existing.is_active = true;
@@ -294,10 +326,24 @@ export default function AdminReports() {
         onboarding_completed: r.onboarding_completed,
         schedule_preference: r.schedule_preference,
         hub_id: r.profiles?.hub_id || null,
+        company_name: r.profiles?.company_name || null,
+        state: r.profiles?.state || null,
+        first_name: r.profiles?.first_name || null,
+        last_name: r.profiles?.last_name || null,
+        email: r.profiles?.email || null,
       }));
       return computeJudgeStats(normalized, hubs);
     }
   }, [rawJudgeData, selectedJudgeEventId, selectedHubId, hubs]);
+
+  const judgeTableData = useMemo(() => {
+    if (!rawJudgeData || !hubs) return [];
+    const userMap = new Map<string, typeof rawJudgeData[0]>();
+    for (const r of rawJudgeData) {
+      if (!userMap.has(r.user_id) || r.is_active) userMap.set(r.user_id, r);
+    }
+    return Array.from(userMap.values());
+  }, [rawJudgeData, hubs]);
 
   // Fetch audit logs
   const { data: auditLogs } = useQuery({
@@ -998,6 +1044,69 @@ export default function AdminReports() {
                       </BarChart>
                     </ResponsiveContainer>
                   </ChartContainer>
+                </CardContent>
+              </Card>
+
+              {/* State Distribution */}
+              <Card>
+                <CardHeader className="pb-2 sm:pb-6">
+                  <CardTitle className="text-base sm:text-lg">Distribución por Comunidad Autónoma</CardTitle>
+                  <CardDescription className="text-xs sm:text-sm">Jueces por comunidad autónoma</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <ChartContainer config={chartConfig} className="h-[200px] sm:h-[300px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={judgeStats?.stateDistribution || []} layout="vertical">
+                        <XAxis type="number" />
+                        <YAxis dataKey="name" type="category" width={150} tick={{ fontSize: 11 }} />
+                        <ChartTooltip content={<ChartTooltipContent />} />
+                        <Bar dataKey="value" fill="hsl(200, 80%, 50%)" radius={[0, 4, 4, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </ChartContainer>
+                </CardContent>
+              </Card>
+
+              {/* Judge Table */}
+              <Card>
+                <CardHeader className="pb-2 sm:pb-6">
+                  <CardTitle className="text-base sm:text-lg">Listado de Jueces</CardTitle>
+                  <CardDescription className="text-xs sm:text-sm">Datos individuales</CardDescription>
+                </CardHeader>
+                <CardContent className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Nombre</TableHead>
+                        <TableHead>Email</TableHead>
+                        <TableHead>Empresa</TableHead>
+                        <TableHead>Comunidad Autónoma</TableHead>
+                        <TableHead>Hub</TableHead>
+                        <TableHead>Estado</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {judgeTableData.map(r => {
+                        const p = r.profiles;
+                        const name = [p?.first_name, p?.last_name].filter(Boolean).join(' ') || '—';
+                        const hub = hubs?.find(h => h.id === p?.hub_id)?.name || '—';
+                        return (
+                          <TableRow key={r.user_id}>
+                            <TableCell className="text-sm">{name}</TableCell>
+                            <TableCell className="text-sm">{p?.email || '—'}</TableCell>
+                            <TableCell className="text-sm">{p?.company_name || '—'}</TableCell>
+                            <TableCell className="text-sm">{p?.state || '—'}</TableCell>
+                            <TableCell className="text-sm">{hub}</TableCell>
+                            <TableCell>
+                              {r.is_active
+                                ? <Badge className="bg-green-100 text-green-800">Activo</Badge>
+                                : <Badge variant="secondary">Inactivo</Badge>}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
                 </CardContent>
               </Card>
             </>}

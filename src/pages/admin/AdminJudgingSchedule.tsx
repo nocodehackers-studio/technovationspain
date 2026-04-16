@@ -329,6 +329,7 @@ export default function AdminJudgingSchedule() {
     enabled: !!eventId,
   });
   const pendingTeams = allEventTeams.filter(et => et.is_active !== false && !assignedTeamIds.has(et.team_id));
+  const bajaTeams = allEventTeams.filter(et => et.is_active === false);
 
   // Helper: get majority category of a panel's active teams
   const getPanelMajorityCategory = useCallback((panelId: string): string | null => {
@@ -1601,6 +1602,14 @@ export default function AdminJudgingSchedule() {
                           {pt.team_code}
                         </Badge>
                         <span className="text-xs truncate max-w-[150px]">{team?.name}</span>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setDropTeamDialog({ open: true, teamId: pt.team_id, teamName: team?.name || pt.team_code }); }}
+                          className="ml-1 p-0.5 rounded hover:bg-red-100 opacity-40 hover:opacity-100 transition-opacity cursor-pointer"
+                          title="Dar de baja"
+                          draggable={false}
+                        >
+                          <UserMinus className="h-3 w-3 text-destructive" />
+                        </button>
                       </div>
                     );
                   })}
@@ -1906,6 +1915,28 @@ export default function AdminJudgingSchedule() {
                           {j.hubId && hubsMap[j.hubId] && (
                             <span className="ml-1 opacity-75">({hubsMap[j.hubId]})</span>
                           )}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {bajaTeams.length > 0 && (
+                  <div className="border border-red-200 bg-red-50/50 rounded-lg p-4 mt-3">
+                    <h4 className="text-sm font-bold text-red-800 mb-3">
+                      Equipos de baja ({bajaTeams.length})
+                    </h4>
+                    <div className="flex flex-wrap gap-2">
+                      {bajaTeams.map(et => (
+                        <Badge key={et.id} variant="destructive" className="opacity-75 gap-1">
+                          {(et.teams as { name?: string } | null)?.name || et.team_code}
+                          <button
+                            onClick={() => handleReactivateTeam(et.team_id)}
+                            className="ml-1 hover:opacity-100 opacity-70"
+                            title="Reactivar equipo"
+                          >
+                            <UserPlus className="h-3 w-3" />
+                          </button>
                         </Badge>
                       ))}
                     </div>
