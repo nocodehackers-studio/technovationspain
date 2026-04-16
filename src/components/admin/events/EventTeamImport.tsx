@@ -24,9 +24,12 @@ import {
   RefreshCw,
   ChevronsUpDown,
   Check,
+  UserMinus,
+  UserPlus,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useEventTeamImport, parseCsvRow, normalizeCategory, matchTeams, MatchResult, CsvTeamRow } from '@/hooks/useEventTeamImport';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Team, TeamCategory, TeamTurn } from '@/types/database';
 import { cn } from '@/lib/utils';
 
@@ -46,6 +49,7 @@ export function EventTeamImport({ eventId, turn }: EventTeamImportProps) {
     isLoadingTeams,
     confirmImport,
     clearImport,
+    toggleTeamActive,
   } = useEventTeamImport(eventId);
 
   const [step, setStep] = useState<Step>('config');
@@ -276,19 +280,36 @@ export function EventTeamImport({ eventId, turn }: EventTeamImportProps) {
                         <TableHead>Categoría</TableHead>
                         <TableHead>Turno</TableHead>
                         <TableHead>Match</TableHead>
+                        <TableHead></TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {roster.map((r) => (
-                        <TableRow key={r.id}>
-                          <TableCell className="font-mono font-bold">{r.team_code}</TableCell>
-                          <TableCell>{r.team?.name ?? r.csv_team_name}</TableCell>
+                        <TableRow key={r.id} className={!r.is_active ? 'bg-red-50 opacity-60' : ''}>
+                          <TableCell className={`font-mono font-bold ${!r.is_active ? 'line-through text-red-400' : ''}`}>{r.team_code}</TableCell>
+                          <TableCell className={!r.is_active ? 'line-through text-red-400' : ''}>{r.team?.name ?? r.csv_team_name}</TableCell>
                           <TableCell>
                             <Badge variant="outline">{r.category}</Badge>
                           </TableCell>
                           <TableCell>{r.turn === 'morning' ? 'Mañana' : 'Tarde'}</TableCell>
                           <TableCell>
                             <MatchBadge type={r.match_type} />
+                          </TableCell>
+                          <TableCell>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  onClick={() => toggleTeamActive.mutate({ id: r.id, is_active: !r.is_active })}
+                                  disabled={toggleTeamActive.isPending}
+                                  className={`p-1 rounded transition-colors ${r.is_active ? 'hover:bg-red-100 text-muted-foreground hover:text-destructive' : 'hover:bg-green-100 text-red-400 hover:text-green-700'}`}
+                                >
+                                  {r.is_active
+                                    ? <UserMinus className="h-3.5 w-3.5" />
+                                    : <UserPlus className="h-3.5 w-3.5" />}
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent>{r.is_active ? 'Dar de baja' : 'Reactivar'}</TooltipContent>
+                            </Tooltip>
                           </TableCell>
                         </TableRow>
                       ))}

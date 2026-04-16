@@ -384,6 +384,20 @@ export function useEventTeamImport(eventId: string) {
     },
   });
 
+  const toggleTeamActive = useMutation({
+    mutationFn: async ({ id, is_active }: { id: string; is_active: boolean }) => {
+      const { error } = await supabase
+        .from('event_teams')
+        .update({ is_active })
+        .eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['event-teams-roster', eventId] });
+      queryClient.invalidateQueries({ queryKey: ['event-teams', eventId] });
+    },
+  });
+
   return {
     roster: roster.data ?? [],
     isLoadingRoster: roster.isLoading,
@@ -391,5 +405,6 @@ export function useEventTeamImport(eventId: string) {
     isLoadingTeams: allTeams.isLoading,
     confirmImport,
     clearImport,
+    toggleTeamActive,
   };
 }
