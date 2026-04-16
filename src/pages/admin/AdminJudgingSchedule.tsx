@@ -1602,6 +1602,14 @@ export default function AdminJudgingSchedule() {
                           {pt.team_code}
                         </Badge>
                         <span className="text-xs truncate max-w-[150px]">{team?.name}</span>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setDropTeamDialog({ open: true, teamId: pt.team_id, teamName: team?.name || pt.team_code }); }}
+                          className="ml-1 p-0.5 rounded hover:bg-red-100 opacity-40 hover:opacity-100 transition-opacity cursor-pointer"
+                          title="Dar de baja"
+                          draggable={false}
+                        >
+                          <UserMinus className="h-3 w-3 text-destructive" />
+                        </button>
                       </div>
                     );
                   })}
