@@ -144,7 +144,32 @@ export default function EventRegistrationPage() {
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
   });
-  
+
+  const { data: hasImportedTeam } = useQuery({
+    queryKey: ['user-imported-team', profile?.id, eventId],
+    queryFn: async () => {
+      if (!profile?.id || !eventId) return false;
+      const { data: memberships } = await supabase
+        .from('team_members')
+        .select('team_id')
+        .eq('user_id', profile.id);
+      if (!memberships || memberships.length === 0) return false;
+      const teamIds = memberships.map((m) => m.team_id);
+      const { data: match } = await supabase
+        .from('event_teams')
+        .select('id')
+        .eq('event_id', eventId)
+        .in('team_id', teamIds)
+        .eq('is_active', true)
+        .limit(1)
+        .maybeSingle();
+      return !!match;
+    },
+    enabled: !!profile?.id && !!eventId && event?.event_type === 'regional_final',
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
+
   const form = useForm<RegistrationFormValues>({
     resolver: zodResolver(registrationSchema),
     defaultValues: {
@@ -509,21 +534,27 @@ const selectedTicketId = form.watch('ticket_type_id');
                               const available = (ticket.max_capacity || 0) - (ticket.current_count || 0);
                               const isSoldOut = available <= 0;
                               const ticketMaxCompanions = ticket.max_companions || 0;
-                              
-                                              return (
+                              const isImportedTeamBlocked =
+                                !!(ticket as any).requires_imported_team &&
+                                event.event_type === 'regional_final' &&
+                                hasImportedTeam === false;
+
+                              return (
                                 <div
                                   key={ticket.id}
                                   className={`
                                     flex items-center justify-between p-4 border rounded-lg cursor-pointer
                                     transition-colors
+                                    ${isImportedTeamBlocked ? 'opacity-50 pointer-events-none cursor-not-allowed' : ''}
                                     ${field.value === ticket.id ? 'border-primary bg-primary/5' : 'hover:bg-muted/50'}
                                   `}
-                                  onClick={() => field.onChange(ticket.id)}
+                                  onClick={() => !isImportedTeamBlocked && field.onChange(ticket.id)}
                                 >
                                   <div className="flex items-center gap-3">
-                                    <RadioGroupItem 
-                                      value={ticket.id} 
+                                    <RadioGroupItem
+                                      value={ticket.id}
                                       id={ticket.id}
+                                      disabled={isImportedTeamBlocked}
                                     />
                                     <div>
                                       <Label htmlFor={ticket.id} className="font-medium cursor-pointer">
@@ -541,6 +572,12 @@ const selectedTicketId = form.watch('ticket_type_id');
                                         <p className="text-xs text-warning mt-1 flex items-center gap-1">
                                           <AlertTriangle className="h-3 w-3" />
                                           Sin plazas - entrarás en lista de espera
+                                        </p>
+                                      )}
+                                      {isImportedTeamBlocked && (
+                                        <p className="text-xs text-destructive mt-1 flex items-center gap-1">
+                                          <AlertTriangle className="h-3 w-3" />
+                                          Tu equipo no está inscrito en este evento. Contacta con tu Chapter Ambassador.
                                         </p>
                                       )}
                                     </div>
