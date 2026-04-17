@@ -34,6 +34,7 @@ interface TicketType {
   companion_fields_config: string[] | null;
   allowed_roles: string[] | null;
   requires_verification: boolean | null;
+  requires_imported_team: boolean | null;
   requires_team: boolean | null;
   is_active: boolean | null;
   sort_order: number | null;
@@ -80,6 +81,7 @@ const [formData, setFormData] = useState({
     required_fields: [] as string[],
     requires_verification: true,
     requires_team: false,
+    requires_imported_team: false,
     is_active: true,
     for_judges: false,
   });
@@ -115,6 +117,7 @@ const createMutation = useMutation({
           : ['first_name', 'last_name', 'email'],
         requires_verification: data.requires_verification,
         requires_team: data.requires_team,
+        requires_imported_team: data.requires_imported_team,
         is_active: data.is_active,
         for_judges: data.for_judges,
         sort_order: (ticketTypes?.length || 0) + 1,
@@ -149,6 +152,7 @@ const updateMutation = useMutation({
             : ['first_name', 'last_name', 'email'],
           requires_verification: data.requires_verification,
           requires_team: data.requires_team,
+          requires_imported_team: data.requires_imported_team,
           is_active: data.is_active,
           for_judges: data.for_judges,
         } as any)
@@ -193,6 +197,7 @@ const resetForm = () => {
       required_fields: [],
       requires_verification: true,
       requires_team: false,
+      requires_imported_team: false,
       is_active: true,
       for_judges: false,
     });
@@ -218,6 +223,7 @@ const openEditDialog = (ticket?: TicketType) => {
         required_fields: extraRequired,
         requires_verification: ticket.requires_verification ?? true,
         requires_team: ticket.requires_team ?? false,
+        requires_imported_team: ticket.requires_imported_team ?? false,
         is_active: ticket.is_active ?? true,
         for_judges: (ticket as any).for_judges ?? false,
       });
@@ -372,6 +378,9 @@ const openEditDialog = (ticket?: TicketType) => {
                       )}
                       {ticket.requires_team && (
                         <Badge variant="secondary">Requiere equipo</Badge>
+                      )}
+                      {ticket.requires_imported_team && (
+                        <Badge variant="secondary">Requiere equipo importado</Badge>
                       )}
                     </div>
                   </div>
@@ -635,6 +644,20 @@ const openEditDialog = (ticket?: TicketType) => {
                       id="requires-team"
                       checked={formData.requires_team}
                       onCheckedChange={(checked) => setFormData({ ...formData, requires_team: checked })}
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label htmlFor="requires-imported-team">Requiere equipo importado</Label>
+                      <p className="text-sm text-muted-foreground">
+                        Solo disponible para equipos inscritos en este evento (solo Final Regional)
+                      </p>
+                    </div>
+                    <Switch
+                      id="requires-imported-team"
+                      checked={formData.requires_imported_team}
+                      onCheckedChange={(checked) => setFormData({ ...formData, requires_imported_team: checked })}
                     />
                   </div>
 
