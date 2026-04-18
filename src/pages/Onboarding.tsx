@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
@@ -121,6 +121,31 @@ export default function Onboarding() {
     },
     enabled: !!needsJudgeOnboarding,
   });
+
+  // Fetch user's existing judge_assignment (may have been pre-assigned via CSV or by admin)
+  const { data: existingJudgeAssignment } = useQuery({
+    queryKey: ["existing-judge-assignment", user?.id],
+    queryFn: async () => {
+      if (!user?.id) return null;
+      const { data } = await supabase
+        .from("judge_assignments")
+        .select("id, event_id")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      return data;
+    },
+    enabled: !!user?.id && !!needsJudgeOnboarding,
+  });
+
+  // Pre-fill event selector with the user's already-assigned event (if any).
+  // Judges cannot change event_id once set (trigger enforces this), so we lock
+  // the selector in that case.
+  const hasPreassignedEvent = !!existingJudgeAssignment?.event_id;
+  useEffect(() => {
+    if (hasPreassignedEvent && !judgeFormData.event_id) {
+      setJudgeFormData(prev => ({ ...prev, event_id: existingJudgeAssignment!.event_id! }));
+    }
+  }, [hasPreassignedEvent, existingJudgeAssignment, judgeFormData.event_id]);
 
   // Determine if user is a minor based on DOB (form value or existing profile)
   // Only evaluate when a DOB actually exists — no DOB means hide parent fields
@@ -281,42 +306,43 @@ export default function Onboarding() {
 
       // Save judge onboarding answers
       if (needsJudgeOnboarding) {
-        // Derive schedule_preference from the selected event's start_time
+        // Look for ANY existing row for this user (CSV import may have created it
+        // with event_id null OR with event_id already set by admin assignment).
+        const { data: existingRow } = await supabase
+          .from('judge_assignments')
+          .select('id, event_id')
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+        // Preserve existing event_id when already assigned — the RLS trigger
+        // blocks event_id reassignment for non-admins (only null → value allowed).
         const isNoPreference = judgeFormData.event_id === 'no_preference';
-        const selectedEvent = isNoPreference ? null : regionalEvents?.find(e => e.id === judgeFormData.event_id);
+        const formSelectedEventId = isNoPreference ? null : (judgeFormData.event_id || null);
+        const finalEventId = existingRow?.event_id ?? formSelectedEventId;
+
+        // Derive schedule_preference from the final event's start_time
+        const finalEvent = finalEventId ? regionalEvents?.find(e => e.id === finalEventId) : null;
         let derivedPreference: string = 'no_preference';
-        if (selectedEvent?.start_time) {
-          const hour = parseInt(selectedEvent.start_time.split(':')[0], 10);
+        if (finalEvent?.start_time) {
+          const hour = parseInt(finalEvent.start_time.split(':')[0], 10);
           derivedPreference = hour < 12 ? 'morning' : 'afternoon';
         }
 
-        const selectedEventId = isNoPreference ? null : (judgeFormData.event_id || null);
-
         const judgeOnboardingData = {
           schedule_preference: derivedPreference,
-          event_id: selectedEventId,
+          event_id: finalEventId,
           conflict_other_text: sanitizeText(judgeFormData.conflict_other_text) || null,
           comments: sanitizeText(judgeFormData.comments),
           onboarding_completed: true,
         };
 
-        // Check for existing null-event row (may have been created by CSV import)
-        const { data: existingRow } = await supabase
-          .from('judge_assignments')
-          .select('id')
-          .eq('user_id', user.id)
-          .is('event_id', null)
-          .maybeSingle();
-
         if (existingRow) {
-          // UPDATE existing null-event row — promote it to event-bound
           const { error: judgeError } = await supabase
             .from('judge_assignments')
             .update(judgeOnboardingData)
             .eq('id', existingRow.id);
           if (judgeError) throw judgeError;
         } else {
-          // INSERT new event-bound row
           const { error: judgeError } = await supabase
             .from('judge_assignments')
             .insert({
@@ -624,31 +650,39 @@ export default function Onboarding() {
                       ¿En qué horario deseas participar como juez en la final regional del 23 de mayo? *
                     </Label>
                     {regionalEvents && regionalEvents.length > 0 ? (
-                      <Select
-                        value={judgeFormData.event_id}
-                        onValueChange={(value) => setJudgeFormData(prev => ({ ...prev, event_id: value }))}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Selecciona el evento" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {regionalEvents.map((event) => {
-                            const startDisplay = event.start_time?.slice(0, 5) || '??:??';
-                            const endDisplay = event.end_time?.slice(0, 5) || '??:??';
-                            let timeLabel = 'Evento';
-                            if (event.start_time) {
-                              const hour = parseInt(event.start_time.split(':')[0], 10);
-                              timeLabel = hour < 12 ? 'Mañana' : 'Tarde';
-                            }
-                            return (
-                              <SelectItem key={event.id} value={event.id}>
-                                {timeLabel} ({startDisplay} - {endDisplay})
-                              </SelectItem>
-                            );
-                          })}
-                          <SelectItem value="no_preference">Sin preferencia</SelectItem>
-                        </SelectContent>
-                      </Select>
+                      <>
+                        <Select
+                          value={judgeFormData.event_id}
+                          onValueChange={(value) => setJudgeFormData(prev => ({ ...prev, event_id: value }))}
+                          disabled={hasPreassignedEvent}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Selecciona el evento" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {regionalEvents.map((event) => {
+                              const startDisplay = event.start_time?.slice(0, 5) || '??:??';
+                              const endDisplay = event.end_time?.slice(0, 5) || '??:??';
+                              let timeLabel = 'Evento';
+                              if (event.start_time) {
+                                const hour = parseInt(event.start_time.split(':')[0], 10);
+                                timeLabel = hour < 12 ? 'Mañana' : 'Tarde';
+                              }
+                              return (
+                                <SelectItem key={event.id} value={event.id}>
+                                  {timeLabel} ({startDisplay} - {endDisplay})
+                                </SelectItem>
+                              );
+                            })}
+                            <SelectItem value="no_preference">Sin preferencia</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        {hasPreassignedEvent && (
+                          <p className="text-xs text-muted-foreground">
+                            Ya tienes un turno asignado para este evento y no puede modificarse.
+                          </p>
+                        )}
+                      </>
                     ) : (
                       <p className="text-sm text-muted-foreground">No hay eventos disponibles</p>
                     )}
