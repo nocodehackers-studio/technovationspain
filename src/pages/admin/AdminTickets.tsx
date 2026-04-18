@@ -227,7 +227,12 @@ export default function AdminTickets() {
           <AlertTriangle className="h-4 w-4 text-destructive flex-shrink-0" />
         )}
         
-        <span className="text-sm flex-1 truncate">{ticket.title}</span>
+        <div className="flex-1 min-w-0">
+          <span className="text-sm">{ticket.title}</span>
+          {ticket.description && (
+            <p className="text-xs text-muted-foreground truncate">{ticket.description}</p>
+          )}
+        </div>
         
         <Badge
           variant="outline"
