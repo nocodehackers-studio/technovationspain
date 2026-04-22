@@ -180,6 +180,15 @@ export function buildColumns(options: BuildColumnsOptions): ColumnDef<UserWithRo
       `${row.first_name || ""} ${row.last_name || ""} ${row.email || ""} ${row.tg_id || ""} ${row.phone || ""} ${row.team_name || ""} ${row.school_name || ""} ${row.hub_name || ""} ${row.chapter || ""} ${row.city || ""} ${row.state || ""}`.toLowerCase(),
     header: "Nombre",
     enableHiding: true,
+    sortingFn: (a, b) => {
+      const aFirst = (a.original.first_name ?? "").trim()
+      const bFirst = (b.original.first_name ?? "").trim()
+      const byFirst = aFirst.localeCompare(bFirst, "es", { sensitivity: "base" })
+      if (byFirst !== 0) return byFirst
+      const aLast = (a.original.last_name ?? "").trim()
+      const bLast = (b.original.last_name ?? "").trim()
+      return aLast.localeCompare(bLast, "es", { sensitivity: "base" })
+    },
     cell: ({ row }) => (
       <div className="flex flex-col">
         <span className="font-medium">
