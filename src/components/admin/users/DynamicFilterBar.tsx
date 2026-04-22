@@ -8,29 +8,24 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { Plus, X, Lock } from "lucide-react"
-
-export interface ActiveFilter {
-  field: string
-  label: string
-  value: any
-  displayValue: string
-}
-
-export interface FieldOption {
-  key: string
-  label: string
-  type: "select" | "boolean" | "text"
-  options?: { value: string; label: string }[]
-}
+import {
+  isTextFilterMode,
+  serializeFilterValue,
+  type ActiveFilter,
+  type ActiveFilterValue,
+  type FieldOption,
+} from "./filterHelpers"
 
 interface DynamicFilterBarProps {
   filters: ActiveFilter[]
   viewPresetFilters: ActiveFilter[]
   availableFields: FieldOption[]
   onAddFilter: (filter: ActiveFilter) => void
-  onRemoveFilter: (field: string, value: any) => void
+  onRemoveFilter: (field: string, value: ActiveFilterValue) => void
   onRemovePresetFilter: (field: string) => void
 }
+
+type TextMode = "contains" | "empty" | "notEmpty"
 
 export function DynamicFilterBar({
   filters,
@@ -44,11 +39,19 @@ export function DynamicFilterBar({
   const [selectedField, setSelectedField] = useState<FieldOption | null>(null)
   const [textValue, setTextValue] = useState("")
   const [fieldSearch, setFieldSearch] = useState("")
+  const [textMode, setTextMode] = useState<TextMode>("contains")
+
+  const resetState = () => {
+    setSelectedField(null)
+    setTextValue("")
+    setTextMode("contains")
+  }
 
   const handleSelectField = (field: FieldOption) => {
     if (field.type === "text") {
       setSelectedField(field)
       setTextValue("")
+      setTextMode("contains")
     } else {
       setSelectedField(field)
     }
@@ -70,7 +73,7 @@ export function DynamicFilterBar({
       value: val,
       displayValue: val ? "Sí" : "No",
     })
-    setSelectedField(null)
+    resetState()
     setFieldPickerOpen(false)
   }
 
@@ -82,26 +85,55 @@ export function DynamicFilterBar({
       value: textValue.trim(),
       displayValue: textValue.trim(),
     })
-    setTextValue("")
-    setSelectedField(null)
+    resetState()
+    setFieldPickerOpen(false)
+  }
+
+  const handleAddEmptinessMode = (mode: "empty" | "notEmpty") => {
+    if (!selectedField) return
+    const displayValue = mode === "empty" ? "Vacío" : "No vacío"
+    onAddFilter({
+      field: selectedField.key,
+      label: selectedField.label,
+      value: { mode },
+      displayValue,
+    })
+    resetState()
     setFieldPickerOpen(false)
   }
 
   const handleBack = () => {
-    setSelectedField(null)
-    setTextValue("")
+    resetState()
   }
 
   const filteredFields = availableFields.filter((f) =>
     f.label.toLowerCase().includes(fieldSearch.toLowerCase())
   )
 
+  const hasEmptyFilter = selectedField
+    ? filters.some(
+        (f) =>
+          f.field === selectedField.key &&
+          isTextFilterMode(f.value) &&
+          f.value.mode === "empty"
+      )
+    : false
+
+  const hasNotEmptyFilter = selectedField
+    ? filters.some(
+        (f) =>
+          f.field === selectedField.key &&
+          isTextFilterMode(f.value) &&
+          f.value.mode === "notEmpty"
+      )
+    : false
+
   return (
     <div className="flex flex-wrap items-center gap-2">
       {/* View preset filter tags */}
       {viewPresetFilters.map((f) => (
         <div
-          key={`preset-${f.field}-${f.value}`}
+          key={`preset-${f.field}-${serializeFilterValue(f.value)}`}
           className="flex items-center gap-1 rounded-full bg-secondary px-3 py-1 text-xs sm:text-sm"
         >
           <Lock className="h-3 w-3 opacity-50" />
@@ -120,7 +152,7 @@ export function DynamicFilterBar({
       {/* User-added filter tags */}
       {filters.map((f) => (
         <div
-          key={`filter-${f.field}-${f.value}`}
+          key={`filter-${f.field}-${serializeFilterValue(f.value)}`}
           className="flex items-center gap-1 rounded-full bg-primary/10 px-3 py-1 text-xs sm:text-sm"
         >
           <span className="truncate max-w-[150px] sm:max-w-none">
@@ -139,8 +171,7 @@ export function DynamicFilterBar({
       <Popover open={fieldPickerOpen} onOpenChange={(open) => {
         setFieldPickerOpen(open)
         if (!open) {
-          setSelectedField(null)
-          setTextValue("")
+          resetState()
           setFieldSearch("")
         }
       }}>
@@ -237,19 +268,67 @@ export function DynamicFilterBar({
                 </Button>
                 <span className="text-sm font-medium">{selectedField.label}</span>
               </div>
-              <Input
-                placeholder={`Filtrar por ${selectedField.label.toLowerCase()}...`}
-                value={textValue}
-                onChange={(e) => setTextValue(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleAddTextValue()
-                }}
-                className="h-8"
-                autoFocus
-              />
-              <Button size="sm" className="w-full" onClick={handleAddTextValue} disabled={!textValue.trim()}>
-                Aplicar
-              </Button>
+              <div className="grid grid-cols-3 gap-1">
+                <Button
+                  size="sm"
+                  variant={textMode === "contains" ? "default" : "outline"}
+                  className="h-8 text-xs"
+                  onClick={() => setTextMode("contains")}
+                >
+                  Contiene
+                </Button>
+                <Button
+                  size="sm"
+                  variant={textMode === "empty" ? "default" : "outline"}
+                  className="h-8 text-xs"
+                  onClick={() => setTextMode("empty")}
+                >
+                  Vacío
+                </Button>
+                <Button
+                  size="sm"
+                  variant={textMode === "notEmpty" ? "default" : "outline"}
+                  className="h-8 text-xs"
+                  onClick={() => setTextMode("notEmpty")}
+                >
+                  No vacío
+                </Button>
+              </div>
+              {textMode === "contains" ? (
+                <>
+                  <Input
+                    placeholder={`Filtrar por ${selectedField.label.toLowerCase()}...`}
+                    value={textValue}
+                    onChange={(e) => setTextValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleAddTextValue()
+                    }}
+                    className="h-8"
+                    autoFocus
+                  />
+                  <Button size="sm" className="w-full" onClick={handleAddTextValue} disabled={!textValue.trim()}>
+                    Aplicar
+                  </Button>
+                </>
+              ) : textMode === "empty" ? (
+                <Button
+                  size="sm"
+                  className="w-full"
+                  onClick={() => handleAddEmptinessMode("empty")}
+                  disabled={hasEmptyFilter}
+                >
+                  {hasEmptyFilter ? "Ya añadido" : "Añadir filtro \"Vacío\""}
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  className="w-full"
+                  onClick={() => handleAddEmptinessMode("notEmpty")}
+                  disabled={hasNotEmptyFilter}
+                >
+                  {hasNotEmptyFilter ? "Ya añadido" : "Añadir filtro \"No vacío\""}
+                </Button>
+              )}
             </div>
           )}
         </PopoverContent>

@@ -24,6 +24,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { toast } from "sonner";
 import { startOfWeek, addWeeks, addDays, format } from "date-fns";
 import { es } from "date-fns/locale";
+import { buildEventDistribution, type JudgeRow } from "./reports-judges-helpers";
 
 export default function AdminReports() {
   const [selectedEventId, setSelectedEventId] = useState<string>("");
@@ -177,21 +178,6 @@ export default function AdminReports() {
   });
 
   // Fetch judge assignments (F1: added .limit, F3: typed result)
-  interface JudgeRow {
-    user_id: string;
-    is_active: boolean;
-    onboarding_completed: boolean;
-    schedule_preference: string | null;
-    profiles: {
-      hub_id: string | null;
-      company_name: string | null;
-      state: string | null;
-      first_name: string | null;
-      last_name: string | null;
-      email: string | null;
-    } | null;
-  }
-
   const { data: rawJudgeData, isLoading: judgesLoading } = useQuery({
     queryKey: ["admin-reports-judges", selectedJudgeEventId],
     queryFn: async () => {
@@ -202,6 +188,8 @@ export default function AdminReports() {
           is_active,
           onboarding_completed,
           schedule_preference,
+          event_id,
+          event:events(id, name),
           profiles!judge_assignments_user_id_fkey (hub_id, company_name, state, first_name, last_name, email)
         `)
         .limit(10000);
@@ -212,7 +200,7 @@ export default function AdminReports() {
 
       const { data, error } = await query;
       if (error) throw error;
-      return (data || []) as JudgeRow[];
+      return (data || []) as unknown as JudgeRow[];
     },
   });
 
@@ -237,13 +225,6 @@ export default function AdminReports() {
     const onboardingCompleted = judges.filter((j) => j.onboarding_completed).length;
     const onboardingPending = total - onboardingCompleted;
 
-    const prefCounts: Record<string, number> = { morning: 0, afternoon: 0, no_preference: 0 };
-    judges.forEach((j) => {
-      const pref = j.schedule_preference || "no_preference";
-      if (pref in prefCounts) prefCounts[pref]++;
-      else prefCounts["no_preference"]++;
-    });
-
     const hubCounts: Record<string, number> = {};
     judges.forEach((j) => {
       if (j.hub_id) {
@@ -263,11 +244,6 @@ export default function AdminReports() {
       onboardingData: [
         { name: "Completado", value: onboardingCompleted },
         { name: "Pendiente", value: onboardingPending },
-      ],
-      preferenceData: [
-        { name: "Mañana", value: prefCounts.morning },
-        { name: "Tarde", value: prefCounts.afternoon },
-        { name: "Indiferente", value: prefCounts.no_preference },
       ],
       hubDistribution: Object.entries(hubCounts).map(([hubId, count]) => ({
         name: hubLookup.find((h) => h.id === hubId)?.name || hubId,
@@ -290,6 +266,9 @@ export default function AdminReports() {
     if (selectedHubId) {
       rows = rows.filter((r) => r.profiles?.hub_id === selectedHubId);
     }
+
+    // Event distribution uses raw rows (no dedup by user) — each assignment counts.
+    const eventDistribution = buildEventDistribution(rows);
 
     if (!selectedJudgeEventId) {
       // Global: dedup by user_id — aggregate across events
@@ -318,7 +297,7 @@ export default function AdminReports() {
         }
       }
 
-      return computeJudgeStats(Array.from(userMap.values()), hubs);
+      return { ...computeJudgeStats(Array.from(userMap.values()), hubs), eventDistribution };
     } else {
       // Per-event: no dedup needed
       const normalized: NormalizedJudge[] = rows.map((r) => ({
@@ -332,7 +311,7 @@ export default function AdminReports() {
         last_name: r.profiles?.last_name || null,
         email: r.profiles?.email || null,
       }));
-      return computeJudgeStats(normalized, hubs);
+      return { ...computeJudgeStats(normalized, hubs), eventDistribution };
     }
   }, [rawJudgeData, selectedJudgeEventId, selectedHubId, hubs]);
 
@@ -996,31 +975,21 @@ export default function AdminReports() {
                   </CardContent>
                 </Card>
 
-                {/* Schedule Preference */}
+                {/* Event Distribution */}
                 <Card>
                   <CardHeader className="pb-2 sm:pb-6">
-                    <CardTitle className="text-base sm:text-lg">Preferencia Horaria</CardTitle>
-                    <CardDescription className="text-xs sm:text-sm">Distribución de preferencias</CardDescription>
+                    <CardTitle className="text-base sm:text-lg">Distribución por Evento Asignado</CardTitle>
+                    <CardDescription className="text-xs sm:text-sm">Jueces por evento asignado</CardDescription>
                   </CardHeader>
                   <CardContent>
                     <ChartContainer config={chartConfig} className="h-[200px] sm:h-[300px]">
                       <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                          <Pie
-                            data={judgeStats?.preferenceData || []}
-                            cx="50%"
-                            cy="50%"
-                            innerRadius={60}
-                            outerRadius={100}
-                            dataKey="value"
-                            label={({ name, value }) => `${name}: ${value}`}
-                          >
-                            <Cell fill="hsl(200, 90%, 50%)" />
-                            <Cell fill="hsl(270, 80%, 55%)" />
-                            <Cell fill="hsl(175, 80%, 45%)" />
-                          </Pie>
+                        <BarChart data={judgeStats?.eventDistribution || []} layout="vertical">
+                          <XAxis type="number" />
+                          <YAxis dataKey="name" type="category" width={150} tick={{ fontSize: 11 }} />
                           <ChartTooltip content={<ChartTooltipContent />} />
-                        </PieChart>
+                          <Bar dataKey="value" fill="hsl(200, 90%, 50%)" radius={[0, 4, 4, 0]} />
+                        </BarChart>
                       </ResponsiveContainer>
                     </ChartContainer>
                   </CardContent>

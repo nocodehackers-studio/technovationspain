@@ -25,11 +25,15 @@ import { VIEWS } from "@/components/admin/users/viewDefinitions"
 import { useAdminUsersData, type UserWithRoles } from "@/components/admin/users/useAdminUsersData"
 import { buildColumns, COLUMN_LABELS } from "@/components/admin/users/columnDefinitions"
 import { UserViewSelector } from "@/components/admin/users/UserViewSelector"
+import { DynamicFilterBar } from "@/components/admin/users/DynamicFilterBar"
 import {
-  DynamicFilterBar,
+  isEmptyValue,
+  isTextFilterMode,
+  serializeFilterValue,
   type ActiveFilter,
+  type ActiveFilterValue,
   type FieldOption,
-} from "@/components/admin/users/DynamicFilterBar"
+} from "@/components/admin/users/filterHelpers"
 
 // Display value helpers for preset filters
 function presetDisplayValue(field: string, value: any): string {
@@ -126,6 +130,12 @@ export default function AdminUsers() {
     return users.filter((user) => {
       return allFilters.every((filter) => {
         const fieldValue = (user as any)[filter.field]
+
+        // Emptiness modes (text filters)
+        if (isTextFilterMode(filter.value)) {
+          const empty = isEmptyValue(fieldValue)
+          return filter.value.mode === "empty" ? empty : !empty
+        }
 
         // Boolean comparison (treat null/undefined as false)
         if (typeof filter.value === "boolean") {
@@ -321,17 +331,18 @@ export default function AdminUsers() {
   // Dynamic filter handlers
   const handleAddFilter = useCallback((filter: ActiveFilter) => {
     setSessionFilters((prev) => {
-      // Avoid duplicate
-      if (prev.some((f) => f.field === filter.field && String(f.value) === String(filter.value))) {
+      const key = serializeFilterValue(filter.value)
+      if (prev.some((f) => f.field === filter.field && serializeFilterValue(f.value) === key)) {
         return prev
       }
       return [...prev, filter]
     })
   }, [])
 
-  const handleRemoveFilter = useCallback((field: string, value: any) => {
+  const handleRemoveFilter = useCallback((field: string, value: ActiveFilterValue) => {
+    const key = serializeFilterValue(value)
     setSessionFilters((prev) =>
-      prev.filter((f) => !(f.field === field && String(f.value) === String(value)))
+      prev.filter((f) => !(f.field === field && serializeFilterValue(f.value) === key))
     )
   }, [])
 
@@ -469,6 +480,8 @@ export default function AdminUsers() {
           searchPlaceholder="Buscar por nombre, email, equipo, hub..."
           loading={isLoading}
           externalFilterMode
+          defaultSort={[{ id: "name", desc: false }]}
+          preservePageIndex
           hiddenColumns={hiddenColumns}
           onHiddenColumnsChange={setHiddenColumns}
           onAddColumn={() => setAddFieldDialogOpen(true)}
