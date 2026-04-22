@@ -139,7 +139,7 @@ const SortableTeamItem = React.memo(function SortableTeamItem({
       </Badge>
       <span className="truncate text-xs">{teamName}</span>
       {team.teams?.hub_id && hubsMap[team.teams.hub_id] && (
-        <Badge variant="outline" className="text-[9px] px-1 py-0 shrink-0 text-muted-foreground">
+        <Badge variant="outline" className="text-[10px] px-1 py-0 shrink-0">
           {hubsMap[team.teams.hub_id]}
         </Badge>
       )}
@@ -374,7 +374,7 @@ export default function AdminJudgingSchedule() {
   );
 
   // Build hub lookup: hubId → hubName
-  const { data: hubsMap = {} } = useQuery({
+  const { data: hubsMap = {}, isPending: hubsMapLoading } = useQuery({
     queryKey: ['hubs-map'],
     queryFn: async () => {
       const { data } = await supabase.from('hubs').select('id, name');
@@ -983,10 +983,11 @@ export default function AdminJudgingSchedule() {
 
   // CSV Exports
   const exportScheduleCSV = () => {
-    const rows = [['Panel', 'Sesión', 'Aula', 'Turno', 'Tipo', 'Nombre', 'Código', 'Subsesión', 'Orden', 'Estado', 'Cambio Manual', 'Comentario', 'Modificado por', 'Fecha modificación']];
+    const rows = [['Panel', 'Sesión', 'Aula', 'Turno', 'Tipo', 'Nombre', 'HUB', 'Código', 'Subsesión', 'Orden', 'Estado', 'Cambio Manual', 'Comentario', 'Modificado por', 'Fecha modificación']];
     for (const panel of assignments) {
       for (const j of panel.judging_panel_judges || []) {
         const profileName = j.manual_change_by_profile ? `${j.manual_change_by_profile.first_name} ${j.manual_change_by_profile.last_name}`.trim() : '';
+        const judgeHubId = j.profiles?.hub_id || '';
         rows.push([
           panel.panel_code,
           String(panel.session_number),
@@ -994,6 +995,7 @@ export default function AdminJudgingSchedule() {
           panel.turn === 'morning' ? 'Mañana' : 'Tarde',
           'Juez',
           `${j.profiles?.first_name || ''} ${j.profiles?.last_name || ''}`.trim(),
+          judgeHubId ? (hubsMap[judgeHubId] || '') : '',
           '',
           '',
           '',
@@ -1011,6 +1013,7 @@ export default function AdminJudgingSchedule() {
       });
       for (const t of sortedTeams) {
         const profileName = t.manual_change_by_profile ? `${t.manual_change_by_profile.first_name} ${t.manual_change_by_profile.last_name}`.trim() : '';
+        const teamHubId = t.teams?.hub_id || '';
         rows.push([
           panel.panel_code,
           String(panel.session_number),
@@ -1018,6 +1021,7 @@ export default function AdminJudgingSchedule() {
           panel.turn === 'morning' ? 'Mañana' : 'Tarde',
           'Equipo',
           t.teams?.name || '',
+          teamHubId ? (hubsMap[teamHubId] || '') : '',
           t.team_code,
           String(t.subsession),
           String(t.display_order || 0),
@@ -1033,12 +1037,13 @@ export default function AdminJudgingSchedule() {
   };
 
   const exportJudgesCSV = () => {
-    const rows = [['Nombre', 'Email', 'Panel', 'Aula', 'Sesión', 'Turno', 'Estado', 'Comentario', 'Modificado por']];
+    const rows = [['Nombre', 'Email', 'HUB', 'Panel', 'Aula', 'Sesión', 'Turno', 'Estado', 'Comentario', 'Modificado por']];
     for (const j of allJudgeRows) {
       const profileName = j.manualByProfile ? `${j.manualByProfile.first_name} ${j.manualByProfile.last_name}`.trim() : '';
       rows.push([
         j.judgeName,
         j.email,
+        j.hubName || '',
         j.panelCode,
         String(j.room),
         String(j.session),
@@ -1052,7 +1057,7 @@ export default function AdminJudgingSchedule() {
   };
 
   const exportTeamsCSV = () => {
-    const rows = [['Código', 'Nombre Equipo', 'Categoría', 'Panel', 'Aula', 'Sesión', 'Subsesión', 'Turno', 'Orden', 'Estado', 'Comentario']];
+    const rows = [['Código', 'Nombre Equipo', 'Categoría', 'HUB', 'Panel', 'Aula', 'Sesión', 'Subsesión', 'Turno', 'Orden', 'Estado', 'Comentario']];
     const sorted = [...allTeamRows].sort((a, b) => {
       if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
       return (a.displayOrder || 0) - (b.displayOrder || 0);
@@ -1062,6 +1067,7 @@ export default function AdminJudgingSchedule() {
         t.teamCode,
         t.teamName,
         t.category,
+        t.hubId ? (hubsMap[t.hubId] || '') : '',
         t.panelCode,
         String(t.room),
         String(t.session),
@@ -1248,6 +1254,111 @@ export default function AdminJudgingSchedule() {
       const gapRow = ws.addRow(Array(colCount).fill(''));
       gapRow.height = 8;
     }
+
+    // ============================================================
+    // Flat sheet: Jueces (filterable, one judge per row)
+    // ============================================================
+    const wsJ = wb.addWorksheet('Jueces');
+    wsJ.columns = [
+      { header: 'Panel', key: 'panel', width: 14 },
+      { header: 'Sesión', key: 'session', width: 8 },
+      { header: 'Aula', key: 'room', width: 8 },
+      { header: 'Turno', key: 'turn', width: 10 },
+      { header: 'Nombre Juez', key: 'name', width: 30 },
+      { header: 'HUB Juez', key: 'hub', width: 20 },
+      { header: 'Email', key: 'email', width: 28 },
+      { header: 'Estado', key: 'status', width: 12 },
+      { header: 'Cambio Manual', key: 'manual', width: 14 },
+      { header: 'Comentario', key: 'comment', width: 30 },
+      { header: 'Modificado por', key: 'modifiedBy', width: 24 },
+      { header: 'Fecha modificación', key: 'modifiedAt', width: 16 },
+    ];
+    const sortedJudges = [...allJudgeRows].sort((a, b) => {
+      if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
+      if (a.session !== b.session) return a.session - b.session;
+      if (a.room !== b.room) return a.room - b.room;
+      return a.judgeName.localeCompare(b.judgeName);
+    });
+    for (const j of sortedJudges) {
+      const modifiedBy = j.manualByProfile ? `${j.manualByProfile.first_name} ${j.manualByProfile.last_name}`.trim() : '';
+      wsJ.addRow({
+        panel: j.panelCode,
+        session: j.session,
+        room: j.room,
+        turn: j.turn === 'morning' ? 'Mañana' : 'Tarde',
+        name: j.judgeName,
+        hub: j.hubName || '',
+        email: j.email,
+        status: j.isActive ? 'Activo' : isSwapOrReplace(j.deactivatedReason) ? 'Cambio' : 'Baja',
+        manual: j.assignmentType === 'manual' ? 'Sí' : 'No',
+        comment: j.manualComment || '',
+        modifiedBy,
+        modifiedAt: j.manualAt ? new Date(j.manualAt).toLocaleDateString('es-ES') : '',
+      });
+    }
+    wsJ.getRow(1).eachCell(cell => {
+      cell.fill = greenHeader as ExcelJS.Fill;
+      cell.font = { ...whiteFont, size: 11 };
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      cell.border = thinBorder as ExcelJS.Borders;
+    });
+    wsJ.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: wsJ.columns.length } };
+
+    // ============================================================
+    // Flat sheet: Equipos (filterable, one team per row)
+    // ============================================================
+    const wsE = wb.addWorksheet('Equipos');
+    wsE.columns = [
+      { header: 'Panel', key: 'panel', width: 14 },
+      { header: 'Sesión', key: 'session', width: 8 },
+      { header: 'Aula', key: 'room', width: 8 },
+      { header: 'Turno', key: 'turn', width: 10 },
+      { header: 'Sub', key: 'sub', width: 6 },
+      { header: 'Orden', key: 'order', width: 8 },
+      { header: 'Código', key: 'code', width: 10 },
+      { header: 'Nombre Equipo', key: 'name', width: 30 },
+      { header: 'Categoría', key: 'category', width: 12 },
+      { header: 'HUB Equipo', key: 'hub', width: 20 },
+      { header: 'Estado', key: 'status', width: 10 },
+      { header: 'Cambio Manual', key: 'manual', width: 14 },
+      { header: 'Comentario', key: 'comment', width: 30 },
+      { header: 'Modificado por', key: 'modifiedBy', width: 24 },
+      { header: 'Fecha modificación', key: 'modifiedAt', width: 16 },
+    ];
+    const sortedTeams = [...allTeamRows].sort((a, b) => {
+      if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
+      if (a.session !== b.session) return a.session - b.session;
+      if (a.room !== b.room) return a.room - b.room;
+      if (a.subsession !== b.subsession) return a.subsession - b.subsession;
+      return (a.displayOrder || 0) - (b.displayOrder || 0);
+    });
+    for (const t of sortedTeams) {
+      const modifiedBy = t.manualByProfile ? `${t.manualByProfile.first_name} ${t.manualByProfile.last_name}`.trim() : '';
+      wsE.addRow({
+        panel: t.panelCode,
+        session: t.session,
+        room: t.room,
+        turn: t.turn === 'morning' ? 'Mañana' : 'Tarde',
+        sub: t.subsession,
+        order: t.displayOrder || 0,
+        code: t.teamCode,
+        name: t.teamName,
+        category: t.category,
+        hub: t.hubId ? (hubsMap[t.hubId] || '') : '',
+        status: t.isActive ? 'Activo' : 'Baja',
+        manual: t.assignmentType === 'manual' ? 'Sí' : 'No',
+        comment: t.manualComment || '',
+        modifiedBy,
+        modifiedAt: t.manualAt ? new Date(t.manualAt).toLocaleDateString('es-ES') : '',
+      });
+    }
+    wsE.getRow(1).eachCell(cell => {
+      cell.fill = greenHeader as ExcelJS.Fill;
+      cell.font = { ...whiteFont, size: 11 };
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      cell.border = thinBorder as ExcelJS.Borders;
+    });
+    wsE.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: wsE.columns.length } };
 
     // Download
     const buffer = await wb.xlsx.writeBuffer();
@@ -1480,7 +1591,7 @@ export default function AdminJudgingSchedule() {
                       <tr className="bg-green-600 text-white">
                         <th className="px-3 py-2 text-left w-[120px] border-r border-green-500 sticky left-0 bg-green-600 z-20" />
                         {allRooms.map(room => (
-                          <th key={room} className="px-4 py-2 text-center font-semibold border-l border-green-500 min-w-[200px]">
+                          <th key={room} className="px-4 py-2 text-center font-semibold border-l border-green-500 min-w-[220px]">
                             Aula {room}
                           </th>
                         ))}
@@ -1628,6 +1739,7 @@ export default function AdminJudgingSchedule() {
                       <TableHead>Código</TableHead>
                       <TableHead>Equipo</TableHead>
                       <TableHead>Categoría</TableHead>
+                      <TableHead>HUB</TableHead>
                       <TableHead>Panel</TableHead>
                       <TableHead>Sesión</TableHead>
                       <TableHead>Subsesión</TableHead>
@@ -1675,6 +1787,7 @@ export default function AdminJudgingSchedule() {
                           <TableCell>
                             <Badge variant="secondary">{t.category}</Badge>
                           </TableCell>
+                          <TableCell>{t.hubId ? hubsMap[t.hubId] || '—' : '—'}</TableCell>
                           <TableCell>{t.panelCode}</TableCell>
                           <TableCell>{t.session}</TableCell>
                           <TableCell>{t.subsession}</TableCell>
@@ -1950,19 +2063,19 @@ export default function AdminJudgingSchedule() {
         {/* Export Buttons */}
         {assignments.length > 0 && (
           <div className="flex flex-wrap gap-3">
-            <Button variant="default" onClick={exportScheduleExcel} className="bg-green-700 hover:bg-green-800">
+            <Button variant="default" onClick={exportScheduleExcel} disabled={hubsMapLoading} className="bg-green-700 hover:bg-green-800">
               <Download className="h-4 w-4 mr-2" />
               Exportar Excel
             </Button>
-            <Button variant="outline" onClick={exportScheduleCSV}>
+            <Button variant="outline" onClick={exportScheduleCSV} disabled={hubsMapLoading}>
               <Download className="h-4 w-4 mr-2" />
               Exportar CSV Completo
             </Button>
-            <Button variant="outline" onClick={exportJudgesCSV}>
+            <Button variant="outline" onClick={exportJudgesCSV} disabled={hubsMapLoading}>
               <Download className="h-4 w-4 mr-2" />
               Exportar Listado de Jueces
             </Button>
-            <Button variant="outline" onClick={exportTeamsCSV}>
+            <Button variant="outline" onClick={exportTeamsCSV} disabled={hubsMapLoading}>
               <Download className="h-4 w-4 mr-2" />
               Exportar Listado de Equipos
             </Button>

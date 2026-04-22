@@ -32,7 +32,7 @@ export function CheckinTeamsGrid({ eventId, checkedInTeamIds }: CheckinTeamsGrid
   const maxRoom = Math.max(...panels.map(p => p.room_number), config?.total_rooms || 1);
   const allRooms = Array.from({ length: maxRoom }, (_, i) => i + 1);
 
-  const renderTeamCell = (panel: typeof assignments[0], subsession: 1 | 2, rowIdx: number) => {
+  const renderTeamCell = (panel: typeof assignments[0], subsession: 1 | 2, rowIdx: number): { node: React.ReactNode; isCheckedIn: boolean } => {
     const teams = (panel.judging_panel_teams || [])
       .filter(t => t.subsession === subsession)
       .sort((a, b) => {
@@ -40,21 +40,19 @@ export function CheckinTeamsGrid({ eventId, checkedInTeamIds }: CheckinTeamsGrid
         return (a.display_order || 0) - (b.display_order || 0);
       });
     const team = teams[rowIdx];
-    if (!team) return null;
+    if (!team) return { node: null, isCheckedIn: false };
 
     const teamData = team.teams as { id: string; name: string; category: string; hub_id: string | null } | null;
     const isCheckedIn = teamData ? checkedInTeamIds.has(teamData.id) : false;
 
-    return (
+    const node = (
       <div className={`flex items-center gap-1.5 ${!team.is_active ? 'opacity-60' : ''}`}>
         <Badge
           variant="outline"
           className={`font-mono text-[9px] px-1 py-0 shrink-0 ${
             !team.is_active
               ? 'text-red-400 line-through'
-              : isCheckedIn
-                ? 'bg-green-100 text-green-800 border-green-300'
-                : catColors[teamData?.category || ''] || ''
+              : catColors[teamData?.category || ''] || ''
           }`}
         >
           {team.team_code}
@@ -63,17 +61,16 @@ export function CheckinTeamsGrid({ eventId, checkedInTeamIds }: CheckinTeamsGrid
           !team.is_active
             ? 'text-red-400 line-through'
             : isCheckedIn
-              ? 'text-green-800 font-medium'
+              ? 'text-white font-medium'
               : ''
         }`}>
-          {teamData?.name}
+          {team.is_active && isCheckedIn ? '✓ ' : ''}{teamData?.name}
         </span>
         {!team.is_active && <Badge variant="destructive" className="text-[8px] px-0.5 py-0">BAJA</Badge>}
-        {team.is_active && isCheckedIn && (
-          <span className="text-green-600 text-[10px] shrink-0">✓</span>
-        )}
       </div>
     );
+
+    return { node, isCheckedIn: team.is_active && isCheckedIn };
   };
 
   return (
@@ -143,10 +140,10 @@ export function CheckinTeamsGrid({ eventId, checkedInTeamIds }: CheckinTeamsGrid
                     {allRooms.map(room => {
                       const panel = sessionPanels.find(p => p.room_number === room);
                       if (!panel) return <td key={room} className="border-l" />;
-                      const cell = renderTeamCell(panel, 1, rowIdx);
+                      const { node, isCheckedIn } = renderTeamCell(panel, 1, rowIdx);
                       return (
-                        <td key={room} className="px-1.5 py-0.5 border-l">
-                          {cell}
+                        <td key={room} className={`px-1.5 py-0.5 border-l ${isCheckedIn ? 'bg-green-600' : ''}`}>
+                          {node}
                         </td>
                       );
                     })}
@@ -169,10 +166,10 @@ export function CheckinTeamsGrid({ eventId, checkedInTeamIds }: CheckinTeamsGrid
                     {allRooms.map(room => {
                       const panel = sessionPanels.find(p => p.room_number === room);
                       if (!panel) return <td key={room} className="border-l" />;
-                      const cell = renderTeamCell(panel, 2, rowIdx);
+                      const { node, isCheckedIn } = renderTeamCell(panel, 2, rowIdx);
                       return (
-                        <td key={room} className="px-1.5 py-0.5 border-l">
-                          {cell}
+                        <td key={room} className={`px-1.5 py-0.5 border-l ${isCheckedIn ? 'bg-green-600' : ''}`}>
+                          {node}
                         </td>
                       );
                     })}
