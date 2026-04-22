@@ -1,4 +1,4 @@
-import { useCallback, useState, useEffect } from "react";
+import { useCallback } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -23,7 +23,11 @@ import { toast } from "sonner";
 import { UserCheck, UserX, Trash2 } from "lucide-react";
 import { Profile, AppRole, VerificationStatus, TableCustomColumn } from "@/types/database";
 
-type UserWithRoles = Profile & { roles: AppRole[]; team_name?: string | null };
+type UserWithRoles = Profile & {
+  roles: AppRole[];
+  team_name?: string | null;
+  judge_comments?: string | null;
+};
 
 interface UserEditSheetProps {
   user: UserWithRoles | null;
@@ -156,30 +160,6 @@ export function UserEditSheet({
     },
   });
 
-  // Update custom fields mutation
-  const updateCustomFieldsMutation = useMutation({
-    mutationFn: async ({
-      userId,
-      customFields,
-    }: {
-      userId: string;
-      customFields: Record<string, unknown>;
-    }) => {
-      const { error } = await supabase
-        .from("profiles")
-        .update({ custom_fields: customFields as unknown as Record<string, never> })
-        .eq("id", userId);
-
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["admin-users"] });
-    },
-    onError: (error) => {
-      toast.error(`Error al guardar campos: ${error.message}`);
-    },
-  });
-
   const handleValidate = useCallback(() => {
     if (!user) return;
     updateVerificationMutation.mutate({
@@ -210,17 +190,7 @@ export function UserEditSheet({
     if (!user) return;
 
     const formData = new FormData(e.currentTarget);
-    
-    // Collect custom field values
-    const updatedCustomFields: Record<string, unknown> = {
-      ...(user.custom_fields || {}),
-    };
-    customColumns.forEach((col) => {
-      const value = formData.get(`custom_${col.column_key}`) as string;
-      updatedCustomFields[col.column_key] = value;
-    });
 
-    // Update main profile fields
     updateUserMutation.mutate({
       userId: user.id,
       updates: {
@@ -231,14 +201,6 @@ export function UserEditSheet({
         tg_id: (formData.get("tg_id") as string) || null,
       },
     });
-
-    // Update custom fields if any exist
-    if (customColumns.length > 0) {
-      updateCustomFieldsMutation.mutate({
-        userId: user.id,
-        customFields: updatedCustomFields,
-      });
-    }
   };
 
   if (!user) return null;
@@ -406,31 +368,69 @@ export function UserEditSheet({
             </div>
           </div>
 
-          {/* Custom Fields */}
-          {customColumns.length > 0 && (
+          {/* Judge Comments */}
+          {user.judge_comments && user.judge_comments.trim() !== "" && (
             <>
               <Separator />
-              <div className="space-y-4">
+              <div className="space-y-2">
                 <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-                  Campos Personalizados
+                  Notas del Juez
                 </h3>
-                <div className="grid gap-4">
-                  {customColumns.map((col) => (
-                    <div key={col.id} className="space-y-2">
-                      <Label htmlFor={`custom_${col.column_key}`}>
-                        {col.column_label}
-                      </Label>
-                      <Input
-                        id={`custom_${col.column_key}`}
-                        name={`custom_${col.column_key}`}
-                        defaultValue={(customFieldsData[col.column_key] as string) || ""}
-                      />
-                    </div>
-                  ))}
-                </div>
+                <p className="whitespace-pre-wrap text-sm">{user.judge_comments}</p>
               </div>
             </>
           )}
+
+          {/* Custom Fields (read-only) */}
+          {(() => {
+            const knownKeys = new Set(customColumns.map((c) => c.column_key))
+            const orphanEntries = Object.entries(customFieldsData).filter(
+              ([k, v]) =>
+                !knownKeys.has(k) &&
+                v !== null &&
+                v !== undefined &&
+                String(v).trim() !== ""
+            )
+            if (customColumns.length === 0 && orphanEntries.length === 0) return null
+            return (
+              <>
+                <Separator />
+                <div className="space-y-4">
+                  <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+                    Campos Personalizados
+                  </h3>
+                  {customColumns.length > 0 && (
+                    <div className="grid gap-4">
+                      {customColumns.map((col) => {
+                        const rawValue = customFieldsData[col.column_key]
+                        const display =
+                          rawValue === null || rawValue === undefined || String(rawValue).trim() === ""
+                            ? "—"
+                            : String(rawValue)
+                        return (
+                          <div key={col.id} className="space-y-1">
+                            <Label>{col.column_label}</Label>
+                            <p className="text-sm">{display}</p>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                  {orphanEntries.length > 0 && (
+                    <div className="space-y-2 pt-2">
+                      <p className="text-xs font-medium text-muted-foreground">Otros datos</p>
+                      {orphanEntries.map(([k, v]) => (
+                        <div key={k} className="flex items-start justify-between gap-2 text-sm">
+                          <span className="text-muted-foreground">{k}</span>
+                          <span className="text-right break-all">{String(v)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </>
+            )
+          })()}
 
           <Separator />
 

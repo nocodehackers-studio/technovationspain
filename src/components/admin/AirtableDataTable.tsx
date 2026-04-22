@@ -86,6 +86,9 @@ interface AirtableDataTableProps<TData, TValue> {
   onActiveFiltersChange?: (filters: Record<string, string[]>) => void;
   filterBarContent?: React.ReactNode;
   externalFilterMode?: boolean;
+  defaultSort?: SortingState;
+  /** When true, the current page index is kept across data changes (e.g. after an inline edit). Defaults to TanStack's auto-reset behavior. */
+  preservePageIndex?: boolean;
 }
 
 export function AirtableDataTable<TData, TValue>({
@@ -103,8 +106,10 @@ export function AirtableDataTable<TData, TValue>({
   onActiveFiltersChange,
   filterBarContent,
   externalFilterMode = false,
+  defaultSort,
+  preservePageIndex = false,
 }: AirtableDataTableProps<TData, TValue>) {
-  const [sorting, setSorting] = useState<SortingState>([]);
+  const [sorting, setSorting] = useState<SortingState>(defaultSort ?? []);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [globalFilter, setGlobalFilter] = useState("");
   const [rowSelection, setRowSelection] = useState({});
@@ -148,6 +153,7 @@ export function AirtableDataTable<TData, TValue>({
     onGlobalFilterChange: setGlobalFilter,
     onRowSelectionChange: setRowSelection,
     onColumnVisibilityChange: setColumnVisibility,
+    autoResetPageIndex: preservePageIndex ? false : undefined,
     state: {
       sorting,
       columnFilters,
