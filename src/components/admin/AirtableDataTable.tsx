@@ -53,6 +53,9 @@ import {
   Plus,
   X,
   ChevronDown,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown,
 } from "lucide-react";
 
 export interface FilterOption {
@@ -148,6 +151,7 @@ export function AirtableDataTable<TData, TValue>({
     getPaginationRowModel: getPaginationRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
+    enableSortingRemoval: true,
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
     onGlobalFilterChange: setGlobalFilter,
@@ -300,8 +304,21 @@ export function AirtableDataTable<TData, TValue>({
         </div>
 
         {/* Filters Row */}
-        {(filterableColumns.length > 0 || (externalFilterMode && filterBarContent)) && (
+        {(filterableColumns.length > 0 || (externalFilterMode && filterBarContent) || sorting.length > 0) && (
           <div className="flex flex-wrap items-center gap-2">
+            {/* Clear Sort Button */}
+            {sorting.length > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1 border-primary text-primary"
+                onClick={() => setSorting([])}
+              >
+                <X className="h-3.5 w-3.5" />
+                Quitar orden
+              </Button>
+            )}
+
             {/* Column Filters - Multi-select dropdowns (hidden in external filter mode) */}
             {!externalFilterMode && filterableColumns.map((filter) => {
               const selected = activeFilters[filter.key] || [];
@@ -397,16 +414,35 @@ export function AirtableDataTable<TData, TValue>({
             <TableHeader>
               {table.getHeaderGroups().map((headerGroup) => (
                 <TableRow key={headerGroup.id}>
-                  {headerGroup.headers.map((header) => (
-                    <TableHead key={header.id} className="group whitespace-nowrap">
-                      {header.isPlaceholder
-                        ? null
-                        : flexRender(
-                            header.column.columnDef.header,
-                            header.getContext()
-                          )}
-                    </TableHead>
-                  ))}
+                  {headerGroup.headers.map((header) => {
+                    const canSort = header.column.getCanSort();
+                    const sorted = header.column.getIsSorted();
+                    return (
+                      <TableHead
+                        key={header.id}
+                        className={`group whitespace-nowrap ${canSort ? "cursor-pointer select-none" : ""}`}
+                        onClick={canSort ? header.column.getToggleSortingHandler() : undefined}
+                      >
+                        {header.isPlaceholder ? null : (
+                          <div className="flex items-center gap-1">
+                            {flexRender(
+                              header.column.columnDef.header,
+                              header.getContext()
+                            )}
+                            {canSort && (
+                              sorted === "asc" ? (
+                                <ArrowUp className="h-3.5 w-3.5 text-foreground" />
+                              ) : sorted === "desc" ? (
+                                <ArrowDown className="h-3.5 w-3.5 text-foreground" />
+                              ) : (
+                                <ArrowUpDown className="h-3.5 w-3.5 opacity-0 group-hover:opacity-40 transition-opacity" />
+                              )
+                            )}
+                          </div>
+                        )}
+                      </TableHead>
+                    );
+                  })}
                 </TableRow>
               ))}
             </TableHeader>
