@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { generateQRCode, generateRegistrationNumber } from '@/lib/qr-generator';
 import { Tables } from '@/integrations/supabase/types';
 import { isMinor as checkIsMinor } from '@/lib/age-utils';
+import { shouldTriggerJudgeDropout } from '@/lib/judge-dropout-guard';
 
 type Event = Tables<'events'>;
 type TicketType = Tables<'event_ticket_types'>;
@@ -386,7 +387,7 @@ export function useRegistrationCompanions(registrationId: string) {
 
 export function useCancelRegistration() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: async (registrationId: string) => {
       // 1. Fetch the registration to get event_id, ticket_type_id, and companions count
@@ -397,35 +398,62 @@ export function useCancelRegistration() {
           event_id,
           ticket_type_id,
           registration_status,
+          user_id,
           companions:companions(id)
         `)
         .eq('id', registrationId)
         .single();
-      
+
       if (fetchError || !registration) {
         throw new Error('No se encontró el registro');
       }
-      
+
       if (registration.registration_status === 'cancelled') {
         throw new Error('Esta entrada ya está cancelada');
       }
-      
+
       const wasWaitlisted = registration.registration_status === 'waitlisted';
-      
+
       // 2. Update status to cancelled
       const { error: updateError } = await supabase
         .from('event_registrations')
         .update({ registration_status: 'cancelled' })
         .eq('id', registrationId);
-      
+
       if (updateError) {
         throw new Error('Error al cancelar la entrada');
       }
-      
+
+      // 2b. If the user is a judge, drop them from the event's judging schedule.
+      // Source of truth for the judge flag is the registration owner's profile,
+      // not useAuth() — the admin may be cancelling on the judge's behalf.
+      const { data: profileData, error: profileError } = await supabase
+        .from('profiles')
+        .select('is_judge')
+        .eq('id', registration.user_id)
+        .single();
+
+      if (profileError) {
+        console.error('Error fetching profile for judge dropout check:', profileError);
+      }
+
+      const isJudgeRegistration = shouldTriggerJudgeDropout(profileData);
+
+      if (isJudgeRegistration) {
+        const { error: dropErr } = await supabase.rpc('drop_judge_on_entry_cancel', {
+          p_registration_id: registrationId,
+        });
+        if (dropErr) {
+          // Log-only: the entry cancellation already persisted. Inconsistency is
+          // surfaced via logs; support will be notified separately.
+          console.error('Error marcando baja de juez en escaleta:', dropErr);
+        }
+      }
+
       // 3. Decrement counters only if was confirmed (waitlisted didn't consume capacity)
       if (!wasWaitlisted) {
         const companionsCount = (registration.companions as any[])?.length || 0;
-        
+
         await supabase.rpc('decrement_registration_count', {
           p_event_id: registration.event_id,
           p_ticket_type_id: registration.ticket_type_id,
@@ -438,13 +466,24 @@ export function useCancelRegistration() {
         body: { registrationId },
       }).catch((err) => console.error("Cancellation email error:", err));
 
-      return registration;
+      // 4b. Notify support if this was a judge (fire and forget).
+      if (isJudgeRegistration) {
+        supabase.functions.invoke('send-judge-dropout-notification', {
+          body: { registrationId },
+        }).catch((err) => console.error('Support notification email error:', err));
+      }
+
+      return { ...registration, isJudgeRegistration };
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['registration'] });
       queryClient.invalidateQueries({ queryKey: ['my-registrations'] });
       queryClient.invalidateQueries({ queryKey: ['existing-registration', data.event_id] });
       queryClient.invalidateQueries({ queryKey: ['event', data.event_id] });
+      if (data.isJudgeRegistration) {
+        queryClient.invalidateQueries({ queryKey: ['judging-assignments', data.event_id] });
+        queryClient.invalidateQueries({ queryKey: ['event-judges', data.event_id] });
+      }
     },
   });
 }

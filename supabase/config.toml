@@ -46,3 +46,6 @@ verify_jwt = false
 
 [functions.send-judge-welcome-email]
 verify_jwt = false
+
+[functions.send-judge-dropout-notification]
+verify_jwt = true

@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { shouldTriggerJudgeDropout } from "@/lib/judge-dropout-guard";
 
 interface CancelRegistrationParams {
   registrationId: string;
@@ -21,6 +22,25 @@ export function useAdminCancelRegistration() {
       companionsCount,
       registrationStatus,
     }: CancelRegistrationParams) => {
+      // 0. Look up the registration owner + status so we can (a) refuse to
+      // re-cancel an already-cancelled entry (prevents duplicate RPC + support
+      // emails on double-click), and (b) decide whether the judge dropout flow
+      // should fire. Admin may be cancelling on behalf of any user.
+      const { data: registrationOwner, error: ownerError } = await supabase
+        .from("event_registrations")
+        .select("user_id, registration_status")
+        .eq("id", registrationId)
+        .single();
+
+      if (ownerError || !registrationOwner) {
+        console.error("Error fetching registration owner:", ownerError);
+        throw new Error("No se encontró la inscripción");
+      }
+
+      if (registrationOwner.registration_status === "cancelled") {
+        throw new Error("Esta inscripción ya está cancelada");
+      }
+
       // 1. Delete companions first
       const { error: companionsError } = await supabase
         .from("companions")
@@ -43,6 +63,28 @@ export function useAdminCancelRegistration() {
         throw new Error("Error al cancelar la inscripción");
       }
 
+      // 2b. If the registration owner is a judge, drop them from the event schedule.
+      const { data: profileData, error: profileError } = await supabase
+        .from("profiles")
+        .select("is_judge")
+        .eq("id", registrationOwner.user_id)
+        .single();
+
+      if (profileError) {
+        console.error("Error fetching profile for judge dropout check:", profileError);
+      }
+
+      const isJudgeRegistration = shouldTriggerJudgeDropout(profileData);
+
+      if (isJudgeRegistration) {
+        const { error: dropErr } = await supabase.rpc("drop_judge_on_entry_cancel", {
+          p_registration_id: registrationId,
+        });
+        if (dropErr) {
+          console.error("Error marcando baja de juez en escaleta:", dropErr);
+        }
+      }
+
       // 3. Decrement counters (only if not waitlisted)
       if (registrationStatus !== "waitlisted") {
         const { error: rpcError } = await supabase.rpc("decrement_registration_count", {
@@ -62,16 +104,28 @@ export function useAdminCancelRegistration() {
         body: { registrationId },
       }).catch((err) => console.error("Cancellation email error:", err));
 
-      return { success: true };
+      // 4b. Notify support if this was a judge (fire and forget).
+      if (isJudgeRegistration) {
+        supabase.functions.invoke("send-judge-dropout-notification", {
+          body: { registrationId },
+        }).catch((err) => console.error("Support notification email error:", err));
+      }
+
+      return { success: true, isJudgeRegistration };
     },
-    onSuccess: (_, variables) => {
+    onSuccess: (result, variables) => {
       toast.success("Inscripción cancelada correctamente");
-      
+
       // Invalidate related queries
       queryClient.invalidateQueries({ queryKey: ["event-registrations-stats", variables.eventId] });
       queryClient.invalidateQueries({ queryKey: ["event-stats", variables.eventId] });
       queryClient.invalidateQueries({ queryKey: ["event-companions-count", variables.eventId] });
       queryClient.invalidateQueries({ queryKey: ["event-team-stats", variables.eventId] });
+
+      if (result.isJudgeRegistration) {
+        queryClient.invalidateQueries({ queryKey: ["judging-assignments", variables.eventId] });
+        queryClient.invalidateQueries({ queryKey: ["event-judges", variables.eventId] });
+      }
     },
     onError: (error: Error) => {
       toast.error(error.message || "Error al cancelar la inscripción");
