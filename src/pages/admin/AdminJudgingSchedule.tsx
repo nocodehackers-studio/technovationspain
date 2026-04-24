@@ -2023,11 +2023,18 @@ export default function AdminJudgingSchedule() {
                     </h4>
                     <div className="flex flex-wrap gap-2">
                       {bajaJudges.map(j => (
-                        <Badge key={j.id} variant="destructive" className="opacity-75">
+                        <Badge key={j.id} variant="destructive" className="opacity-75 gap-1">
                           {j.name}
                           {j.hubId && hubsMap[j.hubId] && (
                             <span className="ml-1 opacity-75">({hubsMap[j.hubId]})</span>
                           )}
+                          <button
+                            onClick={() => handleReactivateJudge(j.id)}
+                            className="ml-1 hover:opacity-100 opacity-70"
+                            title="Reactivar juez"
+                          >
+                            <UserPlus className="h-3 w-3" />
+                          </button>
                         </Badge>
                       ))}
                     </div>
