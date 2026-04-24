@@ -21,8 +21,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Progress } from "@/components/ui/progress";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { toast } from "sonner";
-import { Plus, Edit, Trash2, Users, UserPlus, Settings, AlertTriangle } from "lucide-react";
+import { Plus, Edit, Trash2, Users, UserPlus, Settings, AlertTriangle, Ticket } from "lucide-react";
 import { ConfirmDialog } from "@/components/admin/ConfirmDialog";
+import { generateQRCode, generateRegistrationNumber } from "@/lib/qr-generator";
 
 interface TicketType {
   id: string;
@@ -69,6 +70,7 @@ export function TicketTypeManager({ eventId, eventMaxCapacity }: TicketTypeManag
   const queryClient = useQueryClient();
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [judgeTicketConfirmOpen, setJudgeTicketConfirmOpen] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<TicketType | null>(null);
 const [formData, setFormData] = useState({
     name: "",
@@ -99,6 +101,142 @@ const [formData, setFormData] = useState({
       return data as TicketType[];
     },
     enabled: !!eventId,
+  });
+
+  // Query eligible judges for bulk ticket generation
+  const { data: eligibleJudges = [], isLoading: judgesLoading } = useQuery({
+    queryKey: ["eligible-judges-for-tickets", eventId],
+    queryFn: async () => {
+      // Get all active, onboarded judges for this event
+      const { data: judges, error: judgesError } = await supabase
+        .from("judge_assignments")
+        .select("id, user_id, profiles!inner(id, email, first_name, last_name)")
+        .eq("event_id", eventId)
+        .eq("is_active", true)
+        .eq("onboarding_completed", true);
+      if (judgesError) throw judgesError;
+
+      if (!judges || judges.length === 0) return [];
+
+      // Get existing registrations for this event to filter out already-registered judges
+      const { data: existingRegs, error: regsError } = await supabase
+        .from("event_registrations")
+        .select("user_id")
+        .eq("event_id", eventId)
+        .neq("registration_status", "cancelled");
+      if (regsError) throw regsError;
+
+      const registeredUserIds = new Set((existingRegs || []).map((r) => r.user_id));
+      return judges.filter((j: any) => !registeredUserIds.has(j.user_id));
+    },
+    enabled: !!eventId,
+  });
+
+  const bulkJudgeTicketMutation = useMutation({
+    mutationFn: async () => {
+      if (eligibleJudges.length === 0) throw new Error("No hay jueces elegibles");
+
+      // 1. Upsert "Jueces" ticket type
+      const { data: existingTicketType } = await supabase
+        .from("event_ticket_types")
+        .select("id, max_capacity")
+        .eq("event_id", eventId)
+        .eq("name", "Jueces")
+        .eq("for_judges", true)
+        .maybeSingle();
+
+      let ticketTypeId: string;
+
+      if (existingTicketType) {
+        ticketTypeId = existingTicketType.id;
+        await supabase
+          .from("event_ticket_types")
+          .update({ max_capacity: (existingTicketType.max_capacity || 0) + eligibleJudges.length } as any)
+          .eq("id", ticketTypeId);
+      } else {
+        const { data: newTicketType, error: ttError } = await supabase
+          .from("event_ticket_types")
+          .insert({
+            event_id: eventId,
+            name: "Jueces",
+            description: "Entrada automática para jueces del evento",
+            max_capacity: eligibleJudges.length,
+            max_companions: 0,
+            companion_fields_config: [],
+            allowed_roles: null,
+            required_fields: ["first_name", "last_name", "email"],
+            requires_verification: false,
+            requires_team: false,
+            requires_imported_team: false,
+            is_active: false,
+            for_judges: true,
+            sort_order: (ticketTypes?.length || 0) + 1,
+          } as any)
+          .select("id")
+          .single();
+        if (ttError) throw ttError;
+        ticketTypeId = newTicketType.id;
+      }
+
+      // 2. Create registrations for each eligible judge
+      const registrations = eligibleJudges.map((judge: any) => ({
+        event_id: eventId,
+        ticket_type_id: ticketTypeId,
+        user_id: judge.user_id,
+        first_name: judge.profiles.first_name || "",
+        last_name: judge.profiles.last_name || "",
+        email: judge.profiles.email,
+        qr_code: generateQRCode(),
+        registration_number: generateRegistrationNumber(),
+        registration_status: "confirmed" as const,
+        is_companion: false,
+        image_consent: true,
+        data_consent: true,
+      }));
+
+      const { data: createdRegs, error: regError } = await supabase
+        .from("event_registrations")
+        .insert(registrations)
+        .select("id");
+      if (regError) throw regError;
+
+      // 3. Update ticket type counter (single call instead of N RPCs)
+      const totalCreated = createdRegs?.length || 0;
+      if (totalCreated > 0) {
+        await supabase.rpc("increment_registration_count", {
+          p_event_id: eventId,
+          p_ticket_type_id: ticketTypeId,
+          p_companions_count: totalCreated - 1,
+        });
+      }
+
+      // 4. Send confirmation emails (parallel, tolerant of partial failures)
+      let emailFailures = 0;
+      const emailResults = await Promise.allSettled(
+        (createdRegs || []).map(async (reg) => {
+          const { error } = await supabase.functions.invoke("send-registration-confirmation", {
+            body: { registrationId: reg.id },
+          });
+          if (error) throw error;
+        })
+      );
+      emailFailures = emailResults.filter((r) => r.status === "rejected").length;
+
+      return { total: createdRegs?.length || 0, emailFailures };
+    },
+    onSuccess: ({ total, emailFailures }) => {
+      queryClient.invalidateQueries({ queryKey: ["event-ticket-types", eventId] });
+      queryClient.invalidateQueries({ queryKey: ["eligible-judges-for-tickets", eventId] });
+      queryClient.invalidateQueries({ queryKey: ["event-registrations"] });
+      if (emailFailures > 0) {
+        toast.warning(`Se crearon ${total} entradas pero ${emailFailures} correo(s) no se pudieron enviar.`);
+      } else {
+        toast.success(`Se generaron y enviaron ${total} entradas a los jueces.`);
+      }
+    },
+    onError: (error) => {
+      toast.error(`Error: ${error.message}`);
+    },
   });
 
 const createMutation = useMutation({
@@ -293,8 +431,39 @@ const openEditDialog = (ticket?: TicketType) => {
   const remainingCapacity = eventMaxCapacity != null ? eventMaxCapacity - otherTicketsCapacity : null;
   const capacityExceeded = eventMaxCapacity != null && totalTicketCapacity > eventMaxCapacity;
 
+  const hasEligibleJudges = eligibleJudges.length > 0;
+  const judgeTicketsSending = bulkJudgeTicketMutation.isPending;
+
   return (
     <>
+      {/* Bulk Judge Ticket Toggle */}
+      <div className="flex items-center justify-between p-4 border rounded-lg">
+        <div className="flex items-center gap-3">
+          <Ticket className="h-4 w-4 text-muted-foreground" />
+          <div>
+            <Label
+              htmlFor="judge-tickets"
+              className="font-medium text-sm cursor-pointer"
+            >
+              Generar y enviar entradas a los jueces
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              {judgesLoading
+                ? "Cargando..."
+                : hasEligibleJudges
+                  ? `Esta acción enviará un correo electrónico con la entrada a este evento. ${eligibleJudges.length} juez/jueces elegibles.`
+                  : "No hay jueces elegibles. Todos los jueces activos con onboarding completado ya tienen entrada."}
+            </p>
+          </div>
+        </div>
+        <Switch
+          id="judge-tickets"
+          checked={false}
+          onCheckedChange={() => setJudgeTicketConfirmOpen(true)}
+          disabled={!hasEligibleJudges || judgeTicketsSending || judgesLoading}
+        />
+      </div>
+
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
@@ -707,6 +876,18 @@ const openEditDialog = (ticket?: TicketType) => {
         variant="danger"
         onConfirm={() => selectedTicket && deleteMutation.mutate(selectedTicket.id)}
         loading={deleteMutation.isPending}
+      />
+
+      {/* Bulk Judge Ticket Confirmation */}
+      <ConfirmDialog
+        open={judgeTicketConfirmOpen}
+        onOpenChange={setJudgeTicketConfirmOpen}
+        title="¿Generar y enviar entradas a los jueces?"
+        description={`Esta acción es irreversible. Se enviarán entradas a ${eligibleJudges.length} jueces. Cada juez recibirá un correo electrónico con su entrada y código QR para el evento.`}
+        confirmText="Enviar entradas"
+        variant="warning"
+        onConfirm={() => bulkJudgeTicketMutation.mutate()}
+        loading={bulkJudgeTicketMutation.isPending}
       />
     </>
   );

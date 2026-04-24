@@ -134,27 +134,6 @@ export function JudgingManager({ eventId }: JudgingManagerProps) {
 
   return (
     <div className="space-y-4">
-      {/* Judge Access Toggle — compact */}
-      <div className="flex items-center justify-between p-4 border rounded-lg">
-        <div className="flex items-center gap-3">
-          <Gavel className="h-4 w-4 text-muted-foreground" />
-          <div>
-            <Label htmlFor="judge-access" className="font-medium text-sm cursor-pointer">Acceso de jueces</Label>
-            <p className="text-xs text-muted-foreground">
-              {judgeAccessEnabled
-                ? 'Registro abierto — los jueces pueden completar onboarding y obtener entrada.'
-                : 'Registro cerrado.'}
-            </p>
-          </div>
-        </div>
-        <Switch
-          id="judge-access"
-          checked={judgeAccessEnabled}
-          onCheckedChange={(checked) => toggleJudgeAccess.mutate(checked)}
-          disabled={toggleJudgeAccess.isPending}
-        />
-      </div>
-
       {/* Config — collapses when saved */}
       <JudgingConfigForm
         config={config}
