@@ -47,12 +47,14 @@ export function VerificationPendingModal() {
             <Clock className="h-8 w-8 text-warning" />
           </div>
           <DialogTitle className="text-xl font-display">
-            Verificación pendiente
+            Usuario no encontrado
           </DialogTitle>
           <DialogDescription className="text-base space-y-4">
             <p>
-              Tu cuenta está pendiente de verificación. Danos 24 horas para validar tu cuenta.
-              Asegúrate de estar registrado/a en <strong>Technovation Global</strong> con este mismo email.
+              Asegúrate de usar la misma cuenta de email que tienes en <strong>Technovation Global</strong>.
+            </p>
+            <p>
+              Si te acabas de registrar en Technovation, danos 24 horas para verificar tu cuenta.
             </p>
           </DialogDescription>
         </DialogHeader>
@@ -64,7 +66,7 @@ export function VerificationPendingModal() {
               <div className="text-sm">
                 <p className="font-medium">¿Por qué necesitamos verificarte?</p>
                 <p className="text-muted-foreground mt-1">
-                  Para garantizar la seguridad de todas las participantes, verificamos que todos los
+                  Para garantizar la seguridad de todos los participantes, verificamos que todos los
                   usuarios estén registrados en Technovation Global.
                 </p>
               </div>
