@@ -32,9 +32,10 @@ export default function PendingVerification() {
           <div className="mx-auto w-20 h-20 rounded-full bg-warning/10 flex items-center justify-center">
             <Clock className="h-10 w-10 text-warning" />
           </div>
-          <CardTitle className="text-2xl">Verificación pendiente</CardTitle>
-          <CardDescription className="text-base">
-            Tu cuenta está pendiente de verificación. Danos 24 horas para validar tu cuenta.
+          <CardTitle className="text-2xl">Usuario no encontrado</CardTitle>
+          <CardDescription className="text-base space-y-2">
+            <p>Asegúrate de usar la misma cuenta de email que tienes en Technovation Global.</p>
+            <p>Si te acabas de registrar en Technovation, danos 24 horas para verificar tu cuenta.</p>
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
