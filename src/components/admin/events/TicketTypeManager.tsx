@@ -211,7 +211,6 @@ const [formData, setFormData] = useState({
       }
 
       // 4. Send confirmation emails (parallel, tolerant of partial failures)
-      let emailFailures = 0;
       const emailResults = await Promise.allSettled(
         (createdRegs || []).map(async (reg) => {
           const { error } = await supabase.functions.invoke("send-registration-confirmation", {
@@ -220,16 +219,17 @@ const [formData, setFormData] = useState({
           if (error) throw error;
         })
       );
-      emailFailures = emailResults.filter((r) => r.status === "rejected").length;
+      const failedResults = emailResults.filter((r): r is PromiseRejectedResult => r.status === "rejected");
+      const firstError = failedResults.length > 0 ? String(failedResults[0].reason) : null;
 
-      return { total: createdRegs?.length || 0, emailFailures };
+      return { total: createdRegs?.length || 0, emailFailures: failedResults.length, firstError };
     },
-    onSuccess: ({ total, emailFailures }) => {
+    onSuccess: ({ total, emailFailures, firstError }) => {
       queryClient.invalidateQueries({ queryKey: ["event-ticket-types", eventId] });
       queryClient.invalidateQueries({ queryKey: ["eligible-judges-for-tickets", eventId] });
       queryClient.invalidateQueries({ queryKey: ["event-registrations"] });
       if (emailFailures > 0) {
-        toast.warning(`Se crearon ${total} entradas pero ${emailFailures} correo(s) no se pudieron enviar.`);
+        toast.error(`Se crearon ${total} entradas pero ${emailFailures} correo(s) fallaron. Error: ${firstError}`, { duration: 15000 });
       } else {
         toast.success(`Se generaron y enviaron ${total} entradas a los jueces.`);
       }
