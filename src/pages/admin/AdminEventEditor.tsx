@@ -428,7 +428,7 @@ export default function AdminEventEditor() {
               />
             </TabsContent>
 
-            <TabsContent value="tickets">
+            <TabsContent value="tickets" className="space-y-6">
               {eventId && (
                 <TicketTypeManager 
                   eventId={eventId} 
