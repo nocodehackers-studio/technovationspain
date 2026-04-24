@@ -45,10 +45,10 @@ function generateJudgeWelcomeHtml(firstName: string): string {
                 Te escribimos para informarte de que tu perfil como juez en Technovation Girls Madrid ya está activo.
               </p>
               <p style="margin:0 0 16px;color:#52525b;font-size:16px;line-height:1.6;">
-                Ya puedes acceder a la plataforma para obtener tu entrada gratuita para el evento al que has sido asignado/a.
+                En breve podrás acceder a la plataforma para obtener tu entrada gratuita para el evento al que has sido asignado/a.
               </p>
               <p style="margin:0 0 24px;color:#52525b;font-size:16px;line-height:1.6;">
-                Simplemente inicia sesión con tu email y dirígete a la sección de eventos para descargar tu entrada con código QR.
+                Cuando esté disponible, podrás descargar tu entrada con código QR desde la sección de eventos.
               </p>
 
               <!-- Button -->

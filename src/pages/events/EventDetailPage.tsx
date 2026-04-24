@@ -1,7 +1,9 @@
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { Calendar, Clock, MapPin, Users, ArrowLeft, ExternalLink } from 'lucide-react';
+import { Calendar, Clock, MapPin, Users, ArrowLeft, ExternalLink, AlertTriangle } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
 import { useEvent } from '@/hooks/useEventRegistration';
 import { useAuth } from '@/hooks/useAuth';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
@@ -10,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Separator } from '@/components/ui/separator';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 // Helper function to format time without seconds
 const formatTime = (time: string | null | undefined) => time?.slice(0, 5) || '';
@@ -17,11 +20,37 @@ const formatTime = (time: string | null | undefined) => time?.slice(0, 5) || '';
 export default function EventDetailPage() {
   const { eventId } = useParams<{ eventId: string }>();
   const navigate = useNavigate();
-  const { role } = useAuth();
+  const { role, isJudge, activeJudgeEventIds, profile } = useAuth();
   const { data: event, isLoading, error } = useEvent(eventId || '');
-  
+
   // Only show capacity to admins and chapter ambassadors
   const showCapacity = role === 'admin' || role === 'chapter_ambassador';
+
+  // Is the user's team registered for this event? (regional_final only)
+  const { data: hasImportedTeam } = useQuery({
+    queryKey: ['user-imported-team', profile?.id, eventId],
+    queryFn: async () => {
+      if (!profile?.id || !eventId) return false;
+      const { data: memberships } = await supabase
+        .from('team_members')
+        .select('team_id')
+        .eq('user_id', profile.id);
+      if (!memberships || memberships.length === 0) return false;
+      const teamIds = memberships.map((m) => m.team_id);
+      const { data: match } = await supabase
+        .from('event_teams')
+        .select('id')
+        .eq('event_id', eventId)
+        .in('team_id', teamIds)
+        .eq('is_active', true)
+        .limit(1)
+        .maybeSingle();
+      return !!match;
+    },
+    enabled: !!profile?.id && !!eventId && event?.event_type === 'regional_final',
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
   
   if (isLoading) {
     return (
@@ -53,7 +82,22 @@ export default function EventDetailPage() {
   const currentRegistrations = event.current_registrations || 0;
   const capacityPercentage = totalCapacity > 0 ? (currentRegistrations / totalCapacity) * 100 : 0;
   
-  const ticketTypes = event.ticket_types?.filter(t => t.is_active) || [];
+  const isJudgeForThisEvent = isJudge && activeJudgeEventIds.includes(event?.id ?? '');
+
+  const ticketTypes = event.ticket_types?.filter(t => {
+    if (!t.is_active) return false;
+    if ((t as any).for_judges) return isJudgeForThisEvent;
+    if (!t.allowed_roles || t.allowed_roles.length === 0) return true;
+    if (role && t.allowed_roles.includes(role)) return true;
+    return false;
+  }) || [];
+
+  const requiresImportedTeam = ticketTypes.some((t: any) => t.requires_imported_team);
+  const isTeamBlocked =
+    event.event_type === 'regional_final' &&
+    requiresImportedTeam &&
+    hasImportedTeam === false;
+
   const agenda = event.agenda?.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)) || [];
   
   return (
@@ -223,19 +267,28 @@ export default function EventDetailPage() {
                   )}
                   
                   <Separator />
-                  
-                  <Button 
-                    className="w-full" 
+
+                  {isTeamBlocked && (
+                    <Alert variant="destructive">
+                      <AlertTriangle className="h-4 w-4" />
+                      <AlertDescription>
+                        Tu equipo no está inscrito en este evento. Contacta con tu Chapter Ambassador.
+                      </AlertDescription>
+                    </Alert>
+                  )}
+
+                  <Button
+                    className="w-full"
                     size="lg"
-                    disabled={!isRegistrationOpen}
-                    asChild={isRegistrationOpen}
+                    disabled={!isRegistrationOpen || isTeamBlocked}
+                    asChild={isRegistrationOpen && !isTeamBlocked}
                   >
-                    {isRegistrationOpen ? (
+                    {isRegistrationOpen && !isTeamBlocked ? (
                       <Link to={`/events/${eventId}/register`}>
                         Inscribirse
                       </Link>
                     ) : (
-                      <span>Inscripciones cerradas</span>
+                      <span>{isTeamBlocked ? 'No disponible para tu equipo' : 'Inscripciones cerradas'}</span>
                     )}
                   </Button>
                   
