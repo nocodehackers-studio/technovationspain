@@ -73,12 +73,14 @@ export function useEventJudges(eventId: string | undefined) {
   const readyJudges = (judgesQuery.data || []).filter(j => j.isEventActive && j.onboardingCompleted);
   const pendingJudges = (judgesQuery.data || []).filter(j => j.isEventActive && !j.onboardingCompleted);
   const bajaJudges = (judgesQuery.data || []).filter(j => !j.isEventActive && j.onboardingCompleted);
+  const onboardingPendingJudges = (judgesQuery.data || []).filter(j => !j.isEventActive && !j.onboardingCompleted);
 
   return {
     judges: judgesQuery.data || [],
     readyJudges,
     pendingJudges,
     bajaJudges,
+    onboardingPendingJudges,
     isLoading: judgesQuery.isLoading,
     error: judgesQuery.error,
   };

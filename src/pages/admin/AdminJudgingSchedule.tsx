@@ -263,7 +263,7 @@ export default function AdminJudgingSchedule() {
   const [dropJudgeComment, setDropJudgeComment] = useState('');
 
   const { config } = useJudgingConfig(eventId);
-  const { judges: eventJudges, readyJudges, bajaJudges } = useEventJudges(eventId);
+  const { judges: eventJudges, readyJudges, bajaJudges, onboardingPendingJudges } = useEventJudges(eventId);
   const {
     assignments,
     isLoading,
@@ -307,6 +307,7 @@ export default function AdminJudgingSchedule() {
     )
   );
   const unassignedJudges = readyJudges.filter(j => !assignedJudgeIds.has(j.id));
+  const unassignedOnboardingPendingJudges = onboardingPendingJudges.filter(j => !assignedJudgeIds.has(j.id));
 
   // Pending teams: in event_teams but not assigned to any panel
   const assignedTeamIds = new Set(
@@ -2041,6 +2042,33 @@ export default function AdminJudgingSchedule() {
                   </div>
                 )}
 
+                {unassignedOnboardingPendingJudges.length > 0 && (
+                  <div className="border border-orange-200 bg-orange-50/50 rounded-lg p-4 mt-3">
+                    <h4 className="text-sm font-bold text-orange-800 mb-3">
+                      Pendientes de onboarding ({unassignedOnboardingPendingJudges.length})
+                    </h4>
+                    <div className="flex flex-wrap gap-2">
+                      {unassignedOnboardingPendingJudges.map(j => (
+                        <Badge
+                          key={j.id}
+                          variant="outline"
+                          className="cursor-pointer border-orange-300 bg-orange-100 text-orange-900 hover:bg-orange-200"
+                          onClick={() => {
+                            setJudgeManageDialog({ open: false, judgeId: '', judgeName: '', hubName: null, panelJudgeId: '', panelId: '', panelCode: '', comments: null });
+                            setSelectedJudgeId(j.id);
+                            setAddJudgeDialog({ open: true, panelId: '', panelCode: 'Selecciona panel' });
+                          }}
+                        >
+                          {j.name}
+                          {j.hubId && hubsMap[j.hubId] && (
+                            <span className="ml-1 text-orange-700">({hubsMap[j.hubId]})</span>
+                          )}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {bajaTeams.length > 0 && (
                   <div className="border border-red-200 bg-red-50/50 rounded-lg p-4 mt-3">
                     <h4 className="text-sm font-bold text-red-800 mb-3">
@@ -2172,7 +2200,12 @@ export default function AdminJudgingSchedule() {
                       {j.name} ({j.email})
                     </SelectItem>
                   ))}
-                  {unassignedJudges.length === 0 && (
+                  {unassignedOnboardingPendingJudges.map(j => (
+                    <SelectItem key={j.id} value={j.id}>
+                      {j.name} ({j.email}) — pendiente de onboarding
+                    </SelectItem>
+                  ))}
+                  {unassignedJudges.length === 0 && unassignedOnboardingPendingJudges.length === 0 && (
                     <SelectItem value="_none" disabled>
                       No hay jueces sin asignar
                     </SelectItem>
