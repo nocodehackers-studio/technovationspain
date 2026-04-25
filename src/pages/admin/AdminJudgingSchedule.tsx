@@ -1963,7 +1963,7 @@ export default function AdminJudgingSchedule() {
                           onClick={() => {
                             setJudgeManageDialog({ open: false, judgeId: '', judgeName: '', hubName: null, panelJudgeId: '', panelId: '', panelCode: '', comments: null });
                             setSelectedJudgeId(j.id);
-                            setAddJudgeDialog({ open: true, panelId: '', panelCode: 'Selecciona panel' });
+                            setAddJudgeDialog({ open: true, panelId: '', panelCode: '' });
                           }}
                         >
                           {j.name}
@@ -2015,7 +2015,7 @@ export default function AdminJudgingSchedule() {
                           onClick={() => {
                             setJudgeManageDialog({ open: false, judgeId: '', judgeName: '', hubName: null, panelJudgeId: '', panelId: '', panelCode: '', comments: null });
                             setSelectedJudgeId(j.id);
-                            setAddJudgeDialog({ open: true, panelId: '', panelCode: 'Selecciona panel' });
+                            setAddJudgeDialog({ open: true, panelId: '', panelCode: '' });
                           }}
                         >
                           {j.name}
@@ -2142,42 +2142,75 @@ export default function AdminJudgingSchedule() {
         >
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Añadir juez a {addJudgeDialog.panelCode}</DialogTitle>
+              <DialogTitle>
+                {addJudgeDialog.panelCode
+                  ? `Añadir juez a ${addJudgeDialog.panelCode}`
+                  : 'Añadir juez al panel'}
+              </DialogTitle>
               <DialogDescription>
-                Selecciona un juez no asignado para añadirlo manualmente.
+                Selecciona el panel destino y un juez no asignado.
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-2">
-              <Label>Juez</Label>
-              <Select value={selectedJudgeId} onValueChange={setSelectedJudgeId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar juez..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {unassignedJudges.map(j => (
-                    <SelectItem key={j.id} value={j.id}>
-                      {j.name} ({j.email})
-                    </SelectItem>
-                  ))}
-                  {unassignedOnboardingPendingJudges.map(j => (
-                    <SelectItem key={j.id} value={j.id}>
-                      {j.name} ({j.email}) — pendiente de onboarding
-                    </SelectItem>
-                  ))}
-                  {unassignedJudges.length === 0 && unassignedOnboardingPendingJudges.length === 0 && (
-                    <SelectItem value="_none" disabled>
-                      No hay jueces sin asignar
-                    </SelectItem>
-                  )}
-                </SelectContent>
-              </Select>
-              <Label>Motivo del cambio (opcional)</Label>
-              <Textarea
-                value={addJudgeComment}
-                onChange={(e) => setAddJudgeComment(e.target.value)}
-                placeholder="Motivo del cambio (opcional)"
-                rows={2}
-              />
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Panel destino</Label>
+                <Select
+                  value={addJudgeDialog.panelId}
+                  onValueChange={(v) => {
+                    const panel = assignments.find(p => p.id === v);
+                    setAddJudgeDialog(prev => ({
+                      ...prev,
+                      panelId: v,
+                      panelCode: panel?.panel_code ?? '',
+                    }));
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar panel..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {assignments.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.panel_code} ({p.turn === 'morning' ? 'Mañana' : 'Tarde'})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Juez</Label>
+                <Select value={selectedJudgeId} onValueChange={setSelectedJudgeId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar juez..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {unassignedJudges.map(j => (
+                      <SelectItem key={j.id} value={j.id}>
+                        {j.name} ({j.email})
+                      </SelectItem>
+                    ))}
+                    {unassignedOnboardingPendingJudges.map(j => (
+                      <SelectItem key={j.id} value={j.id}>
+                        {j.name} ({j.email}) — pendiente de onboarding
+                      </SelectItem>
+                    ))}
+                    {unassignedJudges.length === 0 && unassignedOnboardingPendingJudges.length === 0 && (
+                      <SelectItem value="_none" disabled>
+                        No hay jueces sin asignar
+                      </SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Motivo del cambio (opcional)</Label>
+                <Textarea
+                  value={addJudgeComment}
+                  onChange={(e) => setAddJudgeComment(e.target.value)}
+                  placeholder="Motivo del cambio (opcional)"
+                  rows={2}
+                />
+              </div>
             </div>
             <DialogFooter>
               <Button
@@ -2186,7 +2219,7 @@ export default function AdminJudgingSchedule() {
               >
                 Cancelar
               </Button>
-              <Button onClick={handleAddJudge} disabled={!selectedJudgeId || isAddingJudge}>
+              <Button onClick={handleAddJudge} disabled={!selectedJudgeId || !addJudgeDialog.panelId || isAddingJudge}>
                 Añadir juez
               </Button>
             </DialogFooter>
