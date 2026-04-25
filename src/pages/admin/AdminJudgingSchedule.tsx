@@ -332,25 +332,6 @@ export default function AdminJudgingSchedule() {
   const pendingTeams = allEventTeams.filter(et => et.is_active !== false && !assignedTeamIds.has(et.team_id));
   const bajaTeams = allEventTeams.filter(et => et.is_active === false);
 
-  // Helper: get majority category of a panel's active teams
-  const getPanelMajorityCategory = useCallback((panelId: string): string | null => {
-    const panel = assignments.find(p => p.id === panelId);
-    if (!panel) return null;
-    const activeTeams = (panel.judging_panel_teams || []).filter(t => t.is_active);
-    if (activeTeams.length === 0) return null;
-    const catCounts: Record<string, number> = {};
-    for (const t of activeTeams) {
-      const cat = t.teams?.category || '';
-      catCounts[cat] = (catCounts[cat] || 0) + 1;
-    }
-    let maxCat = '';
-    let maxCount = 0;
-    for (const [cat, count] of Object.entries(catCounts)) {
-      if (count > maxCount) { maxCat = cat; maxCount = count; }
-    }
-    return maxCat;
-  }, [assignments]);
-
   // Build flat lists for "By Teams" and "By Judges" views
   const allTeamRows = assignments.flatMap(p =>
     (p.judging_panel_teams || []).map(t => ({
@@ -881,13 +862,6 @@ export default function AdminJudgingSchedule() {
 
   const handleDragOver = (e: React.DragEvent, panelId: string, subsession: number) => {
     if (dragTeam) {
-      // Category validation: block drop if mismatch
-      const majorCat = getPanelMajorityCategory(panelId);
-      if (majorCat && majorCat !== dragTeam.category) {
-        e.dataTransfer.dropEffect = 'none';
-        setDropTarget({ panelId, subsession });
-        return;
-      }
       // Hub conflict: block drop if team shares hub with a judge
       if (getPanelHubConflict(panelId, dragTeam.hubId)) {
         e.dataTransfer.dropEffect = 'none';
@@ -908,14 +882,6 @@ export default function AdminJudgingSchedule() {
     e.preventDefault();
     setDropTarget(null);
     if (!dragTeam) return;
-
-    // Category validation (hard block)
-    const majorCat = getPanelMajorityCategory(panelId);
-    if (majorCat && majorCat !== dragTeam.category) {
-      toast.error('No se puede mover: la categoría del equipo no coincide con la del panel destino');
-      setDragTeam(null);
-      return;
-    }
 
     // Hub conflict validation (hard block)
     const hubConflictMsg = getPanelHubConflict(panelId, dragTeam.hubId);
@@ -1407,11 +1373,6 @@ export default function AdminJudgingSchedule() {
     const overCapacity = activeTeams.length > teamsPerGroup;
 
     const isOver = dropTarget?.panelId === panel.id && dropTarget?.subsession === subsession;
-    // Category mismatch check for drop visual
-    const categoryMismatch = dragTeam ? (() => {
-      const majorCat = getPanelMajorityCategory(panel.id);
-      return majorCat && majorCat !== dragTeam.category;
-    })() : false;
     // Hub conflict check for drop visual
     const hubConflict = dragTeam ? !!getPanelHubConflict(panel.id, dragTeam.hubId) : false;
 
@@ -1419,11 +1380,9 @@ export default function AdminJudgingSchedule() {
       <div
         className={`min-h-[28px] px-1 py-0.5 transition-colors ${
           isOver
-            ? categoryMismatch
-              ? 'bg-red-50/30 ring-2 ring-inset ring-red-300'
-              : hubConflict
-                ? 'bg-amber-50 ring-2 ring-inset ring-amber-400'
-                : 'bg-blue-100 ring-2 ring-inset ring-blue-400'
+            ? hubConflict
+              ? 'bg-amber-50 ring-2 ring-inset ring-amber-400'
+              : 'bg-blue-100 ring-2 ring-inset ring-blue-400'
             : ''
         } ${overCapacity ? 'border-l-2 border-l-orange-400' : ''}`}
         onDragOver={(e) => handleDragOver(e, panel.id, subsession)}
@@ -2004,7 +1963,7 @@ export default function AdminJudgingSchedule() {
                           onClick={() => {
                             setJudgeManageDialog({ open: false, judgeId: '', judgeName: '', hubName: null, panelJudgeId: '', panelId: '', panelCode: '', comments: null });
                             setSelectedJudgeId(j.id);
-                            setAddJudgeDialog({ open: true, panelId: '', panelCode: 'Selecciona panel' });
+                            setAddJudgeDialog({ open: true, panelId: '', panelCode: '' });
                           }}
                         >
                           {j.name}
@@ -2056,7 +2015,7 @@ export default function AdminJudgingSchedule() {
                           onClick={() => {
                             setJudgeManageDialog({ open: false, judgeId: '', judgeName: '', hubName: null, panelJudgeId: '', panelId: '', panelCode: '', comments: null });
                             setSelectedJudgeId(j.id);
-                            setAddJudgeDialog({ open: true, panelId: '', panelCode: 'Selecciona panel' });
+                            setAddJudgeDialog({ open: true, panelId: '', panelCode: '' });
                           }}
                         >
                           {j.name}
@@ -2183,42 +2142,75 @@ export default function AdminJudgingSchedule() {
         >
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Añadir juez a {addJudgeDialog.panelCode}</DialogTitle>
+              <DialogTitle>
+                {addJudgeDialog.panelCode
+                  ? `Añadir juez a ${addJudgeDialog.panelCode}`
+                  : 'Añadir juez al panel'}
+              </DialogTitle>
               <DialogDescription>
-                Selecciona un juez no asignado para añadirlo manualmente.
+                Selecciona el panel destino y un juez no asignado.
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-2">
-              <Label>Juez</Label>
-              <Select value={selectedJudgeId} onValueChange={setSelectedJudgeId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar juez..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {unassignedJudges.map(j => (
-                    <SelectItem key={j.id} value={j.id}>
-                      {j.name} ({j.email})
-                    </SelectItem>
-                  ))}
-                  {unassignedOnboardingPendingJudges.map(j => (
-                    <SelectItem key={j.id} value={j.id}>
-                      {j.name} ({j.email}) — pendiente de onboarding
-                    </SelectItem>
-                  ))}
-                  {unassignedJudges.length === 0 && unassignedOnboardingPendingJudges.length === 0 && (
-                    <SelectItem value="_none" disabled>
-                      No hay jueces sin asignar
-                    </SelectItem>
-                  )}
-                </SelectContent>
-              </Select>
-              <Label>Motivo del cambio (opcional)</Label>
-              <Textarea
-                value={addJudgeComment}
-                onChange={(e) => setAddJudgeComment(e.target.value)}
-                placeholder="Motivo del cambio (opcional)"
-                rows={2}
-              />
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Panel destino</Label>
+                <Select
+                  value={addJudgeDialog.panelId}
+                  onValueChange={(v) => {
+                    const panel = assignments.find(p => p.id === v);
+                    setAddJudgeDialog(prev => ({
+                      ...prev,
+                      panelId: v,
+                      panelCode: panel?.panel_code ?? '',
+                    }));
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar panel..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {assignments.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.panel_code} ({p.turn === 'morning' ? 'Mañana' : 'Tarde'})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Juez</Label>
+                <Select value={selectedJudgeId} onValueChange={setSelectedJudgeId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar juez..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {unassignedJudges.map(j => (
+                      <SelectItem key={j.id} value={j.id}>
+                        {j.name} ({j.email})
+                      </SelectItem>
+                    ))}
+                    {unassignedOnboardingPendingJudges.map(j => (
+                      <SelectItem key={j.id} value={j.id}>
+                        {j.name} ({j.email}) — pendiente de onboarding
+                      </SelectItem>
+                    ))}
+                    {unassignedJudges.length === 0 && unassignedOnboardingPendingJudges.length === 0 && (
+                      <SelectItem value="_none" disabled>
+                        No hay jueces sin asignar
+                      </SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Motivo del cambio (opcional)</Label>
+                <Textarea
+                  value={addJudgeComment}
+                  onChange={(e) => setAddJudgeComment(e.target.value)}
+                  placeholder="Motivo del cambio (opcional)"
+                  rows={2}
+                />
+              </div>
             </div>
             <DialogFooter>
               <Button
@@ -2227,7 +2219,7 @@ export default function AdminJudgingSchedule() {
               >
                 Cancelar
               </Button>
-              <Button onClick={handleAddJudge} disabled={!selectedJudgeId || isAddingJudge}>
+              <Button onClick={handleAddJudge} disabled={!selectedJudgeId || !addJudgeDialog.panelId || isAddingJudge}>
                 Añadir juez
               </Button>
             </DialogFooter>
