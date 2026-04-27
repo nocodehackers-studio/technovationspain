@@ -34,7 +34,7 @@ export function ConsentLegalText({
       </p>
 
       <p className="text-muted-foreground leading-relaxed">
-        De acuerdo con la actual legislación, el Titular queda informado y, si tiene 14 años o más cumplidos antes del 1 de agosto del ciclo en curso (el ciclo comprende del 1 de agosto al 31 de julio del año siguiente), otorga su consentimiento expreso para el tratamiento de sus datos personales con la finalidad descrita a continuación. Si el Titular no ha cumplido 14 años antes del 1 de agosto del ciclo en curso, dicho consentimiento expreso es otorgado por su padre, madre o tutor legal.
+        De acuerdo con la actual legislación, el Titular queda informado y, si es mayor de 14 años, otorga su consentimiento expreso para el tratamiento de sus datos personales con la finalidad descrita a continuación. Si el Titular es menor de 14 años, dicho consentimiento expreso es otorgado por su padre, madre o tutor legal.
       </p>
 
       {/* Table 1: Data Protection Information */}
@@ -114,7 +114,7 @@ export function ConsentLegalText({
               Responsable
             </th>
             <td className="p-3">
-              Asociación Power to Code con NIF G-88095351 (en adelante "Power to Code") y domicilio en Plaza de Segovia 5, 28600, Navalcarnero, Madrid
+              Universidad Carlos III de Madrid (UC3M) con domicilios en Calle Madrid, 126, 28903 Getafe, Madrid
             </td>
           </tr>
           <tr className="border-b border-border">
@@ -122,7 +122,7 @@ export function ConsentLegalText({
               Soportes
             </th>
             <td className="p-3">
-              Fotografías, vídeos, vídeos con voz, material gráfico, etc., o parte de las mismas en las que interviene o ha intervenido el Titular en el marco de los proyectos de Power to Code
+              Fotografías, vídeos, vídeos con voz, material gráfico, etc., o parte de las mismas en las que interviene o ha intervenido el Titular en el marco de los proyectos de Power to Code y la UC3M
             </td>
           </tr>
           <tr className="border-b border-border">
@@ -130,7 +130,7 @@ export function ConsentLegalText({
               Ámbito de Utilización
             </th>
             <td className="p-3">
-              No se circunscribe a un ámbito temporal o territorial determinados, por lo que Power to Code podrá utilizar estas Imágenes, o parte de las mismas, en todos los países del mundo sin limitación geográfica de ninguna clase y con la máxima extensión temporal permitida en la legislación vigente.
+              No se circunscribe a un ámbito temporal o territorial determinados, por lo que UC3M y Power to Code podrá utilizar estas Imágenes, o parte de las mismas, en todos los países del mundo sin limitación geográfica de ninguna clase y con la máxima extensión temporal permitida en la legislación vigente.
             </td>
           </tr>
           <tr className="border-b border-border">
@@ -138,7 +138,7 @@ export function ConsentLegalText({
               Cesiones
             </th>
             <td className="p-3">
-              Exclusivamente con carácter social y nunca comercial, Power to Code podrá ceder a terceros, tales como entidades colaboradoras o patrocinadores, las imágenes, o parte de las mismas, en las que el Titular aparece como modelo, entrevistado, narrador o participante principal o secundario en el ámbito (sea cual fuere el medio de comunicación interno o externo) y finalidades de los proyectos de Power to Code.
+              Exclusivamente con carácter social y nunca comercial, UC3M y Power to Code podrá ceder a terceros, tales como entidades colaboradoras o patrocinadores, las imágenes, o parte de las mismas, en las que el Titular aparece como modelo, entrevistado, narrador o participante principal o secundario en el ámbito (sea cual fuere el medio de comunicación interno o externo) y finalidades de los proyectos de Power to Code.
               <br /><br />
               El objeto de la cesión será la promoción de las actividades de Power to Code, en medios de comunicación internos o externos a la misma, para que puedan ser difundidas en todos los medios de comunicación conocidos en la actualidad incluidos los online (Youtube, Linkedin, Instagram, Tik Tok Facebook, etc), streaming y los que pudieran desarrollarse en el futuro. Todo ello con la única salvedad y limitación de aquellas utilizaciones o aplicaciones que pudieran atentar al derecho al honor, a la moral y/o al orden público, en los términos previstos en la legislación vigente en cada país.
             </td>
@@ -159,12 +159,12 @@ export function ConsentLegalText({
         El padre/madre o tutor legal del Titular, o el Titular, cuyo nombre y apellidos figuran a continuación, será el único responsable de la veracidad y exactitud de los datos facilitados a Power to Code.
       </p>
       <p className="text-muted-foreground leading-relaxed">
-        El padre, madre o tutor legal del Titular, o el Titular, declara que ha leído, entiende y autoriza expresamente el tratamiento de sus datos de carácter personal al haber sacado una entrada para el evento <strong>{eventName}</strong> que se celebrará el <strong>{eventDate}</strong>{eventLocation && <> en <strong>{eventLocation}</strong></>} y que cancela su entrada en caso de no autorizar el mencionado tratamiento de sus datos de carácter personal.
+        El padre, madre o tutor legal del Titular, o el Titular, declara que ha leído, entiende y autoriza expresamente el tratamiento de sus datos de carácter personal al haber sacado una entrada para el evento <strong>{eventName}</strong> que se celebrará el <strong>{eventDate}</strong>{eventLocation && <> en <strong>{eventLocation}</strong></>} y que debe cancelar su entrada en caso de no autorizar el mencionado tratamiento de sus datos de carácter personal.
       </p>
 
       {signerName && (
         <p className="text-muted-foreground leading-relaxed">
-          Nombre y apellidos del Padre/Madre o Tutor legal (o del Titular si tiene 14 años o más según el ciclo en curso): <strong>{signerName}</strong>
+          Nombre y apellidos del Padre/Madre o Tutor legal (o del Titular para mayores de 14 años): <strong>{signerName}</strong>
         </p>
       )}
     </div>
