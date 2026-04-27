@@ -55,7 +55,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setProfile(profileData as unknown as Profile);
 
       // Fetch judge assignments if user is a judge (multi-event support)
-      if ((profileData as any)?.is_judge) {
+      if ((profileData as any)?.is_judge && !(profileData as any)?.judge_excluded) {
         // (1) Event assignments where onboarding is done and judge_access_enabled is true
         const { data: activeData } = await supabase
           .from('judge_assignments')
@@ -185,7 +185,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const isVerified = profile?.verification_status === 'verified';
   const isVolunteer = (profile as any)?.is_volunteer ?? false;
-  const isJudge = (profile as any)?.is_judge ?? false;
+  const isJudge = ((profile as any)?.is_judge ?? false) && !((profile as any)?.judge_excluded ?? false);
   const activeJudgeEventId = activeJudgeEventIds[0] ?? null;
   const needsJudgeOnboarding = isJudge && !judgeOnboardingCompleted;
   const judgeHasNoEvent = isJudge && judgeOnboardingCompleted && activeJudgeEventIds.length === 0;
