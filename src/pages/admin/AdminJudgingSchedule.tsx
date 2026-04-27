@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -193,6 +193,63 @@ const SortableTeamItem = React.memo(function SortableTeamItem({
 });
 
 // ============================================================================
+// Accreditation export helpers (local utilities)
+// ============================================================================
+
+const sanitizeFilename = (name: string): string => {
+  return (name || '')
+    .replace(/[\\/:*?"<>|]/g, '-')
+    .replace(/\s+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .trim();
+};
+
+const mapTurn = (turn: string | null | undefined): string => {
+  if (turn === 'morning') return 'Mañana';
+  if (turn === 'afternoon') return 'Tarde';
+  return '';
+};
+
+// Trim is load-bearing: callers rely on `safeName(null, 'Pérez') === 'Pérez'` (not ' Pérez')
+// so AC 9 (nulls become '', never literal "null") holds.
+const safeName = (
+  first: string | null | undefined,
+  last: string | null | undefined,
+): string => {
+  return `${first ?? ''} ${last ?? ''}`.trim();
+};
+
+const todayMadridDate = (): string => {
+  // YYYY-MM-DD in Europe/Madrid timezone (avoids UTC day-rollover at night).
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Madrid',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+  return parts;
+};
+
+const triggerXlsxDownload = (buffer: ArrayBuffer, filename: string) => {
+  const blob = new Blob([buffer], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  try {
+    a.click();
+  } finally {
+    document.body.removeChild(a);
+    // Defer revoke so the browser can commit the download in slower paths (older Safari).
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+};
+
+// ============================================================================
 // Main Component
 // ============================================================================
 
@@ -261,6 +318,14 @@ export default function AdminJudgingSchedule() {
     judgeName: string;
   }>({ open: false, judgeId: '', judgeName: '' });
   const [dropJudgeComment, setDropJudgeComment] = useState('');
+
+  // Accreditation exports
+  const [isExportingJudges, setIsExportingJudges] = useState(false);
+  const [isExportingTeams, setIsExportingTeams] = useState(false);
+  // Refs as re-entrancy guard: state updates are async, so a fast double-click
+  // can fire two concurrent exports before `disabled` propagates to the DOM.
+  const exportingJudgesRef = useRef(false);
+  const exportingTeamsRef = useRef(false);
 
   const { config } = useJudgingConfig(eventId);
   const { judges: eventJudges, readyJudges, bajaJudges, onboardingPendingJudges } = useEventJudges(eventId);
@@ -1338,6 +1403,213 @@ export default function AdminJudgingSchedule() {
     URL.revokeObjectURL(url);
   };
 
+  // ==========================================================================
+  // Accreditation exports — Jueces y Niñas/Mentores
+  // ==========================================================================
+
+  const handleExportJudgeAccreditations = async () => {
+    if (!eventId) return;
+    if (exportingJudgesRef.current) return;
+    exportingJudgesRef.current = true;
+    setIsExportingJudges(true);
+    try {
+      const { data: eventRow, error: eventError } = await supabase
+        .from('events')
+        .select('name')
+        .eq('id', eventId)
+        .single();
+      if (eventError) throw eventError;
+      const eventName = eventRow?.name?.trim() || 'evento';
+
+      const { data: turnRows, error: turnError } = await supabase
+        .from('event_teams')
+        .select('turn')
+        .eq('event_id', eventId)
+        .order('turn', { ascending: true })
+        .limit(1);
+      if (turnError) throw turnError;
+      let turnLabel = '';
+      if (!turnRows || turnRows.length === 0) {
+        toast.warning('No hay equipos vinculados al evento; la columna Turno quedará vacía.');
+      } else {
+        turnLabel = mapTurn(turnRows[0]?.turn);
+      }
+
+      const { data: judgeRows, error: judgesError } = await supabase
+        .from('judge_assignments')
+        .select('user_id, is_active, judge_excluded, profiles!judge_assignments_user_id_fkey(first_name, last_name)')
+        .eq('event_id', eventId)
+        .eq('is_active', true)
+        .eq('judge_excluded', false);
+      if (judgesError) throw judgesError;
+
+      let skippedCount = 0;
+      const rows = (judgeRows || [])
+        .map((r: any) => {
+          const profile = Array.isArray(r.profiles) ? r.profiles[0] : r.profiles;
+          return {
+            turno: turnLabel,
+            nombre: safeName(profile?.first_name, profile?.last_name),
+            apellidoSort: (profile?.last_name ?? '').toString(),
+            nombreSort: (profile?.first_name ?? '').toString(),
+            perfil: 'Juez',
+          };
+        })
+        .filter(r => {
+          if (r.nombre === '') {
+            skippedCount += 1;
+            console.warn('[acreditaciones] juez con first_name y last_name vacíos, omitido');
+            return false;
+          }
+          return true;
+        })
+        .sort((a, b) => {
+          const c = a.apellidoSort.localeCompare(b.apellidoSort, 'es', { sensitivity: 'base', numeric: true });
+          if (c !== 0) return c;
+          return a.nombreSort.localeCompare(b.nombreSort, 'es', { sensitivity: 'base', numeric: true });
+        });
+
+      if (skippedCount > 0) {
+        toast.warning(`${skippedCount} juez(ces) omitido(s) por falta de nombre y apellido.`);
+      }
+
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet('Hoja1');
+      ws.addRow(['Turno', 'Nombre y apellidos', 'Perfil']);
+      for (const r of rows) ws.addRow([r.turno, r.nombre, r.perfil]);
+      const buffer = await wb.xlsx.writeBuffer();
+
+      const filename = `Acreditaciones-jueces-${sanitizeFilename(eventName)}-${todayMadridDate()}.xlsx`;
+      triggerXlsxDownload(buffer as ArrayBuffer, filename);
+    } catch (err: any) {
+      toast.error('No se pudo generar el Excel de acreditaciones de jueces', {
+        description: err?.message ?? String(err),
+      });
+    } finally {
+      setIsExportingJudges(false);
+      exportingJudgesRef.current = false;
+    }
+  };
+
+  const handleExportTeamMembersAccreditations = async () => {
+    if (!eventId) return;
+    if (exportingTeamsRef.current) return;
+    exportingTeamsRef.current = true;
+    setIsExportingTeams(true);
+    try {
+      const { data: eventRow, error: eventError } = await supabase
+        .from('events')
+        .select('name')
+        .eq('id', eventId)
+        .single();
+      if (eventError) throw eventError;
+      const eventName = eventRow?.name?.trim() || 'evento';
+
+      const { data: eventTeams, error: eventTeamsError } = await supabase
+        .from('event_teams')
+        .select('team_id, team_code, turn, teams!inner(name)')
+        .eq('event_id', eventId);
+      if (eventTeamsError) throw eventTeamsError;
+
+      if (!eventTeams || eventTeams.length === 0) {
+        toast.error('No hay equipos vinculados al evento');
+        return;
+      }
+
+      const turnLabel = mapTurn((eventTeams[0] as any)?.turn);
+
+      const teamById = new Map<string, { code: string; name: string }>();
+      const teamIds: string[] = [];
+      for (const et of eventTeams as any[]) {
+        if (!et.team_id) {
+          console.warn('[acreditaciones] event_team sin team_id, omitido', et);
+          continue;
+        }
+        const teamRel = Array.isArray(et.teams) ? et.teams[0] : et.teams;
+        teamById.set(et.team_id, {
+          code: et.team_code ?? '',
+          name: teamRel?.name ?? '',
+        });
+        teamIds.push(et.team_id);
+      }
+
+      if (teamIds.length === 0) {
+        toast.error('No hay equipos válidos vinculados al evento');
+        return;
+      }
+
+      const { data: memberRows, error: membersError } = await supabase
+        .from('team_members')
+        .select('team_id, member_type, profiles:user_id(first_name, last_name)')
+        .in('team_id', teamIds)
+        .in('member_type', ['participant', 'mentor']);
+      if (membersError) throw membersError;
+
+      let skippedCount = 0;
+      const rows = (memberRows || [])
+        .map((m: any) => {
+          const profile = Array.isArray(m.profiles) ? m.profiles[0] : m.profiles;
+          const team = teamById.get(m.team_id);
+          const nombre = (profile?.first_name ?? '').toString();
+          const apellidos = (profile?.last_name ?? '').toString();
+          return {
+            teamId: m.team_id as string,
+            turno: turnLabel,
+            nombre: nombre.trim() === '' ? '' : nombre,
+            apellidos: apellidos.trim() === '' ? '' : apellidos,
+            perfil: m.member_type === 'mentor' ? 'Mentor' : 'Niña participante',
+            equipo: team?.code ?? '',
+            nombreEquipo: team?.name ?? '',
+            _memberType: m.member_type as string,
+          };
+        })
+        .filter(r => {
+          if (r.nombre === '' && r.apellidos === '') {
+            skippedCount += 1;
+            console.warn('[acreditaciones] persona sin nombre ni apellidos, omitido', { teamId: r.teamId, perfil: r.perfil });
+            return false;
+          }
+          return true;
+        })
+        .sort((a, b) => {
+          // Tiebreak con team_id si team_code está vacío para que orfan rows no colapsen.
+          const aCode = a.equipo || '￿' + a.teamId;
+          const bCode = b.equipo || '￿' + b.teamId;
+          const c1 = aCode.localeCompare(bCode, 'es', { sensitivity: 'base', numeric: true });
+          if (c1 !== 0) return c1;
+          // mentores antes que participantes dentro del mismo equipo
+          const rank = (t: string) => (t === 'mentor' ? 0 : 1);
+          const c2 = rank(a._memberType) - rank(b._memberType);
+          if (c2 !== 0) return c2;
+          const c3 = a.apellidos.localeCompare(b.apellidos, 'es', { sensitivity: 'base', numeric: true });
+          if (c3 !== 0) return c3;
+          return a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base', numeric: true });
+        });
+
+      if (skippedCount > 0) {
+        toast.warning(`${skippedCount} persona(s) omitida(s) por falta de nombre y apellidos.`);
+      }
+
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet('Hoja1');
+      ws.addRow(['Turno', 'Nombre', 'Apellidos', 'Perfil', 'Equipo', 'Nombre Equipo']);
+      for (const r of rows) {
+        ws.addRow([r.turno, r.nombre, r.apellidos, r.perfil, r.equipo, r.nombreEquipo]);
+      }
+      const buffer = await wb.xlsx.writeBuffer();
+
+      const filename = `Acreditaciones-ninas-mentores-${sanitizeFilename(eventName)}-${todayMadridDate()}.xlsx`;
+      triggerXlsxDownload(buffer as ArrayBuffer, filename);
+    } catch (err: any) {
+      toast.error('No se pudo generar el Excel de acreditaciones de niñas y mentores', {
+        description: err?.message ?? String(err),
+      });
+    } finally {
+      setIsExportingTeams(false);
+      exportingTeamsRef.current = false;
+    }
+  };
+
   // Group panels by session for grid view
   const sessions = Array.from(new Set(filteredPanels.map(p => p.session_number))).sort();
 
@@ -2053,6 +2325,32 @@ export default function AdminJudgingSchedule() {
             )}
           </TabsContent>
         </Tabs>
+
+        {/* Accreditation Exports — independientes de assignments, solo requieren evento */}
+        {eventId && (
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleExportJudgeAccreditations}
+              disabled={isExportingJudges}
+              aria-busy={isExportingJudges}
+            >
+              <Download className="mr-2 h-4 w-4" aria-hidden="true" />
+              {isExportingJudges ? 'Generando…' : 'Acreditaciones Jueces'}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleExportTeamMembersAccreditations}
+              disabled={isExportingTeams}
+              aria-busy={isExportingTeams}
+            >
+              <Download className="mr-2 h-4 w-4" aria-hidden="true" />
+              {isExportingTeams ? 'Generando…' : 'Acreditaciones Niñas/Mentores'}
+            </Button>
+          </div>
+        )}
 
         {/* Export Buttons */}
         {assignments.length > 0 && (
