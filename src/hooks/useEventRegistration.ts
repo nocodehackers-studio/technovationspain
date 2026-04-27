@@ -38,6 +38,7 @@ interface RegistrationFormData {
   signer_full_name?: string;        // Set by ConsentModal for adults
   signer_dni?: string;              // Set by ConsentModal for adults
   date_of_birth?: string | null;    // Always passed from profile.date_of_birth
+  skip_signed_consent?: boolean;    // True for mentor/judge tickets in regional_final events
 }
 
 export function useEvent(eventId: string) {
@@ -267,7 +268,10 @@ export function useEventRegistration(eventId: string) {
         }
 
         // 8. Consent handling (conditional on age)
-        if (!isMinorUser && formData.signer_full_name) {
+        // Skip entirely for mentor/judge tickets in regional_final events.
+        if (formData.skip_signed_consent) {
+          // No consent flow for non-participant tickets in finals.
+        } else if (!isMinorUser && formData.signer_full_name) {
           // Adult path: use edge function (bypasses RLS) to record consent
           try {
             const response = await supabase.functions.invoke('submit-event-consent', {
