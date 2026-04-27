@@ -218,6 +218,12 @@ const selectedTicketId = form.watch('ticket_type_id');
     ? (selectedTicket.max_capacity || 0) - (selectedTicket.current_count || 0) <= 0
     : false;
 
+  // En eventos Final, el consentimiento firmado solo se pide para entradas de participante,
+  // no para mentor ni juez.
+  const isFinalEvent = event?.event_type === 'regional_final';
+  const ticketIsForParticipant = selectedTicket?.allowed_roles?.includes('participant') ?? false;
+  const skipSignedConsent = isFinalEvent && !!selectedTicket && !ticketIsForParticipant;
+
   // Determine number of steps based on whether companions are allowed
   const totalSteps = maxCompanions > 0 ? 4 : 3;
   
@@ -417,6 +423,7 @@ const selectedTicketId = form.watch('ticket_type_id');
         signer_full_name: consentDataRef.current?.signerFullName,
         signer_dni: consentDataRef.current?.signerDni,
         date_of_birth: profile?.date_of_birth,
+        skip_signed_consent: skipSignedConsent,
       });
 
       if ((registration as any).consent_failed) {
@@ -926,7 +933,7 @@ const selectedTicketId = form.watch('ticket_type_id');
                   Siguiente
                   <ArrowRight className="h-4 w-4 ml-2" />
                 </Button>
-              ) : userIsMinor ? (
+              ) : (userIsMinor || skipSignedConsent) ? (
                 <Button type="submit" disabled={isRegistering}>
                   {isRegistering ? (
                     <>
