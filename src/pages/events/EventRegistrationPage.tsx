@@ -111,7 +111,7 @@ type RegistrationFormValues = z.infer<typeof registrationSchema>;
 export default function EventRegistrationPage() {
   const { eventId } = useParams<{ eventId: string }>();
   const navigate = useNavigate();
-  const { profile, role, isJudge, activeJudgeEventIds } = useAuth();
+  const { profile, role, isJudge, isExcludedJudge, activeJudgeEventIds } = useAuth();
   const dashboardPath = getDashboardPath(role, isJudge);
   const [step, setStep] = useState(1);
   const [companions, setCompanions] = useState<CompanionData[]>([]);
@@ -336,12 +336,13 @@ const selectedTicketId = form.watch('ticket_type_id');
     );
   }
   
-  const isJudgeForThisEvent = isJudge && activeJudgeEventIds.includes(event?.id ?? '');
+  const isJudgeForThisEvent = isJudge && !isExcludedJudge && activeJudgeEventIds.includes(event?.id ?? '');
 
   const ticketTypes = event.ticket_types?.filter(t => {
     if (!t.is_active) return false;
 
     // Judge-exclusive tickets: only for users with active judge_assignment for THIS event
+    // Defense-in-depth: isJudge already implies !isExcludedJudge, but explicit check guards against edge cases
     if ((t as any).for_judges) {
       return isJudgeForThisEvent;
     }
