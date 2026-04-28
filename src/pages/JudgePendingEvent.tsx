@@ -10,7 +10,7 @@ import { getDashboardPath } from '@/lib/dashboard-routes';
 
 export default function JudgePendingEvent() {
   const navigate = useNavigate();
-  const { user, profile, isLoading, signOut, refreshProfile, role, isJudge, judgeHasNoEvent } = useAuth();
+  const { user, profile, isLoading, signOut, refreshProfile, role, isJudge, isExcludedJudge, judgeHasNoEvent } = useAuth();
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Poll judge_assignments every 30s for new event assignment
@@ -41,8 +41,8 @@ export default function JudgePendingEvent() {
     };
   }, [user, refreshProfile, navigate, role, isJudge]);
 
-  // Redirect if judge already has an event
-  if (!isLoading && !judgeHasNoEvent && user) {
+  // Redirect if judge already has an event (but excluded judges stay here)
+  if (!isLoading && !judgeHasNoEvent && !isExcludedJudge && user) {
     navigate(getDashboardPath(role, isJudge), { replace: true });
     return null;
   }

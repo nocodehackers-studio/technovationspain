@@ -13,6 +13,7 @@ interface AuthContextType {
   isVerified: boolean;
   isVolunteer: boolean;
   isJudge: boolean;
+  isExcludedJudge: boolean;
   needsJudgeOnboarding: boolean;
   judgeHasNoEvent: boolean;
   activeJudgeEventId: string | null;
@@ -186,6 +187,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const isVerified = profile?.verification_status === 'verified';
   const isVolunteer = (profile as any)?.is_volunteer ?? false;
   const isJudge = ((profile as any)?.is_judge ?? false) && !((profile as any)?.judge_excluded ?? false);
+  const isExcludedJudge = ((profile as any)?.is_judge ?? false) && ((profile as any)?.judge_excluded ?? false);
   const activeJudgeEventId = activeJudgeEventIds[0] ?? null;
   const needsJudgeOnboarding = isJudge && !judgeOnboardingCompleted;
   const judgeHasNoEvent = isJudge && judgeOnboardingCompleted && activeJudgeEventIds.length === 0;
@@ -204,6 +206,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isVerified,
         isVolunteer,
         isJudge,
+        isExcludedJudge,
         needsJudgeOnboarding,
         judgeHasNoEvent,
         activeJudgeEventId,

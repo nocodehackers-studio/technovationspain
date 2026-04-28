@@ -15,7 +15,7 @@ export function ProtectedRoute({
   requiredRoles,
   requireVerified = false
 }: ProtectedRouteProps) {
-  const { user, role, isLoading, isVerified, needsOnboarding, judgeHasNoEvent } = useAuth();
+  const { user, role, isLoading, isVerified, needsOnboarding, judgeHasNoEvent, isExcludedJudge } = useAuth();
   const location = useLocation();
 
   // Once auth has initialized, never show loading spinner again
@@ -45,6 +45,11 @@ export function ProtectedRoute({
 
   // Block judges with no accessible event (judge_access_enabled) after onboarding (skip for admins)
   if (judgeHasNoEvent && role !== 'admin' && location.pathname !== '/judge-pending-event') {
+    return <Navigate to="/judge-pending-event" replace />;
+  }
+
+  // Block excluded judges who have no fallback dashboard (collaborators) — keep them on the waiting page
+  if (isExcludedJudge && role !== 'admin' && role !== 'chapter_ambassador' && role !== 'mentor' && location.pathname !== '/judge-pending-event') {
     return <Navigate to="/judge-pending-event" replace />;
   }
 
