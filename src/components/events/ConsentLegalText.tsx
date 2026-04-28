@@ -138,7 +138,7 @@ export function ConsentLegalText({
               Cesiones
             </th>
             <td className="p-3">
-              Exclusivamente con carácter social y nunca comercial, UC3M y Power to Code podrá ceder a terceros, tales como entidades colaboradoras o patrocinadores, las imágenes, o parte de las mismas, en las que el Titular aparece como modelo, entrevistado, narrador o participante principal o secundario en el ámbito (sea cual fuere el medio de comunicación interno o externo) y finalidades de los proyectos de Power to Code.
+              Power to Code podrá ceder a terceros, tales como entidades colaboradoras o patrocinadores, las imágenes, o parte de las mismas, en las que el Titular aparece como modelo, entrevistado, narrador o participante principal o secundario en el ámbito (sea cual fuere el medio de comunicación interno o externo) y finalidades de los proyectos de Power to Code.
               <br /><br />
               El objeto de la cesión será la promoción de las actividades de Power to Code, en medios de comunicación internos o externos a la misma, para que puedan ser difundidas en todos los medios de comunicación conocidos en la actualidad incluidos los online (Youtube, Linkedin, Instagram, Tik Tok Facebook, etc), streaming y los que pudieran desarrollarse en el futuro. Todo ello con la única salvedad y limitación de aquellas utilizaciones o aplicaciones que pudieran atentar al derecho al honor, a la moral y/o al orden público, en los términos previstos en la legislación vigente en cada país.
             </td>
