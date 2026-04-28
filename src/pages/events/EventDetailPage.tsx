@@ -20,7 +20,7 @@ const formatTime = (time: string | null | undefined) => time?.slice(0, 5) || '';
 export default function EventDetailPage() {
   const { eventId } = useParams<{ eventId: string }>();
   const navigate = useNavigate();
-  const { role, isJudge, activeJudgeEventIds, profile } = useAuth();
+  const { role, isJudge, isExcludedJudge, activeJudgeEventIds, profile } = useAuth();
   const { data: event, isLoading, error } = useEvent(eventId || '');
 
   // Only show capacity to admins and chapter ambassadors
@@ -82,7 +82,7 @@ export default function EventDetailPage() {
   const currentRegistrations = event.current_registrations || 0;
   const capacityPercentage = totalCapacity > 0 ? (currentRegistrations / totalCapacity) * 100 : 0;
   
-  const isJudgeForThisEvent = isJudge && activeJudgeEventIds.includes(event?.id ?? '');
+  const isJudgeForThisEvent = isJudge && !isExcludedJudge && activeJudgeEventIds.includes(event?.id ?? '');
 
   const ticketTypes = event.ticket_types?.filter(t => {
     if (!t.is_active) return false;
