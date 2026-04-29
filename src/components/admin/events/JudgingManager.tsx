@@ -7,10 +7,15 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
-import { Shuffle, Calendar, AlertTriangle, Gavel } from 'lucide-react';
+import { Shuffle, Calendar, AlertTriangle, Gavel, Download } from 'lucide-react';
 import { useJudgingConfig } from '@/hooks/useJudgingConfig';
 import { useEventJudges } from '@/hooks/useEventJudges';
+import { useJudgingAssignment } from '@/hooks/useJudgingAssignment';
 import { useToast } from '@/hooks/use-toast';
+import {
+  buildJudgeRowsByCategory,
+  generateTechnovationGlobalJudgesZip,
+} from '@/lib/exports/exportTechnovationGlobalJudges';
 import { JudgingConfigForm } from './JudgingConfigForm';
 import { JudgingSchedulePreview } from './JudgingSchedulePreview';
 
@@ -32,6 +37,8 @@ export function JudgingManager({ eventId }: JudgingManagerProps) {
   } = useJudgingConfig(eventId);
 
   const { readyJudges, pendingJudges, isLoading: judgesLoading } = useEventJudges(eventId);
+  const { assignments } = useJudgingAssignment(eventId);
+  const [isExporting, setIsExporting] = useState(false);
 
   // Get distinct turns from imported teams
   const { data: activeTurns = [] } = useQuery({
@@ -55,13 +62,13 @@ export function JudgingManager({ eventId }: JudgingManagerProps) {
   const neededJudges = totalPanels * (config?.judges_per_group || 6);
   const hasEnoughJudges = readyJudges.length >= neededJudges;
 
-  // Fetch judge_access_enabled from DB
+  // Fetch judge_access_enabled + event_type + name from DB
   const { data: eventData } = useQuery({
     queryKey: ['event-judge-access', eventId],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('events')
-        .select('judge_access_enabled')
+        .select('judge_access_enabled, event_type, name')
         .eq('id', eventId)
         .single();
       if (error) throw error;
@@ -132,6 +139,89 @@ export function JudgingManager({ eventId }: JudgingManagerProps) {
     },
   });
 
+  const handleExportTechnovationGlobal = async () => {
+    setIsExporting(true);
+    try {
+      const { data: auxData, error: auxErr } = await supabase
+        .from('judge_assignments')
+        .select('user_id, external_judge_id, profiles:user_id(company_name, judge_excluded)')
+        .eq('event_id', eventId)
+        .eq('is_active', true);
+      if (auxErr) throw auxErr;
+
+      const externalIdByUserId = new Map<string, string | null>();
+      const companyByUserId = new Map<string, string | null>();
+      const excludedUserIds = new Set<string>();
+      for (const r of auxData || []) {
+        const profile = r.profiles as { company_name: string | null; judge_excluded: boolean } | null;
+        externalIdByUserId.set(r.user_id, r.external_judge_id ?? null);
+        companyByUserId.set(r.user_id, profile?.company_name ?? null);
+        if (profile?.judge_excluded) excludedUserIds.add(r.user_id);
+      }
+
+      const filteredPanels = assignments.map(panel => ({
+        ...panel,
+        judging_panel_judges: panel.judging_panel_judges.filter(pj =>
+          externalIdByUserId.has(pj.judge_id) && !excludedUserIds.has(pj.judge_id)
+        ),
+      }));
+
+      const exports = buildJudgeRowsByCategory({
+        panels: filteredPanels,
+        externalIdByUserId,
+        companyByUserId,
+      });
+
+      if (exports.length === 0) {
+        toast({
+          title: 'Sin jueces para exportar',
+          description: 'No hay jueces activos asignados a paneles en este evento.',
+        });
+        return;
+      }
+
+      // TODO: parametrizar hub cuando haya más sedes (events.hub_id → hubs.name)
+      const blob = await generateTechnovationGlobalJudgesZip(exports, 'Madrid');
+
+      const eventName = eventData?.name || 'evento';
+      const slug = eventName
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)/g, '') || 'evento';
+      const today = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Europe/Madrid',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(new Date());
+      const filename = `jueces-technovation-${slug}-${today}.zip`;
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      try {
+        a.click();
+      } finally {
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }
+    } catch (err: any) {
+      console.error('Export Technovation Global error:', err);
+      toast({
+        title: 'Error al exportar',
+        description: err.message || 'No se pudo generar el ZIP de jueces.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       {/* Config — collapses when saved */}
@@ -200,6 +290,17 @@ export function JudgingManager({ eventId }: JudgingManagerProps) {
                   <Calendar className="h-3.5 w-3.5 mr-1.5" />
                   Escaleta
                 </Button>
+                {eventData?.event_type === 'regional_final' && config?.algorithm_run_at && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleExportTechnovationGlobal}
+                    disabled={isExporting}
+                  >
+                    <Download className="h-3.5 w-3.5 mr-1.5" />
+                    {isExporting ? 'Generando...' : 'Exportar Technovation Global'}
+                  </Button>
+                )}
               </div>
             </div>
 
