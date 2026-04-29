@@ -750,7 +750,7 @@ export default function Onboarding() {
                     />
                     <Label htmlFor="terms" className="text-sm font-normal leading-snug">
                       Acepto los{' '}
-                      <a href="https://powertocode.org/terms/" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                      <a href="https://powertocode.org/terminos-condiciones/" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
                         términos de uso
                       </a>
                     </Label>
