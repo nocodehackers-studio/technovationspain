@@ -37,7 +37,7 @@ export function JudgingManager({ eventId }: JudgingManagerProps) {
   } = useJudgingConfig(eventId);
 
   const { readyJudges, pendingJudges, isLoading: judgesLoading } = useEventJudges(eventId);
-  const { assignments } = useJudgingAssignment(eventId);
+  const { assignments, isLoading: assignmentsLoading } = useJudgingAssignment(eventId);
   const [isExporting, setIsExporting] = useState(false);
 
   // Get distinct turns from imported teams
@@ -142,6 +142,25 @@ export function JudgingManager({ eventId }: JudgingManagerProps) {
   const handleExportTechnovationGlobal = async () => {
     setIsExporting(true);
     try {
+      // Refetch panels directly — avoids race when the cached assignments
+      // query is still loading or stale at click time.
+      const { data: panelsData, error: panelsErr } = await supabase
+        .from('judging_panels')
+        .select(`
+          *,
+          judging_panel_judges (
+            *,
+            profiles:judge_id (id, first_name, last_name, email, hub_id, chapter, city, state)
+          ),
+          judging_panel_teams!judging_panel_teams_panel_id_fkey (
+            *,
+            teams:team_id (id, name, category, hub_id)
+          )
+        `)
+        .eq('event_id', eventId);
+      if (panelsErr) throw panelsErr;
+      const panelsForExport = (panelsData || []) as unknown as typeof assignments;
+
       const { data: auxData, error: auxErr } = await supabase
         .from('judge_assignments')
         .select('user_id, external_judge_id, profiles:user_id(company_name, judge_excluded)')
@@ -159,7 +178,7 @@ export function JudgingManager({ eventId }: JudgingManagerProps) {
         if (profile?.judge_excluded) excludedUserIds.add(r.user_id);
       }
 
-      const filteredPanels = assignments.map(panel => ({
+      const filteredPanels = panelsForExport.map(panel => ({
         ...panel,
         judging_panel_judges: panel.judging_panel_judges.filter(pj =>
           externalIdByUserId.has(pj.judge_id) && !excludedUserIds.has(pj.judge_id)
@@ -173,6 +192,26 @@ export function JudgingManager({ eventId }: JudgingManagerProps) {
       });
 
       if (exports.length === 0) {
+        console.warn('[Export TG] vacío', {
+          eventId,
+          panelsFetched: panelsForExport.length,
+          auxRows: auxData?.length ?? 0,
+          externalIdMapSize: externalIdByUserId.size,
+          excludedSize: excludedUserIds.size,
+          rawPanelJudges: panelsForExport.reduce(
+            (a, p) => a + (p.judging_panel_judges?.length ?? 0), 0),
+          filteredPanelJudges: filteredPanels.reduce(
+            (a, p) => a + (p.judging_panel_judges?.length ?? 0), 0),
+          firstPanel: panelsForExport[0] && {
+            id: (panelsForExport[0] as any).id,
+            panel_code: (panelsForExport[0] as any).panel_code,
+            turn: (panelsForExport[0] as any).turn,
+            judges: panelsForExport[0].judging_panel_judges?.length,
+            teams: panelsForExport[0].judging_panel_teams?.length,
+            firstJudgeHasProfile: !!panelsForExport[0].judging_panel_judges?.[0]?.profiles,
+            firstTeamHasCategory: !!(panelsForExport[0].judging_panel_teams?.[0] as any)?.teams?.category,
+          },
+        });
         toast({
           title: 'Sin jueces para exportar',
           description: 'No hay jueces activos asignados a paneles en este evento.',
@@ -295,7 +334,7 @@ export function JudgingManager({ eventId }: JudgingManagerProps) {
                     variant="outline"
                     size="sm"
                     onClick={handleExportTechnovationGlobal}
-                    disabled={isExporting}
+                    disabled={isExporting || assignmentsLoading}
                   >
                     <Download className="h-3.5 w-3.5 mr-1.5" />
                     {isExporting ? 'Generando...' : 'Exportar Technovation Global'}
