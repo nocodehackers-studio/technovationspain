@@ -77,7 +77,7 @@ interface TeamForJudging {
 }
 
 // Typed Supabase response for assignments query
-interface PanelWithRelations extends JudgingPanel {
+export interface PanelWithRelations extends JudgingPanel {
   judging_panel_judges: (JudgingPanelJudge & {
     profiles: Pick<Profile, 'id' | 'first_name' | 'last_name' | 'email' | 'hub_id' | 'chapter' | 'city' | 'state'>;
     manual_change_by_profile: { first_name: string; last_name: string } | null;
