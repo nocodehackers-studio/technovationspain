@@ -543,9 +543,9 @@ const selectedTicketId = form.watch('ticket_type_id');
                               const isSoldOut = available <= 0;
                               const ticketMaxCompanions = ticket.max_companions || 0;
                               const isImportedTeamBlocked =
-                                !!(ticket as any).requires_imported_team &&
+                                !!ticket.requires_imported_team &&
                                 event.event_type === 'regional_final' &&
-                                hasImportedTeam === false;
+                                hasImportedTeam !== true;
 
                               return (
                                 <div
