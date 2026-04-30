@@ -24,8 +24,19 @@ export interface CategoryExport {
   rows: JudgeRow[];
 }
 
-const CATEGORY_ORDER: TeamCategory[] = ['beginner', 'junior', 'senior'];
+const CATEGORY_ORDER = ['beginner', 'junior', 'senior'] as const satisfies readonly TeamCategory[];
 
+const VALID_CATEGORIES = new Set<TeamCategory>(CATEGORY_ORDER);
+
+function normalizeTeamCategoryStrict(raw: unknown): TeamCategory | null {
+  if (typeof raw !== 'string') return null;
+  const lower = raw.toLowerCase();
+  return (VALID_CATEGORIES as Set<string>).has(lower)
+    ? (lower as TeamCategory)
+    : null;
+}
+
+// Input: una `TeamCategory` canónica (lowercase). No es seguro reusar para strings arbitrarios.
 function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
@@ -46,16 +57,43 @@ export function buildJudgeRowsByCategory(input: BuildInput): CategoryExport[] {
       return a.display_order - b.display_order;
     });
 
-    const panelCategory = sortedTeams[0].teams?.category as TeamCategory | undefined;
-    if (!panelCategory) continue;
+    const normalizedTeams = sortedTeams.map(t => ({
+      raw: t.teams?.category,
+      normalized: normalizeTeamCategoryStrict(t.teams?.category),
+    }));
+
+    const panelCategory = normalizedTeams[0].normalized;
+    if (!panelCategory) {
+      const firstRaw = normalizedTeams[0].raw;
+      if (firstRaw != null && firstRaw !== '') {
+        console.warn(
+          `[exportTechnovationGlobalJudges] Categoría desconocida "${firstRaw}" en panel ${panel.panel_code} — panel omitido.`,
+        );
+      }
+      continue;
+    }
 
     // Defensive: warn if a panel has mixed categories (algorithm invariant says it shouldn't).
     const distinctCategories = new Set(
-      sortedTeams.map(t => t.teams?.category).filter(Boolean),
+      normalizedTeams
+        .map(n => n.normalized)
+        .filter((c): c is TeamCategory => c !== null),
     );
     if (distinctCategories.size > 1) {
       console.warn(
         `[exportTechnovationGlobalJudges] Panel ${panel.panel_code} tiene categorías mezcladas (${[...distinctCategories].join(', ')}). Usando "${panelCategory}".`,
+      );
+    }
+
+    // Defensive: panel canonicalizado pero con equipos cuya categoría cruda no normaliza
+    // (ej. `[Beginner, None assigned yet, Beginner]`) — esos equipos quedan incluidos en
+    // la export bajo la categoría del panel; merecen visibilidad.
+    const unknownInsidePanel = normalizedTeams.some(
+      n => n.normalized === null && n.raw != null && n.raw !== '',
+    );
+    if (unknownInsidePanel) {
+      console.warn(
+        `[exportTechnovationGlobalJudges] Panel ${panel.panel_code} contiene equipos con categoría desconocida — incluidos en la export como "${panelCategory}".`,
       );
     }
     const teamNames = sortedTeams
