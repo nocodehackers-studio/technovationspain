@@ -54,17 +54,17 @@ function getTeamVia(team: TeamCheckinItem): string {
 // ─── Test Data ──────────────────────────────────────────────────────
 
 const judges: JudgeCheckinItem[] = [
-  { registrationId: 'r1', userId: 'u1', firstName: 'María', lastName: 'García', email: 'maria@test.com', checkedInAt: '2026-04-10T10:00:00Z' },
-  { registrationId: 'r2', userId: 'u2', firstName: 'Pedro', lastName: 'López', email: 'pedro@test.com', checkedInAt: null },
-  { registrationId: 'r3', userId: 'u3', firstName: 'Ana', lastName: 'Martínez', email: 'ana@test.com', checkedInAt: '2026-04-10T10:05:00Z' },
-  { registrationId: 'r4', userId: 'u4', firstName: 'Carlos', lastName: 'Ruiz', email: 'carlos@test.com', checkedInAt: null },
+  { registrationId: 'r1', userId: 'u1', firstName: 'María', lastName: 'García', email: 'maria@test.com', checkedInAt: '2026-04-10T10:00:00Z', checkedInBy: null },
+  { registrationId: 'r2', userId: 'u2', firstName: 'Pedro', lastName: 'López', email: 'pedro@test.com', checkedInAt: null, checkedInBy: null },
+  { registrationId: 'r3', userId: 'u3', firstName: 'Ana', lastName: 'Martínez', email: 'ana@test.com', checkedInAt: '2026-04-10T10:05:00Z', checkedInBy: null },
+  { registrationId: 'r4', userId: 'u4', firstName: 'Carlos', lastName: 'Ruiz', email: 'carlos@test.com', checkedInAt: null, checkedInBy: null },
 ];
 
 const teams: TeamCheckinItem[] = [
-  { eventTeamId: 'et1', teamId: 't1', teamCode: 'S01', name: 'Las Innovadoras', category: 'senior', turn: 'morning', checkedInAt: '2026-04-10T09:45:00Z', participantCheckedIn: false },
-  { eventTeamId: 'et2', teamId: 't2', teamCode: 'J01', name: 'Tech Girls', category: 'junior', turn: 'morning', checkedInAt: null, participantCheckedIn: true },
-  { eventTeamId: 'et3', teamId: 't3', teamCode: 'J02', name: 'Code Queens', category: 'junior', turn: 'afternoon', checkedInAt: null, participantCheckedIn: false },
-  { eventTeamId: 'et4', teamId: 't4', teamCode: 'B01', name: 'Bit Stars', category: 'beginner', turn: 'morning', checkedInAt: '2026-04-10T09:50:00Z', participantCheckedIn: true },
+  { eventTeamId: 'et1', teamId: 't1', teamCode: 'S01', name: 'Las Innovadoras', category: 'senior', turn: 'morning', checkedInAt: '2026-04-10T09:45:00Z', participantCheckedIn: false, notArrivedAt: null, notArrivedBy: null },
+  { eventTeamId: 'et2', teamId: 't2', teamCode: 'J01', name: 'Tech Girls', category: 'junior', turn: 'morning', checkedInAt: null, participantCheckedIn: true, notArrivedAt: null, notArrivedBy: null },
+  { eventTeamId: 'et3', teamId: 't3', teamCode: 'J02', name: 'Code Queens', category: 'junior', turn: 'afternoon', checkedInAt: null, participantCheckedIn: false, notArrivedAt: null, notArrivedBy: null },
+  { eventTeamId: 'et4', teamId: 't4', teamCode: 'B01', name: 'Bit Stars', category: 'beginner', turn: 'morning', checkedInAt: '2026-04-10T09:50:00Z', participantCheckedIn: true, notArrivedAt: null, notArrivedBy: null },
 ];
 
 // ─── Tests ──────────────────────────────────────────────────────────
@@ -116,7 +116,7 @@ describe('Judge filtering & sorting', () => {
 
   it('handles judges with null names', () => {
     const withNulls: JudgeCheckinItem[] = [
-      { registrationId: 'rx', userId: 'ux', firstName: null, lastName: null, email: 'x@test.com', checkedInAt: null },
+      { registrationId: 'rx', userId: 'ux', firstName: null, lastName: null, email: 'x@test.com', checkedInAt: null, checkedInBy: null },
     ];
     const result = filterJudges(withNulls, '');
     expect(result.length).toBe(1);

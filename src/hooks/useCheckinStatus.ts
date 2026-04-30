@@ -15,6 +15,7 @@ export interface JudgeCheckinItem {
   lastName: string | null;
   email: string | null;
   checkedInAt: string | null;
+  checkedInBy: string | null;
 }
 
 export interface TeamCheckinItem {
@@ -26,6 +27,8 @@ export interface TeamCheckinItem {
   turn: string;
   checkedInAt: string | null;          // manual check-in from event_teams
   participantCheckedIn: boolean;       // auto check-in via QR (any participant)
+  notArrivedAt: string | null;         // marked as no-show by admin
+  notArrivedBy: string | null;
 }
 
 export interface CheckinStatusResult {
@@ -38,13 +41,17 @@ export interface CheckinStatusResult {
   teams: {
     list: TeamCheckinItem[];
     checkedInTeamIds: Set<string>;
+    noShowTeamIds: Set<string>;
     total: number;
     arrived: number;
+    noShow: number;
   };
   markJudgeArrived: (registrationId: string) => Promise<void>;
   markJudgeDeparted: (registrationId: string) => Promise<void>;
   markTeamArrived: (eventTeamId: string) => Promise<void>;
   markTeamDeparted: (eventTeamId: string) => Promise<void>;
+  markTeamNoShow: (eventTeamId: string) => Promise<void>;
+  unmarkTeamNoShow: (eventTeamId: string) => Promise<void>;
   isLoading: boolean;
 }
 
@@ -82,6 +89,7 @@ export function useCheckinStatus(eventId: string | undefined): CheckinStatusResu
         lastName: r.last_name,
         email: r.email,
         checkedInAt: r.checked_in_at,
+        checkedInBy: r.checked_in_by,
       }));
     },
     enabled: !!eventId,
@@ -94,7 +102,7 @@ export function useCheckinStatus(eventId: string | undefined): CheckinStatusResu
     queryFn: async () => {
       const { data, error } = await supabase
         .from('event_teams')
-        .select('id, team_id, team_code, category, turn, is_active, checked_in_at, checked_in_by, teams(name)')
+        .select('id, team_id, team_code, category, turn, is_active, checked_in_at, checked_in_by, not_arrived_at, not_arrived_by, teams(name)')
         .eq('event_id', eventId!)
         .eq('is_active', true);
 
@@ -150,6 +158,8 @@ export function useCheckinStatus(eventId: string | undefined): CheckinStatusResu
       turn: et.turn,
       checkedInAt: et.checked_in_at,
       participantCheckedIn: autoCheckedTeamIds.has(et.team_id),
+      notArrivedAt: et.not_arrived_at,
+      notArrivedBy: et.not_arrived_by,
     })),
     [teamsQuery.data, autoCheckedTeamIds]
   );
@@ -163,6 +173,17 @@ export function useCheckinStatus(eventId: string | undefined): CheckinStatusResu
     [teamsList]
   );
   const teamsArrived = checkedInTeamIds.size;
+
+  // No-show wins only when there's no positive arrival signal (manual check-in or QR participant scan)
+  const noShowTeamIds = useMemo(
+    () => new Set(
+      teamsList
+        .filter(t => t.notArrivedAt !== null && t.checkedInAt === null && !t.participantCheckedIn)
+        .map(t => t.teamId)
+    ),
+    [teamsList]
+  );
+  const teamsNoShow = noShowTeamIds.size;
 
   // --- Mutations ---
   const invalidateAll = () => {
@@ -233,6 +254,36 @@ export function useCheckinStatus(eventId: string | undefined): CheckinStatusResu
     onError: (error: any) => toast.error(`Error al desmarcar equipo: ${error.message}`),
   });
 
+  const markTeamNoShowMutation = useMutation({
+    mutationFn: async (eventTeamId: string) => {
+      const { error } = await supabase
+        .from('event_teams')
+        .update({
+          not_arrived_at: new Date().toISOString(),
+          not_arrived_by: currentUserId || null,
+        })
+        .eq('id', eventTeamId);
+      if (error) throw error;
+    },
+    onSuccess: () => invalidateAll(),
+    onError: (error: any) => toast.error(`Error al marcar no-llegada: ${error.message}`),
+  });
+
+  const unmarkTeamNoShowMutation = useMutation({
+    mutationFn: async (eventTeamId: string) => {
+      const { error } = await supabase
+        .from('event_teams')
+        .update({
+          not_arrived_at: null,
+          not_arrived_by: null,
+        })
+        .eq('id', eventTeamId);
+      if (error) throw error;
+    },
+    onSuccess: () => invalidateAll(),
+    onError: (error: any) => toast.error(`Error al quitar marca de no-llegada: ${error.message}`),
+  });
+
   return {
     judges: {
       list: judgesList,
@@ -243,13 +294,17 @@ export function useCheckinStatus(eventId: string | undefined): CheckinStatusResu
     teams: {
       list: teamsList,
       checkedInTeamIds,
+      noShowTeamIds,
       total: teamsList.length,
       arrived: teamsArrived,
+      noShow: teamsNoShow,
     },
     markJudgeArrived: markJudgeArrivedMutation.mutateAsync,
     markJudgeDeparted: markJudgeDepartedMutation.mutateAsync,
     markTeamArrived: markTeamArrivedMutation.mutateAsync,
     markTeamDeparted: markTeamDepartedMutation.mutateAsync,
+    markTeamNoShow: markTeamNoShowMutation.mutateAsync,
+    unmarkTeamNoShow: unmarkTeamNoShowMutation.mutateAsync,
     isLoading: judgesQuery.isLoading || teamsQuery.isLoading || autoCheckQuery.isLoading,
   };
 }
