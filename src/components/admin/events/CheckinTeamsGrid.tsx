@@ -6,6 +6,7 @@ import { useJudgingConfig } from '@/hooks/useJudgingConfig';
 interface CheckinTeamsGridProps {
   eventId: string;
   checkedInTeamIds: Set<string>;
+  noShowTeamIds: Set<string>;
 }
 
 const catColors: Record<string, string> = {
@@ -14,7 +15,7 @@ const catColors: Record<string, string> = {
   beginner: 'bg-amber-100 text-amber-800 border-amber-300',
 };
 
-export function CheckinTeamsGrid({ eventId, checkedInTeamIds }: CheckinTeamsGridProps) {
+export function CheckinTeamsGrid({ eventId, checkedInTeamIds, noShowTeamIds }: CheckinTeamsGridProps) {
   const { config } = useJudgingConfig(eventId);
   const { assignments, isLoading } = useJudgingAssignment(eventId);
 
@@ -32,7 +33,7 @@ export function CheckinTeamsGrid({ eventId, checkedInTeamIds }: CheckinTeamsGrid
   const maxRoom = Math.max(...panels.map(p => p.room_number), config?.total_rooms || 1);
   const allRooms = Array.from({ length: maxRoom }, (_, i) => i + 1);
 
-  const renderTeamCell = (panel: typeof assignments[0], subsession: 1 | 2, rowIdx: number): { node: React.ReactNode; isCheckedIn: boolean } => {
+  const renderTeamCell = (panel: typeof assignments[0], subsession: 1 | 2, rowIdx: number): { node: React.ReactNode; isCheckedIn: boolean; isNoShow: boolean } => {
     const teams = (panel.judging_panel_teams || [])
       .filter(t => t.subsession === subsession)
       .sort((a, b) => {
@@ -40,10 +41,12 @@ export function CheckinTeamsGrid({ eventId, checkedInTeamIds }: CheckinTeamsGrid
         return (a.display_order || 0) - (b.display_order || 0);
       });
     const team = teams[rowIdx];
-    if (!team) return { node: null, isCheckedIn: false };
+    if (!team) return { node: null, isCheckedIn: false, isNoShow: false };
 
     const teamData = team.teams as { id: string; name: string; category: string; hub_id: string | null } | null;
     const isCheckedIn = teamData ? checkedInTeamIds.has(teamData.id) : false;
+    const isNoShow = teamData ? noShowTeamIds.has(teamData.id) : false;
+    const isHighlighted = isCheckedIn || isNoShow;
 
     const node = (
       <div className={`flex items-center gap-1.5 ${!team.is_active ? 'opacity-60' : ''}`}>
@@ -60,17 +63,17 @@ export function CheckinTeamsGrid({ eventId, checkedInTeamIds }: CheckinTeamsGrid
         <span className={`truncate text-[11px] ${
           !team.is_active
             ? 'text-red-400 line-through'
-            : isCheckedIn
+            : isHighlighted
               ? 'text-white font-medium'
               : ''
         }`}>
-          {team.is_active && isCheckedIn ? '✓ ' : ''}{teamData?.name}
+          {team.is_active && isCheckedIn ? '✓ ' : ''}{team.is_active && isNoShow ? '✗ ' : ''}{teamData?.name}
         </span>
         {!team.is_active && <Badge variant="destructive" className="text-[8px] px-0.5 py-0">BAJA</Badge>}
       </div>
     );
 
-    return { node, isCheckedIn: team.is_active && isCheckedIn };
+    return { node, isCheckedIn: team.is_active && isCheckedIn, isNoShow: team.is_active && isNoShow };
   };
 
   return (
@@ -140,9 +143,9 @@ export function CheckinTeamsGrid({ eventId, checkedInTeamIds }: CheckinTeamsGrid
                     {allRooms.map(room => {
                       const panel = sessionPanels.find(p => p.room_number === room);
                       if (!panel) return <td key={room} className="border-l" />;
-                      const { node, isCheckedIn } = renderTeamCell(panel, 1, rowIdx);
+                      const { node, isCheckedIn, isNoShow } = renderTeamCell(panel, 1, rowIdx);
                       return (
-                        <td key={room} className={`px-1.5 py-0.5 border-l ${isCheckedIn ? 'bg-green-600' : ''}`}>
+                        <td key={room} className={`px-1.5 py-0.5 border-l ${isCheckedIn ? 'bg-green-600' : isNoShow ? 'bg-red-600' : ''}`}>
                           {node}
                         </td>
                       );
@@ -166,9 +169,9 @@ export function CheckinTeamsGrid({ eventId, checkedInTeamIds }: CheckinTeamsGrid
                     {allRooms.map(room => {
                       const panel = sessionPanels.find(p => p.room_number === room);
                       if (!panel) return <td key={room} className="border-l" />;
-                      const { node, isCheckedIn } = renderTeamCell(panel, 2, rowIdx);
+                      const { node, isCheckedIn, isNoShow } = renderTeamCell(panel, 2, rowIdx);
                       return (
-                        <td key={room} className={`px-1.5 py-0.5 border-l ${isCheckedIn ? 'bg-green-600' : ''}`}>
+                        <td key={room} className={`px-1.5 py-0.5 border-l ${isCheckedIn ? 'bg-green-600' : isNoShow ? 'bg-red-600' : ''}`}>
                           {node}
                         </td>
                       );

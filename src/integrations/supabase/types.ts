@@ -503,6 +503,102 @@ export type Database = {
           },
         ]
       }
+      event_teams: {
+        Row: {
+          category: string
+          checked_in_at: string | null
+          checked_in_by: string | null
+          created_at: string | null
+          csv_team_name: string | null
+          event_id: string
+          id: string
+          imported_at: string
+          imported_by: string | null
+          is_active: boolean
+          match_type: string
+          not_arrived_at: string | null
+          not_arrived_by: string | null
+          team_code: string
+          team_id: string
+          turn: string
+          updated_at: string | null
+        }
+        Insert: {
+          category: string
+          checked_in_at?: string | null
+          checked_in_by?: string | null
+          created_at?: string | null
+          csv_team_name?: string | null
+          event_id: string
+          id?: string
+          imported_at?: string
+          imported_by?: string | null
+          is_active?: boolean
+          match_type?: string
+          not_arrived_at?: string | null
+          not_arrived_by?: string | null
+          team_code: string
+          team_id: string
+          turn: string
+          updated_at?: string | null
+        }
+        Update: {
+          category?: string
+          checked_in_at?: string | null
+          checked_in_by?: string | null
+          created_at?: string | null
+          csv_team_name?: string | null
+          event_id?: string
+          id?: string
+          imported_at?: string
+          imported_by?: string | null
+          is_active?: boolean
+          match_type?: string
+          not_arrived_at?: string | null
+          not_arrived_by?: string | null
+          team_code?: string
+          team_id?: string
+          turn?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_teams_checked_in_by_fkey"
+            columns: ["checked_in_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_teams_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_teams_imported_by_fkey"
+            columns: ["imported_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_teams_not_arrived_by_fkey"
+            columns: ["not_arrived_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_teams_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       event_ticket_consents: {
         Row: {
           created_at: string
@@ -830,6 +926,265 @@ export type Database = {
           },
         ]
       }
+      judging_event_config: {
+        Row: {
+          algorithm_run_at: string | null
+          algorithm_run_by: string | null
+          created_at: string | null
+          event_id: string
+          id: string
+          judges_per_group: number
+          sessions_per_turn: number
+          teams_per_group: number
+          total_rooms: number
+          updated_at: string | null
+        }
+        Insert: {
+          algorithm_run_at?: string | null
+          algorithm_run_by?: string | null
+          created_at?: string | null
+          event_id: string
+          id?: string
+          judges_per_group?: number
+          sessions_per_turn?: number
+          teams_per_group?: number
+          total_rooms?: number
+          updated_at?: string | null
+        }
+        Update: {
+          algorithm_run_at?: string | null
+          algorithm_run_by?: string | null
+          created_at?: string | null
+          event_id?: string
+          id?: string
+          judges_per_group?: number
+          sessions_per_turn?: number
+          teams_per_group?: number
+          total_rooms?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "judging_event_config_algorithm_run_by_fkey"
+            columns: ["algorithm_run_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "judging_event_config_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: true
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      judging_panel_judges: {
+        Row: {
+          assigned_at: string
+          assigned_by: string | null
+          assignment_type: string
+          created_at: string | null
+          deactivated_at: string | null
+          deactivated_reason: string | null
+          id: string
+          is_active: boolean
+          judge_id: string
+          manual_change_at: string | null
+          manual_change_by: string | null
+          manual_change_comment: string | null
+          panel_id: string
+        }
+        Insert: {
+          assigned_at?: string
+          assigned_by?: string | null
+          assignment_type?: string
+          created_at?: string | null
+          deactivated_at?: string | null
+          deactivated_reason?: string | null
+          id?: string
+          is_active?: boolean
+          judge_id: string
+          manual_change_at?: string | null
+          manual_change_by?: string | null
+          manual_change_comment?: string | null
+          panel_id: string
+        }
+        Update: {
+          assigned_at?: string
+          assigned_by?: string | null
+          assignment_type?: string
+          created_at?: string | null
+          deactivated_at?: string | null
+          deactivated_reason?: string | null
+          id?: string
+          is_active?: boolean
+          judge_id?: string
+          manual_change_at?: string | null
+          manual_change_by?: string | null
+          manual_change_comment?: string | null
+          panel_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "judging_panel_judges_assigned_by_fkey"
+            columns: ["assigned_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "judging_panel_judges_judge_id_fkey"
+            columns: ["judge_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "judging_panel_judges_manual_change_by_fkey"
+            columns: ["manual_change_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "judging_panel_judges_panel_id_fkey"
+            columns: ["panel_id"]
+            isOneToOne: false
+            referencedRelation: "judging_panels"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      judging_panel_teams: {
+        Row: {
+          assigned_at: string
+          assigned_by: string | null
+          assignment_type: string
+          created_at: string | null
+          display_order: number
+          id: string
+          is_active: boolean
+          manual_change_at: string | null
+          manual_change_by: string | null
+          manual_change_comment: string | null
+          moved_from_panel_id: string | null
+          panel_id: string
+          subsession: number
+          team_code: string
+          team_id: string
+        }
+        Insert: {
+          assigned_at?: string
+          assigned_by?: string | null
+          assignment_type?: string
+          created_at?: string | null
+          display_order?: number
+          id?: string
+          is_active?: boolean
+          manual_change_at?: string | null
+          manual_change_by?: string | null
+          manual_change_comment?: string | null
+          moved_from_panel_id?: string | null
+          panel_id: string
+          subsession: number
+          team_code: string
+          team_id: string
+        }
+        Update: {
+          assigned_at?: string
+          assigned_by?: string | null
+          assignment_type?: string
+          created_at?: string | null
+          display_order?: number
+          id?: string
+          is_active?: boolean
+          manual_change_at?: string | null
+          manual_change_by?: string | null
+          manual_change_comment?: string | null
+          moved_from_panel_id?: string | null
+          panel_id?: string
+          subsession?: number
+          team_code?: string
+          team_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "judging_panel_teams_assigned_by_fkey"
+            columns: ["assigned_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "judging_panel_teams_manual_change_by_fkey"
+            columns: ["manual_change_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "judging_panel_teams_moved_from_panel_id_fkey"
+            columns: ["moved_from_panel_id"]
+            isOneToOne: false
+            referencedRelation: "judging_panels"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "judging_panel_teams_panel_id_fkey"
+            columns: ["panel_id"]
+            isOneToOne: false
+            referencedRelation: "judging_panels"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "judging_panel_teams_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      judging_panels: {
+        Row: {
+          created_at: string | null
+          event_id: string
+          id: string
+          panel_code: string
+          room_number: number
+          session_number: number
+          turn: string
+        }
+        Insert: {
+          created_at?: string | null
+          event_id: string
+          id?: string
+          panel_code: string
+          room_number: number
+          session_number: number
+          turn: string
+        }
+        Update: {
+          created_at?: string | null
+          event_id?: string
+          id?: string
+          panel_code?: string
+          room_number?: number
+          session_number?: number
+          turn?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "judging_panels_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       parental_consents: {
         Row: {
           consent_date: string | null
@@ -915,8 +1270,6 @@ export type Database = {
           is_judge: boolean
           is_volunteer: boolean
           judge_excluded: boolean
-          judge_how_discovered_program: string | null
-          judge_previous_participation: string | null
           last_name: string | null
           onboarding_completed: boolean | null
           parent_email: string | null
@@ -950,8 +1303,6 @@ export type Database = {
           is_judge?: boolean
           is_volunteer?: boolean
           judge_excluded?: boolean
-          judge_how_discovered_program?: string | null
-          judge_previous_participation?: string | null
           last_name?: string | null
           onboarding_completed?: boolean | null
           parent_email?: string | null
@@ -985,8 +1336,6 @@ export type Database = {
           is_judge?: boolean
           is_volunteer?: boolean
           judge_excluded?: boolean
-          judge_how_discovered_program?: string | null
-          judge_previous_participation?: string | null
           last_name?: string | null
           onboarding_completed?: boolean | null
           parent_email?: string | null
@@ -1428,6 +1777,10 @@ export type Database = {
             }
             Returns: undefined
           }
+      drop_judge_on_entry_cancel: {
+        Args: { p_registration_id: string }
+        Returns: undefined
+      }
       get_user_role: {
         Args: { _user_id: string }
         Returns: Database["public"]["Enums"]["app_role"]
@@ -1608,3 +1961,4 @@ export const Constants = {
     },
   },
 } as const
+
