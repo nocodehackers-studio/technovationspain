@@ -149,38 +149,115 @@ export function useEventRegistration(eventId: string) {
       
       const { data: ticketType, error: ticketError } = await supabase
         .from('event_ticket_types')
-        .select('max_capacity, current_count')
+        .select('max_capacity, current_count, requires_imported_team')
         .eq('id', formData.ticket_type_id)
         .single();
-      
+
       if (ticketError || !ticketType) {
         throw new Error('Tipo de entrada no encontrado');
       }
-      
+
       const availableSpots = (ticketType.max_capacity ?? 0) - (ticketType.current_count ?? 0);
       const isWaitlist = availableSpots < totalSpotsNeeded;
-      
+
+      // Cargar event_type para evaluar la regla de "imported team" en regional_final.
+      // Magic string 'regional_final' replicado del CHECK en
+      // 20260213000001_enums_and_tables.sql:112 y del trigger
+      // enforce_imported_team_on_registration. Si cambia el enum, sincronizar.
+      const { data: eventData, error: eventError } = await supabase
+        .from('events')
+        .select('event_type')
+        .eq('id', eventId)
+        .single();
+
+      if (eventError || !eventData) {
+        // No silenciar: sin event_type fiable no podemos aplicar la regla
+        // client-side y la guardia se desactivaría. El trigger DB sigue siendo
+        // la red de seguridad, pero al usuario le llegaría el mensaje
+        // genérico de PostgREST. Mejor abortar aquí con texto curado.
+        throw new Error('No se pudo cargar el evento. Inténtalo de nuevo.');
+      }
+
+      const requiresImportedTeam =
+        !!ticketType.requires_imported_team &&
+        eventData.event_type === 'regional_final';
+
       // 2. Generate codes for main registration
       const qrCode = generateQRCode();
       const registrationNumber = generateRegistrationNumber();
-      
+
       // 3. Resolve team_id: from formData, team_members, or name match
       let resolvedTeamId: string | null = formData.team_id || null;
       let resolvedTeamName: string | null = formData.team_name || null;
 
       if (!resolvedTeamId && user) {
-        // Check if user belongs to a team via team_members
-        const { data: membership } = await supabase
+        // Cargar TODAS las memberships (un mentor/a puede pertenecer a N equipos).
+        // ORDER BY created_at: PostgREST no garantiza orden sin ORDER explícito;
+        // ordenar por created_at hace estable la elección de "primera membership"
+        // para eventos no-final.
+        const { data: memberships, error: membershipsError } = await supabase
           .from('team_members')
           .select('team_id, team:teams(id, name)')
           .eq('user_id', user.id)
-          .maybeSingle();
+          .order('created_at', { ascending: true });
 
-        if (membership?.team_id) {
-          resolvedTeamId = membership.team_id;
-          const team = membership.team as { id: string; name: string } | null;
-          if (team?.name) resolvedTeamName = team.name;
+        if (membershipsError) {
+          throw new Error('No se pudieron cargar tus equipos. Inténtalo de nuevo.');
         }
+
+        if (memberships && memberships.length > 0) {
+          if (requiresImportedTeam) {
+            // Cuando aplica la regla, solo es válido el team que esté en
+            // event_teams activo del evento. Cruzar memberships con event_teams.
+            const teamIds = memberships
+              .map((m) => m.team_id)
+              .filter((id): id is string => !!id);
+
+            const { data: importedMatch, error: importedMatchError } = await supabase
+              .from('event_teams')
+              .select('team_id')
+              .eq('event_id', eventId)
+              .in('team_id', teamIds)
+              .eq('is_active', true)
+              .limit(1)
+              .maybeSingle();
+
+            if (importedMatchError) {
+              // Distinguir "fallo de lookup" de "no hay match" para no
+              // mostrar al usuario un falso "tu equipo no está inscrito".
+              throw new Error(
+                'No se pudo verificar la inscripción de tu equipo. Inténtalo de nuevo.'
+              );
+            }
+
+            if (!importedMatch) {
+              throw new Error(
+                'Tu equipo no está inscrito en este evento. Contacta con tu Chapter Ambassador.'
+              );
+            }
+
+            resolvedTeamId = importedMatch.team_id;
+            const matched = memberships.find((m) => m.team_id === importedMatch.team_id);
+            const team = matched?.team as { id: string; name: string } | null;
+            if (team?.name) resolvedTeamName = team.name;
+          } else {
+            // Otros eventos: usar la primera membership (estable por ORDER BY created_at).
+            const first = memberships[0];
+            if (first?.team_id) {
+              resolvedTeamId = first.team_id;
+              const team = first.team as { id: string; name: string } | null;
+              if (team?.name) resolvedTeamName = team.name;
+            }
+          }
+        }
+      }
+
+      // Si la regla aplica pero no se resolvió team_id (sin memberships, sin formData),
+      // bloquear con el mismo mensaje en lugar de dejar que el trigger DB hable.
+      if (requiresImportedTeam && !resolvedTeamId) {
+        throw new Error(
+          'Tu equipo no está inscrito en este evento. Contacta con tu Chapter Ambassador.'
+        );
       }
 
       // If still no team_id but user typed a team name, try to match
