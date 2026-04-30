@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { buildJudgeRowsByCategory } from '@/lib/exports/exportTechnovationGlobalJudges';
+import JSZip from 'jszip';
+import {
+  buildJudgeRowsByCategory,
+  generateTechnovationGlobalJudgesZip,
+} from '@/lib/exports/exportTechnovationGlobalJudges';
 import type { PanelWithRelations } from '@/hooks/useJudgingAssignment';
 import type { TeamCategory } from '@/types/database';
 
@@ -14,7 +18,7 @@ interface JudgeFixture {
 interface TeamFixture {
   id: string;
   name: string;
-  category: TeamCategory;
+  category: TeamCategory | string;
   display_order: number;
   subsession?: 1 | 2;
   is_active?: boolean;
@@ -83,7 +87,7 @@ function makePanel(p: PanelFixture): PanelWithRelations {
       teams: {
         id: t.id,
         name: t.name,
-        category: t.category,
+        category: t.category as TeamCategory,
         hub_id: null,
       },
       manual_change_by_profile: null,
@@ -303,5 +307,239 @@ describe('buildJudgeRowsByCategory', () => {
 
     expect(result[0].rows.map(r => r.name)).toEqual(['Ana X', 'María X', 'Zoe X']);
     expect(result[0].rows[0].assignedTeams).toBe('A;B;C');
+  });
+
+  it('normaliza categorías capitalize (Beginner/Junior/Senior) — escenario de prod', () => {
+    const beginner = makePanel({
+      id: 'pB',
+      turn: 'morning',
+      judges: [{ id: 'jB', first_name: 'Bea', last_name: 'B', email: 'b@x.com' }],
+      teams: [{ id: 'tB', name: 'TB', category: 'Beginner', display_order: 0 }],
+    });
+    const junior = makePanel({
+      id: 'pJ',
+      turn: 'morning',
+      judges: [{ id: 'jJ', first_name: 'Jul', last_name: 'J', email: 'j@x.com' }],
+      teams: [{ id: 'tJ', name: 'TJ', category: 'Junior', display_order: 0 }],
+    });
+    const senior = makePanel({
+      id: 'pS',
+      turn: 'morning',
+      judges: [{ id: 'jS', first_name: 'Sam', last_name: 'S', email: 's@x.com' }],
+      teams: [{ id: 'tS', name: 'TS', category: 'Senior', display_order: 0 }],
+    });
+
+    const result = buildJudgeRowsByCategory({
+      panels: [beginner, junior, senior],
+      ...emptyMaps,
+    });
+
+    expect(result.map(c => c.category)).toEqual(['beginner', 'junior', 'senior']);
+    expect(result.find(c => c.category === 'beginner')!.rows).toHaveLength(1);
+    expect(result.find(c => c.category === 'junior')!.rows).toHaveLength(1);
+    expect(result.find(c => c.category === 'senior')!.rows).toHaveLength(1);
+  });
+
+  it('mezcla capitalize + lowercase en mismo evento se agrupa correctamente', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const cap1 = makePanel({
+      id: 'pCap1',
+      turn: 'morning',
+      judges: [{ id: 'j1', first_name: 'A', last_name: '1', email: 'a1@x.com' }],
+      teams: [{ id: 't1', name: 'T1', category: 'Beginner', display_order: 0 }],
+    });
+    const cap2 = makePanel({
+      id: 'pCap2',
+      turn: 'morning',
+      judges: [{ id: 'j2', first_name: 'B', last_name: '2', email: 'b2@x.com' }],
+      teams: [{ id: 't2', name: 'T2', category: 'Beginner', display_order: 0 }],
+    });
+    const low = makePanel({
+      id: 'pLow',
+      turn: 'morning',
+      judges: [{ id: 'j3', first_name: 'C', last_name: '3', email: 'c3@x.com' }],
+      teams: [{ id: 't3', name: 'T3', category: 'beginner', display_order: 0 }],
+    });
+
+    const result = buildJudgeRowsByCategory({
+      panels: [cap1, cap2, low],
+      ...emptyMaps,
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0].category).toBe('beginner');
+    expect(result[0].rows).toHaveLength(3);
+    expect(
+      warnSpy.mock.calls.some(args =>
+        typeof args[0] === 'string' && args[0].includes('tiene categorías mezcladas'),
+      ),
+    ).toBe(false);
+  });
+
+  it('categoría desconocida: panel descartado y warn emitido', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const unknown = makePanel({
+      id: 'pUnk',
+      turn: 'morning',
+      judges: [{ id: 'jU', first_name: 'U', last_name: 'N', email: 'u@x.com' }],
+      teams: [{ id: 'tU', name: 'TU', category: 'None assigned yet', display_order: 0 }],
+    });
+    const valid = makePanel({
+      id: 'pOk',
+      turn: 'morning',
+      judges: [{ id: 'jOk', first_name: 'O', last_name: 'K', email: 'ok@x.com' }],
+      teams: [{ id: 'tOk', name: 'TOk', category: 'beginner', display_order: 0 }],
+    });
+
+    const result = buildJudgeRowsByCategory({
+      panels: [unknown, valid],
+      ...emptyMaps,
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0].category).toBe('beginner');
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /Categoría desconocida "None assigned yet" en panel JUECES pUnk/,
+      ),
+    );
+  });
+
+  it('múltiples paneles desconocidos no afectan a los válidos', () => {
+    const u1 = makePanel({
+      id: 'pu1',
+      turn: 'morning',
+      judges: [{ id: 'ju1', first_name: 'X', last_name: '1', email: 'x1@x.com' }],
+      teams: [{ id: 'tu1', name: 'TU1', category: 'None assigned yet', display_order: 0 }],
+    });
+    const u2 = makePanel({
+      id: 'pu2',
+      turn: 'morning',
+      judges: [{ id: 'ju2', first_name: 'X', last_name: '2', email: 'x2@x.com' }],
+      teams: [{ id: 'tu2', name: 'TU2', category: 'WeirdCat', display_order: 0 }],
+    });
+    const u3 = makePanel({
+      id: 'pu3',
+      turn: 'morning',
+      judges: [{ id: 'ju3', first_name: 'X', last_name: '3', email: 'x3@x.com' }],
+      teams: [{ id: 'tu3', name: 'TU3', category: 'unknown', display_order: 0 }],
+    });
+    const v1 = makePanel({
+      id: 'pv1',
+      turn: 'morning',
+      judges: [{ id: 'jv1', first_name: 'V', last_name: '1', email: 'v1@x.com' }],
+      teams: [{ id: 'tv1', name: 'TV1', category: 'Junior', display_order: 0 }],
+    });
+    const v2 = makePanel({
+      id: 'pv2',
+      turn: 'morning',
+      judges: [{ id: 'jv2', first_name: 'V', last_name: '2', email: 'v2@x.com' }],
+      teams: [{ id: 'tv2', name: 'TV2', category: 'junior', display_order: 0 }],
+    });
+
+    const result = buildJudgeRowsByCategory({
+      panels: [u1, u2, u3, v1, v2],
+      ...emptyMaps,
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0].category).toBe('junior');
+    expect(result[0].rows).toHaveLength(2);
+    expect(result[0].rows.map(r => r.name).sort()).toEqual(['V 1', 'V 2']);
+  });
+
+  it('category null/empty: panel descartado sin warn (caso legítimo)', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // Cast a `string`/`unknown as string` necesario porque `PanelWithRelations.teams.category`
+    // está tipado como `TeamCategory` no-nullable, mientras que la columna `teams.category`
+    // en DB es `text` nullable. Reproducimos el caso real de prod.
+    const nullPanel = makePanel({
+      id: 'pNull',
+      turn: 'morning',
+      judges: [{ id: 'jn', first_name: 'N', last_name: 'L', email: 'n@x.com' }],
+      teams: [{ id: 'tn', name: 'TN', category: null as unknown as string, display_order: 0 }],
+    });
+    const emptyPanel = makePanel({
+      id: 'pEmpty',
+      turn: 'morning',
+      judges: [{ id: 'je', first_name: 'E', last_name: 'M', email: 'e@x.com' }],
+      teams: [{ id: 'te', name: 'TE', category: '', display_order: 0 }],
+    });
+
+    const result = buildJudgeRowsByCategory({
+      panels: [nullPanel, emptyPanel],
+      ...emptyMaps,
+    });
+
+    expect(result).toHaveLength(0);
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it('panel canonicalizado con equipo unknown intercalado: warn de contaminación', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const panel = makePanel({
+      id: 'pMix',
+      turn: 'morning',
+      judges: [{ id: 'jM', first_name: 'M', last_name: 'X', email: 'm@x.com' }],
+      teams: [
+        { id: 'tA', name: 'TA', category: 'Beginner', display_order: 0 },
+        { id: 'tB', name: 'TB', category: 'None assigned yet', display_order: 1 },
+        { id: 'tC', name: 'TC', category: 'Beginner', display_order: 2 },
+      ],
+    });
+
+    const result = buildJudgeRowsByCategory({ panels: [panel], ...emptyMaps });
+
+    expect(result).toHaveLength(1);
+    expect(result[0].category).toBe('beginner');
+    expect(result[0].rows).toHaveLength(1);
+    expect(result[0].rows[0].assignedTeams).toBe('TA;TB;TC');
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /Panel JUECES pMix contiene equipos con categoría desconocida — incluidos en la export como "beginner"/,
+      ),
+    );
+    // No debe disparar el warn de "categorías mezcladas" (eso es para mezclas válidas).
+    expect(
+      warnSpy.mock.calls.some(args =>
+        typeof args[0] === 'string' && args[0].includes('tiene categorías mezcladas'),
+      ),
+    ).toBe(false);
+  });
+
+  it('whitespace en categoría se trata como desconocido (decisión deliberada: sin trim)', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const panel = makePanel({
+      id: 'pWs',
+      turn: 'morning',
+      judges: [{ id: 'jW', first_name: 'W', last_name: 'S', email: 'w@x.com' }],
+      teams: [{ id: 'tW', name: 'TW', category: ' Beginner', display_order: 0 }],
+    });
+
+    const result = buildJudgeRowsByCategory({ panels: [panel], ...emptyMaps });
+
+    expect(result).toHaveLength(0);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringMatching(/Categoría desconocida " Beginner"/),
+    );
+  });
+});
+
+describe('generateTechnovationGlobalJudgesZip', () => {
+  it('genera filenames con categoría capitalizada y turno en español (invariante load-bearing)', async () => {
+    const blob = await generateTechnovationGlobalJudgesZip([
+      { category: 'beginner', turn: 'morning', rows: [] },
+      { category: 'junior', turn: 'afternoon', rows: [] },
+      { category: 'senior', turn: 'morning', rows: [] },
+    ]);
+
+    const zip = await JSZip.loadAsync(blob);
+    const names = Object.keys(zip.files).sort();
+
+    expect(names).toEqual([
+      'Madrid Beginner - Turno mañana.xlsx',
+      'Madrid Junior - Turno tarde.xlsx',
+      'Madrid Senior - Turno mañana.xlsx',
+    ]);
   });
 });
