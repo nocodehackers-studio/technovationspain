@@ -1764,6 +1764,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      drop_judge_on_entry_cancel: {
+        Args: { p_registration_id: string }
+        Returns: undefined
+      }
       decrement_registration_count:
         | {
             Args: { p_event_id: string; p_ticket_type_id: string }
