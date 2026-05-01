@@ -199,7 +199,7 @@ export function useEventRegistration(eventId: string) {
           .from('team_members')
           .select('team_id, team:teams(id, name)')
           .eq('user_id', user.id)
-          .order('created_at', { ascending: true });
+          .order('joined_at', { ascending: true });
 
         if (membershipsError) {
           throw new Error('No se pudieron cargar tus equipos. Inténtalo de nuevo.');
