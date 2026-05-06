@@ -64,6 +64,7 @@ import {
   Download,
   UserMinus,
   UserPlus,
+  UserPlus2,
   ArrowRightLeft,
   Calendar,
   Users,
@@ -75,6 +76,8 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import ExcelJS from 'exceljs';
+import { AddManualTeamDialog } from '@/components/admin/events/AddManualTeamDialog';
+import type { TeamTurn } from '@/types/database';
 
 
 // ============================================================================
@@ -262,6 +265,7 @@ export default function AdminJudgingSchedule() {
   const [activeView, setActiveView] = useState('sessions');
   const [hideInactive, setHideInactive] = useState(false);
   const [incompDialog, setIncompDialog] = useState(false);
+  const [manualTeamOpen, setManualTeamOpen] = useState(false);
   const [chapterFilter, setChapterFilter] = useState<string>('all');
   const [stateFilter, setStateFilter] = useState<string>('all');
   const [cityFilter, setCityFilter] = useState<string>('all');
@@ -352,6 +356,18 @@ export default function AdminJudgingSchedule() {
     reactivateJudge,
     isReactivatingJudge,
   } = useJudgingAssignment(eventId);
+
+  // Default turn passed to AddManualTeamDialog: use the filtered turn when only
+  // one is selected, else fall back to the first panel's turn.
+  const manualTeamDefaultTurn: TeamTurn = useMemo(() => {
+    if (turnFilters.size === 1) {
+      return Array.from(turnFilters)[0] as TeamTurn;
+    }
+    const firstPanelTurn = assignments[0]?.turn;
+    return (firstPanelTurn === 'morning' || firstPanelTurn === 'afternoon')
+      ? firstPanelTurn
+      : 'morning';
+  }, [turnFilters, assignments]);
 
   // dnd-kit sensors for intra-panel reorder
   const sensors = useSensors(
@@ -1731,6 +1747,16 @@ export default function AdminJudgingSchedule() {
             </div>
           </div>
           <div className="flex gap-4 items-center">
+            {eventId && (
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => setManualTeamOpen(true)}
+              >
+                <UserPlus2 className="mr-2 h-4 w-4" />
+                Añadir equipo manual
+              </Button>
+            )}
             <div className="flex items-center gap-2">
               <label htmlFor="hide-inactive" className="text-sm text-muted-foreground whitespace-nowrap">
                 Ocultar bajas/cambios
@@ -2868,6 +2894,16 @@ export default function AdminJudgingSchedule() {
             )}
           </DialogContent>
         </Dialog>
+
+        {eventId && (
+          <AddManualTeamDialog
+            open={manualTeamOpen}
+            onOpenChange={setManualTeamOpen}
+            eventId={eventId}
+            turn={manualTeamDefaultTurn}
+            defaultAssignToPanel
+          />
+        )}
       </div>
     </AdminLayout>
   );

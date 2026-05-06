@@ -36,6 +36,8 @@ interface AddManualTeamDialogProps {
   onOpenChange: (open: boolean) => void;
   eventId: string;
   turn: TeamTurn;
+  /** When true, the optional panel assignment section starts expanded. */
+  defaultAssignToPanel?: boolean;
 }
 
 const TEAM_CODE_REGEX = /^[A-Z][A-Z]\d+$/;
@@ -45,6 +47,7 @@ export function AddManualTeamDialog({
   onOpenChange,
   eventId,
   turn: defaultTurn,
+  defaultAssignToPanel = false,
 }: AddManualTeamDialogProps) {
   const { user } = useAuth();
   const { roster, allTeams, addManualTeam } = useEventTeamImport(eventId);
@@ -53,7 +56,7 @@ export function AddManualTeamDialog({
   const [category, setCategory] = useState<TeamCategory>('beginner');
   const [turn, setTurn] = useState<TeamTurn>(defaultTurn);
   const [teamCodeOverride, setTeamCodeOverride] = useState<string | null>(null);
-  const [assignToPanel, setAssignToPanel] = useState(false);
+  const [assignToPanel, setAssignToPanel] = useState(defaultAssignToPanel);
   const [panelId, setPanelId] = useState<string>('');
   const [subsession, setSubsession] = useState<1 | 2>(1);
   const [submitting, setSubmitting] = useState(false);
@@ -132,12 +135,17 @@ export function AddManualTeamDialog({
       setCategory('beginner');
       setTurn(defaultTurn);
       setTeamCodeOverride(null);
-      setAssignToPanel(false);
+      setAssignToPanel(defaultAssignToPanel);
       setPanelId('');
       setSubsession(1);
       setSubmitting(false);
     }
-  }, [open, defaultTurn]);
+  }, [open, defaultTurn, defaultAssignToPanel]);
+
+  // Sync turn state when defaultTurn prop changes while the dialog stays open.
+  useEffect(() => {
+    if (open) setTurn(defaultTurn);
+  }, [defaultTurn, open]);
 
   const teamCodeValid = TEAM_CODE_REGEX.test(teamCode);
   const teamCodeCollides = useMemo(() => {
