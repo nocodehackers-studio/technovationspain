@@ -21,7 +21,6 @@ export default function AdminEvents() {
   const { data: events, isLoading } = useQuery({
     queryKey: ["admin-events"],
     queryFn: async () => {
-      // Get all events
       const { data: eventsData, error: eventsError } = await supabase
         .from("events")
         .select("*")
@@ -29,48 +28,36 @@ export default function AdminEvents() {
 
       if (eventsError) throw eventsError;
 
-      // Get registration counts per event (non-cancelled, non-companion registrations)
-      const { data: registrations } = await supabase
-        .from("event_registrations")
-        .select("id, event_id")
-        .neq("registration_status", "cancelled")
-        .eq("is_companion", false);
+      // Per-event count queries — head:true returns only Content-Range count,
+      // sidestepping PostgREST's 1000-row default cap that previously truncated totals.
+      const counts = await Promise.all(
+        (eventsData as Event[]).map(async (event) => {
+          const [{ count: regCount }, { count: companionCount }] = await Promise.all([
+            supabase
+              .from("event_registrations")
+              .select("*", { count: "exact", head: true })
+              .eq("event_id", event.id)
+              .neq("registration_status", "cancelled")
+              .eq("is_companion", false),
+            supabase
+              .from("companions")
+              .select(
+                "event_registration_id, event_registrations!inner(event_id, registration_status, is_companion)",
+                { count: "exact", head: true }
+              )
+              .eq("event_registrations.event_id", event.id)
+              .neq("event_registrations.registration_status", "cancelled")
+              .eq("event_registrations.is_companion", false),
+          ]);
+          return { eventId: event.id, total: (regCount ?? 0) + (companionCount ?? 0) };
+        })
+      );
 
-      // Get all registration IDs for companion lookup
-      const regIds = registrations?.map(r => r.id) || [];
+      const totals = new Map(counts.map(c => [c.eventId, c.total]));
 
-      // Get companion counts only for non-cancelled registrations
-      const { data: companions } = regIds.length > 0
-        ? await supabase
-            .from("companions")
-            .select("event_registration_id")
-            .in("event_registration_id", regIds)
-        : { data: [] };
-
-      // Calculate real counts per event
-      const regCounts = new Map<string, number>();
-      registrations?.forEach(r => {
-        regCounts.set(r.event_id!, (regCounts.get(r.event_id!) || 0) + 1);
-      });
-
-      // Build a map of registration_id -> event_id for companion counting
-      const regToEvent = new Map<string, string>();
-      registrations?.forEach(r => {
-        regToEvent.set(r.id, r.event_id!);
-      });
-
-      const companionCounts = new Map<string, number>();
-      companions?.forEach(c => {
-        const eventId = regToEvent.get(c.event_registration_id!);
-        if (eventId) {
-          companionCounts.set(eventId, (companionCounts.get(eventId) || 0) + 1);
-        }
-      });
-
-      // Merge counts into events
       return (eventsData as Event[]).map(event => ({
         ...event,
-        realAttendees: (regCounts.get(event.id) || 0) + (companionCounts.get(event.id) || 0),
+        realAttendees: totals.get(event.id) ?? 0,
       })) as EventWithRealCount[];
     },
   });
