@@ -45,6 +45,15 @@ import {
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Switch } from '@/components/ui/switch';
 import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu';
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
+import {
   DndContext,
   closestCenter,
   PointerSensor,
@@ -73,6 +82,7 @@ import {
   GripVertical,
   MessageSquare,
   AlertTriangle,
+  ChevronDown,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import ExcelJS from 'exceljs';
@@ -616,6 +626,16 @@ export default function AdminJudgingSchedule() {
       (cityFilter === 'all' || judge.city === cityFilter),
     [chapterFilter, stateFilter, cityFilter]
   );
+
+  const activeFilterCount = useMemo(() => {
+    let n = 0;
+    if (turnFilters.size > 0) n++;
+    if (hideInactive) n++;
+    if (chapterFilter !== 'all') n++;
+    if (stateFilter !== 'all') n++;
+    if (cityFilter !== 'all') n++;
+    return n;
+  }, [turnFilters, hideInactive, chapterFilter, stateFilter, cityFilter]);
 
   // Helper: distinguish swap/replace from permanent drop
   const isSwapOrReplace = (reason: string | null): boolean =>
@@ -1746,7 +1766,149 @@ export default function AdminJudgingSchedule() {
               </p>
             </div>
           </div>
-          <div className="flex gap-4 items-center">
+          <div className="flex gap-2 items-center flex-wrap justify-end">
+            {incompatibilities.length > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIncompDialog(true)}
+                className="border-red-300 text-red-700 hover:bg-red-50"
+              >
+                <AlertTriangle className="h-4 w-4 mr-2" />
+                Incompatibilidades
+                <Badge variant="destructive" className="ml-2 text-[10px] px-1.5 py-0">
+                  {incompatibilities.length}
+                </Badge>
+              </Button>
+            )}
+
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <Filter className="h-4 w-4 mr-2" />
+                  Filtros
+                  {activeFilterCount > 0 && (
+                    <Badge variant="secondary" className="ml-2 text-[10px] px-1.5 py-0">
+                      {activeFilterCount}
+                    </Badge>
+                  )}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-80 p-4 space-y-4" align="end">
+                <div className="space-y-2">
+                  <Label className="text-xs uppercase text-muted-foreground tracking-wide">Turno</Label>
+                  <div className="flex gap-3">
+                    {(['morning', 'afternoon'] as const).map(turn => (
+                      <label key={turn} className="flex items-center gap-1.5 cursor-pointer text-sm">
+                        <input
+                          type="checkbox"
+                          checked={turnFilters.has(turn)}
+                          onChange={() => toggleTurnFilter(turn)}
+                          className="rounded"
+                        />
+                        {turn === 'morning' ? 'Mañana' : 'Tarde'}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="hide-inactive" className="text-sm">Ocultar bajas/cambios</Label>
+                  <Switch
+                    id="hide-inactive"
+                    checked={hideInactive}
+                    onCheckedChange={setHideInactive}
+                  />
+                </div>
+
+                {(geoFilterOptions.chapters.length > 0 ||
+                  geoFilterOptions.states.length > 0 ||
+                  geoFilterOptions.cities.length > 0) && (
+                  <div className="space-y-2 pt-2 border-t">
+                    <Label className="text-xs uppercase text-muted-foreground tracking-wide">Geografía</Label>
+                    {geoFilterOptions.chapters.length > 0 && (
+                      <Select value={chapterFilter} onValueChange={setChapterFilter}>
+                        <SelectTrigger className="w-full"><SelectValue placeholder="Chapter" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">Todos los chapters</SelectItem>
+                          {geoFilterOptions.chapters.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    )}
+                    {geoFilterOptions.states.length > 0 && (
+                      <Select value={stateFilter} onValueChange={setStateFilter}>
+                        <SelectTrigger className="w-full"><SelectValue placeholder="Comunidad" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">Todas las comunidades</SelectItem>
+                          {geoFilterOptions.states.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    )}
+                    {geoFilterOptions.cities.length > 0 && (
+                      <Select value={cityFilter} onValueChange={setCityFilter}>
+                        <SelectTrigger className="w-full"><SelectValue placeholder="Ciudad" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">Todas las ciudades</SelectItem>
+                          {geoFilterOptions.cities.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </div>
+                )}
+              </PopoverContent>
+            </Popover>
+
+            {eventId && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    <Download className="h-4 w-4 mr-2" />
+                    Exportar
+                    <ChevronDown className="h-4 w-4 ml-2 opacity-60" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-64">
+                  {assignments.length > 0 && (
+                    <>
+                      <DropdownMenuLabel>Listados</DropdownMenuLabel>
+                      <DropdownMenuItem onClick={exportScheduleExcel} disabled={hubsMapLoading}>
+                        <Download className="h-4 w-4 mr-2" />
+                        Excel
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={exportScheduleCSV} disabled={hubsMapLoading}>
+                        <Download className="h-4 w-4 mr-2" />
+                        CSV completo
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={exportJudgesCSV} disabled={hubsMapLoading}>
+                        <Download className="h-4 w-4 mr-2" />
+                        Listado de jueces
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={exportTeamsCSV} disabled={hubsMapLoading}>
+                        <Download className="h-4 w-4 mr-2" />
+                        Listado de equipos
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                    </>
+                  )}
+                  <DropdownMenuLabel>Acreditaciones (PDF)</DropdownMenuLabel>
+                  <DropdownMenuItem
+                    onClick={handleExportJudgeAccreditations}
+                    disabled={isExportingJudges}
+                  >
+                    <Download className="h-4 w-4 mr-2" />
+                    {isExportingJudges ? 'Generando…' : 'Jueces'}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={handleExportTeamMembersAccreditations}
+                    disabled={isExportingTeams}
+                  >
+                    <Download className="h-4 w-4 mr-2" />
+                    {isExportingTeams ? 'Generando…' : 'Niñas / Mentores'}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+
             {eventId && (
               <Button
                 variant="default"
@@ -1756,60 +1918,6 @@ export default function AdminJudgingSchedule() {
                 <UserPlus2 className="mr-2 h-4 w-4" />
                 Añadir equipo manual
               </Button>
-            )}
-            <div className="flex items-center gap-2">
-              <label htmlFor="hide-inactive" className="text-sm text-muted-foreground whitespace-nowrap">
-                Ocultar bajas/cambios
-              </label>
-              <Switch
-                id="hide-inactive"
-                checked={hideInactive}
-                onCheckedChange={setHideInactive}
-              />
-            </div>
-            <div className="flex items-center gap-3 border rounded-md px-3 py-1.5">
-              <Filter className="h-4 w-4 text-muted-foreground" />
-              {turnFilters.size === 0 && (
-                <span className="text-sm text-muted-foreground">Todos los turnos</span>
-              )}
-              {(['morning', 'afternoon'] as const).map(turn => (
-                <label key={turn} className="flex items-center gap-1.5 cursor-pointer text-sm">
-                  <input
-                    type="checkbox"
-                    checked={turnFilters.has(turn)}
-                    onChange={() => toggleTurnFilter(turn)}
-                    className="rounded"
-                  />
-                  {turn === 'morning' ? 'Mañana' : 'Tarde'}
-                </label>
-              ))}
-            </div>
-            {geoFilterOptions.chapters.length > 0 && (
-              <Select value={chapterFilter} onValueChange={setChapterFilter}>
-                <SelectTrigger className="w-[140px]"><SelectValue placeholder="Chapter" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos los chapters</SelectItem>
-                  {geoFilterOptions.chapters.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            )}
-            {geoFilterOptions.states.length > 0 && (
-              <Select value={stateFilter} onValueChange={setStateFilter}>
-                <SelectTrigger className="w-[140px]"><SelectValue placeholder="Comunidad" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todas las comunidades</SelectItem>
-                  {geoFilterOptions.states.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            )}
-            {geoFilterOptions.cities.length > 0 && (
-              <Select value={cityFilter} onValueChange={setCityFilter}>
-                <SelectTrigger className="w-[140px]"><SelectValue placeholder="Ciudad" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todas las ciudades</SelectItem>
-                  {geoFilterOptions.cities.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                </SelectContent>
-              </Select>
             )}
           </div>
         </div>
@@ -2351,67 +2459,6 @@ export default function AdminJudgingSchedule() {
             )}
           </TabsContent>
         </Tabs>
-
-        {/* Accreditation Exports — independientes de assignments, solo requieren evento */}
-        {eventId && (
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleExportJudgeAccreditations}
-              disabled={isExportingJudges}
-              aria-busy={isExportingJudges}
-            >
-              <Download className="mr-2 h-4 w-4" aria-hidden="true" />
-              {isExportingJudges ? 'Generando…' : 'Acreditaciones Jueces'}
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleExportTeamMembersAccreditations}
-              disabled={isExportingTeams}
-              aria-busy={isExportingTeams}
-            >
-              <Download className="mr-2 h-4 w-4" aria-hidden="true" />
-              {isExportingTeams ? 'Generando…' : 'Acreditaciones Niñas/Mentores'}
-            </Button>
-          </div>
-        )}
-
-        {/* Export Buttons */}
-        {assignments.length > 0 && (
-          <div className="flex flex-wrap gap-3">
-            <Button variant="default" onClick={exportScheduleExcel} disabled={hubsMapLoading} className="bg-green-700 hover:bg-green-800">
-              <Download className="h-4 w-4 mr-2" />
-              Exportar Excel
-            </Button>
-            <Button variant="outline" onClick={exportScheduleCSV} disabled={hubsMapLoading}>
-              <Download className="h-4 w-4 mr-2" />
-              Exportar CSV Completo
-            </Button>
-            <Button variant="outline" onClick={exportJudgesCSV} disabled={hubsMapLoading}>
-              <Download className="h-4 w-4 mr-2" />
-              Exportar Listado de Jueces
-            </Button>
-            <Button variant="outline" onClick={exportTeamsCSV} disabled={hubsMapLoading}>
-              <Download className="h-4 w-4 mr-2" />
-              Exportar Listado de Equipos
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => setIncompDialog(true)}
-              className={incompatibilities.length > 0 ? 'border-red-300 text-red-700 hover:bg-red-50' : ''}
-            >
-              <AlertTriangle className="h-4 w-4 mr-2" />
-              Incompatibilidades
-              {incompatibilities.length > 0 && (
-                <Badge variant="destructive" className="ml-2 text-[10px] px-1.5 py-0">
-                  {incompatibilities.length}
-                </Badge>
-              )}
-            </Button>
-          </div>
-        )}
 
         {/* ============ Dialogs ============ */}
 
