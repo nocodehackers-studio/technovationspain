@@ -5,8 +5,6 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from 'sonner';
@@ -22,16 +20,15 @@ import {
   ArrowLeft,
   Trash2,
   RefreshCw,
-  ChevronsUpDown,
-  Check,
   UserMinus,
   UserPlus,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useEventTeamImport, parseCsvRow, normalizeCategory, matchTeams, MatchResult, CsvTeamRow } from '@/hooks/useEventTeamImport';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { Team, TeamCategory, TeamTurn } from '@/types/database';
+import { Team, TeamTurn } from '@/types/database';
 import { cn } from '@/lib/utils';
+import { TeamCombobox } from './TeamCombobox';
 
 type Step = 'config' | 'upload' | 'preview' | 'confirming' | 'done';
 
@@ -610,53 +607,3 @@ function MatchBadge({ type, confidence }: { type: string | null; confidence?: nu
   return <Badge variant={c.variant}>{c.label}</Badge>;
 }
 
-function TeamCombobox({
-  teams,
-  value,
-  onSelect,
-}: {
-  teams: Team[];
-  value: string | null;
-  onSelect: (team: Team) => void;
-}) {
-  const [open, setOpen] = useState(false);
-
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button variant="outline" size="sm" className="w-full justify-between text-xs">
-          {value ? teams.find((t) => t.id === value)?.name ?? 'Seleccionar...' : 'Asignar equipo...'}
-          <ChevronsUpDown className="ml-1 h-3 w-3 shrink-0 opacity-50" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-64 p-0">
-        <Command>
-          <CommandInput placeholder="Buscar equipo..." />
-          <CommandList>
-            <CommandEmpty>No encontrado</CommandEmpty>
-            <CommandGroup>
-              {teams.map((team) => (
-                <CommandItem
-                  key={team.id}
-                  value={team.name}
-                  onSelect={() => {
-                    onSelect(team);
-                    setOpen(false);
-                  }}
-                >
-                  <Check
-                    className={cn(
-                      'mr-2 h-4 w-4',
-                      value === team.id ? 'opacity-100' : 'opacity-0',
-                    )}
-                  />
-                  {team.name}
-                </CommandItem>
-              ))}
-            </CommandGroup>
-          </CommandList>
-        </Command>
-      </PopoverContent>
-    </Popover>
-  );
-}
