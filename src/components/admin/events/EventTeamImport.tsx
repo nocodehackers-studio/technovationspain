@@ -22,7 +22,6 @@ import {
   RefreshCw,
   UserMinus,
   UserPlus,
-  UserPlus2,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useEventTeamImport, parseCsvRow, normalizeCategory, matchTeams, MatchResult, CsvTeamRow } from '@/hooks/useEventTeamImport';
@@ -30,7 +29,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Team, TeamTurn } from '@/types/database';
 import { cn } from '@/lib/utils';
 import { TeamCombobox } from './TeamCombobox';
-import { AddManualTeamDialog } from './AddManualTeamDialog';
 
 type Step = 'config' | 'upload' | 'preview' | 'confirming' | 'done';
 
@@ -58,7 +56,6 @@ export function EventTeamImport({ eventId, turn }: EventTeamImportProps) {
   const [matches, setMatches] = useState<MatchResult[]>([]);
   const [isMatching, setIsMatching] = useState(false);
   const [importOnlyMatched, setImportOnlyMatched] = useState(false);
-  const [manualOpen, setManualOpen] = useState(false);
 
   // ─── Config Step ─────────────────────────────────────────────
   const hasExistingImport = roster.length > 0;
@@ -240,16 +237,10 @@ export function EventTeamImport({ eventId, turn }: EventTeamImportProps) {
               </p>
 
               {!hasExistingImport && (
-                <div className="flex flex-wrap gap-3">
-                  <Button onClick={handleStartUpload}>
-                    <Upload className="mr-2 h-4 w-4" />
-                    Subir CSVs
-                  </Button>
-                  <Button variant="outline" onClick={() => setManualOpen(true)}>
-                    <UserPlus2 className="mr-2 h-4 w-4" />
-                    Añadir equipo manual
-                  </Button>
-                </div>
+                <Button onClick={handleStartUpload}>
+                  <Upload className="mr-2 h-4 w-4" />
+                  Subir CSVs
+                </Button>
               )}
             </CardContent>
           </Card>
@@ -323,18 +314,10 @@ export function EventTeamImport({ eventId, turn }: EventTeamImportProps) {
                   </Table>
                 </div>
 
-                <div className="flex flex-wrap gap-3">
+                <div className="flex gap-3">
                   <Button variant="outline" onClick={handleReimport}>
                     <RefreshCw className="mr-2 h-4 w-4" />
                     Re-importar
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    onClick={() => setManualOpen(true)}
-                    disabled={confirmImport.isPending || clearImport.isPending}
-                  >
-                    <UserPlus2 className="mr-2 h-4 w-4" />
-                    Añadir equipo manual
                   </Button>
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
@@ -601,13 +584,6 @@ export function EventTeamImport({ eventId, turn }: EventTeamImportProps) {
           </CardContent>
         </Card>
       )}
-
-      <AddManualTeamDialog
-        open={manualOpen}
-        onOpenChange={setManualOpen}
-        eventId={eventId}
-        turn={turn}
-      />
     </div>
   );
 }
