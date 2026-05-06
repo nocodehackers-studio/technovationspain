@@ -398,6 +398,172 @@ export function useEventTeamImport(eventId: string) {
     },
   });
 
+  // ─── Add Manual Team mutation ────────────────────────────────────
+  // One-off insert (or reactivation) of a single team without re-running the CSV
+  // importer. Optionally assigns the team to a panel/subsession in one go.
+  const addManualTeam = useMutation({
+    mutationFn: async ({
+      teamId,
+      teamName,
+      category,
+      turn,
+      teamCode,
+      mode,
+      userId,
+      panel,
+    }: {
+      teamId: string;
+      teamName: string;
+      category: TeamCategory;
+      turn: TeamTurn;
+      teamCode: string;
+      mode: 'insert' | 'reactivate';
+      userId: string;
+      panel?: { panelId: string; subsession: 1 | 2 };
+    }): Promise<{ id: string; teamCode: string }> => {
+      // Compute a fresh team_code from a server-side snapshot, used on retry
+      // when the optimistic client-side calculation collides with another admin.
+      const fetchNextCode = async (): Promise<string> => {
+        const { data } = await supabase
+          .from('event_teams')
+          .select('team_code')
+          .eq('event_id', eventId)
+          .eq('category', category)
+          .eq('turn', turn);
+        const re = /^[A-Z][A-Z](\d+)$/;
+        const max = (data ?? []).reduce((acc, r) => {
+          const m = r.team_code.match(re);
+          return m ? Math.max(acc, Number(m[1])) : acc;
+        }, 0);
+        return generateTeamCode(category, turn, max);
+      };
+
+      const isTeamCodeConflict = (err: { code?: string; message?: string }) =>
+        err.code === '23505' && (err.message?.includes('team_code') ?? false);
+
+      let attemptCode = teamCode;
+      let createdId: string | null = null;
+
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        if (mode === 'insert') {
+          const { data, error } = await supabase
+            .from('event_teams')
+            .insert({
+              event_id: eventId,
+              team_id: teamId,
+              team_code: attemptCode,
+              category,
+              turn,
+              csv_team_name: teamName,
+              match_type: 'manual' as TeamMatchType,
+              imported_by: userId,
+              is_active: true,
+            })
+            .select('id')
+            .single();
+          if (!error) {
+            createdId = data!.id;
+            break;
+          }
+          if (isTeamCodeConflict(error) && attempt === 1) {
+            attemptCode = await fetchNextCode();
+            continue;
+          }
+          throw error;
+        } else {
+          const { data, error } = await supabase
+            .from('event_teams')
+            .update({
+              is_active: true,
+              match_type: 'manual' as TeamMatchType,
+              team_code: attemptCode,
+              category,
+              turn,
+              imported_by: userId,
+            })
+            .eq('event_id', eventId)
+            .eq('team_id', teamId)
+            .select('id')
+            .single();
+          if (!error) {
+            createdId = data!.id;
+            break;
+          }
+          if (isTeamCodeConflict(error) && attempt === 1) {
+            attemptCode = await fetchNextCode();
+            continue;
+          }
+          throw error;
+        }
+      }
+
+      if (!createdId) throw new Error('No se pudo añadir el equipo (código duplicado)');
+
+      const rollback = async () => {
+        try {
+          if (mode === 'insert') {
+            await supabase.from('event_teams').delete().eq('id', createdId!);
+          } else {
+            await supabase
+              .from('event_teams')
+              .update({ is_active: false })
+              .eq('id', createdId!);
+          }
+        } catch {
+          // Don't shadow the original error; surface that one instead.
+        }
+      };
+
+      if (panel) {
+        const { data: orderRows, error: orderErr } = await supabase
+          .from('judging_panel_teams')
+          .select('display_order')
+          .eq('panel_id', panel.panelId)
+          .eq('subsession', panel.subsession)
+          .eq('is_active', true);
+        if (orderErr) {
+          await rollback();
+          throw orderErr;
+        }
+        const nextOrder =
+          (orderRows ?? []).reduce(
+            (max, r) => Math.max(max, r.display_order ?? 0),
+            0,
+          ) + 1;
+
+        const { error: insertErr } = await supabase
+          .from('judging_panel_teams')
+          .insert({
+            panel_id: panel.panelId,
+            team_id: teamId,
+            team_code: attemptCode,
+            subsession: panel.subsession,
+            assignment_type: 'manual',
+            assigned_by: userId,
+            manual_change_by: userId,
+            manual_change_at: new Date().toISOString(),
+            display_order: nextOrder,
+            is_active: true,
+          });
+
+        if (insertErr) {
+          await rollback();
+          throw insertErr;
+        }
+      }
+
+      return { id: createdId, teamCode: attemptCode };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['event-teams-roster', eventId] });
+      queryClient.invalidateQueries({ queryKey: ['event-teams', eventId] });
+      // Cross-domain invalidation: the optional panel insert touches state owned
+      // by useJudgingAssignment.
+      queryClient.invalidateQueries({ queryKey: ['judging-assignments', eventId] });
+      queryClient.invalidateQueries({ queryKey: ['judging-panels-list', eventId] });
+    },
+  });
+
   return {
     roster: roster.data ?? [],
     isLoadingRoster: roster.isLoading,
@@ -406,5 +572,6 @@ export function useEventTeamImport(eventId: string) {
     confirmImport,
     clearImport,
     toggleTeamActive,
+    addManualTeam,
   };
 }
