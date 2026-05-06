@@ -1473,14 +1473,17 @@ export default function AdminJudgingSchedule() {
 
       const { data: judgeRows, error: judgesError } = await supabase
         .from('judge_assignments')
-        .select('user_id, is_active, judge_excluded, profiles!judge_assignments_user_id_fkey(first_name, last_name)')
+        .select('user_id, is_active, profiles!judge_assignments_user_id_fkey(first_name, last_name, judge_excluded)')
         .eq('event_id', eventId)
-        .eq('is_active', true)
-        .eq('judge_excluded', false);
+        .eq('is_active', true);
       if (judgesError) throw judgesError;
 
       let skippedCount = 0;
       const rows = (judgeRows || [])
+        .filter((r: any) => {
+          const profile = Array.isArray(r.profiles) ? r.profiles[0] : r.profiles;
+          return !profile?.judge_excluded;
+        })
         .map((r: any) => {
           const profile = Array.isArray(r.profiles) ? r.profiles[0] : r.profiles;
           return {
