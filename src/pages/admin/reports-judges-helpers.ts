@@ -2,6 +2,7 @@ export interface JudgeRow {
   user_id: string;
   is_active: boolean;
   onboarding_completed: boolean;
+  tech_global_onboarded: boolean | null;
   schedule_preference: string | null;
   event_id: string | null;
   event: { id: string; name: string } | null;

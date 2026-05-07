@@ -33,6 +33,12 @@ function trimField(val) {
   if (trimmed === "-" || trimmed === "--" || trimmed === "—") return "";
   return trimmed;
 }
+function parseOnboarded(val) {
+  const v = (val ?? "").trim().toLowerCase();
+  if (v === "yes") return true;
+  if (v === "no") return false;
+  return null;
+}
 function stripNulls(obj) {
   const result = {};
   for (const [key, val] of Object.entries(obj)){
@@ -175,6 +181,7 @@ Deno.serve(async (req)=>{
     const lastNameIdx = findCol("Last name");
     const companyIdx = findCol("Get school company name");
     const judgeIdIdx = findCol("Judge Id");
+    const onboardedIdx = findCol("Onboarded");
     // ── Deduplicate by email ──
     const rowsByEmail = new Map();
     const duplicateEmails = [];
@@ -228,6 +235,8 @@ Deno.serve(async (req)=>{
           company_name: companyName || null
         });
         const externalJudgeId = judgeIdIdx >= 0 ? trimField(row[judgeIdIdx]) : "";
+        // undefined = column absent in CSV (do not touch); true/false/null = write that value
+        const techGlobalOnboarded = onboardedIdx >= 0 ? parseOnboarded(row[onboardedIdx]) : undefined;
         const existing = existingProfiles.get(email);
         if (existing) {
           // ── Existing user ──
@@ -250,18 +259,23 @@ Deno.serve(async (req)=>{
             .maybeSingle();
           if (assignLookupErr) throw assignLookupErr;
           if (existingAssign) {
-            if (externalJudgeId) {
+            const updateFields = {};
+            if (externalJudgeId) updateFields.external_judge_id = externalJudgeId;
+            if (techGlobalOnboarded !== undefined) updateFields.tech_global_onboarded = techGlobalOnboarded;
+            if (Object.keys(updateFields).length > 0) {
               const { error: assignUpdateErr } = await supabase.from("judge_assignments")
-                .update({ external_judge_id: externalJudgeId })
+                .update(updateFields)
                 .eq("id", existingAssign.id);
               if (assignUpdateErr) throw assignUpdateErr;
             }
           } else {
+            const insertRow = {
+              user_id: existing.id, event_id: null, is_active: false
+            };
+            if (externalJudgeId) insertRow.external_judge_id = externalJudgeId;
+            if (techGlobalOnboarded !== undefined) insertRow.tech_global_onboarded = techGlobalOnboarded;
             const { error: assignInsertErr } = await supabase.from("judge_assignments")
-              .insert({
-                user_id: existing.id, event_id: null, is_active: false,
-                ...(externalJudgeId ? { external_judge_id: externalJudgeId } : {})
-              });
+              .insert(insertRow);
             if (assignInsertErr) throw assignInsertErr;
           }
           counters.records_updated++;
@@ -330,18 +344,23 @@ Deno.serve(async (req)=>{
             .maybeSingle();
           if (assignLookupErr) throw assignLookupErr;
           if (existingAssign) {
-            if (externalJudgeId) {
+            const updateFields = {};
+            if (externalJudgeId) updateFields.external_judge_id = externalJudgeId;
+            if (techGlobalOnboarded !== undefined) updateFields.tech_global_onboarded = techGlobalOnboarded;
+            if (Object.keys(updateFields).length > 0) {
               const { error: assignUpdateErr } = await supabase.from("judge_assignments")
-                .update({ external_judge_id: externalJudgeId })
+                .update(updateFields)
                 .eq("id", existingAssign.id);
               if (assignUpdateErr) throw assignUpdateErr;
             }
           } else {
+            const insertRow = {
+              user_id: userId, event_id: null, is_active: false
+            };
+            if (externalJudgeId) insertRow.external_judge_id = externalJudgeId;
+            if (techGlobalOnboarded !== undefined) insertRow.tech_global_onboarded = techGlobalOnboarded;
             const { error: assignInsertErr } = await supabase.from("judge_assignments")
-              .insert({
-                user_id: userId, event_id: null, is_active: false,
-                ...(externalJudgeId ? { external_judge_id: externalJudgeId } : {})
-              });
+              .insert(insertRow);
             if (assignInsertErr) throw assignInsertErr;
           }
           counters.records_new++;
