@@ -309,7 +309,7 @@ export default function AdminJudgingSchedule({ readOnly = false, dataOverride }:
   const queryClient = useQueryClient();
   const [turnFilters, setTurnFilters] = useState<Set<string>>(new Set());
   const [activeView, setActiveView] = useState('sessions');
-  const [hideInactive, setHideInactive] = useState(false);
+  const [hideInactive, setHideInactive] = useState(readOnly);
   const [incompDialog, setIncompDialog] = useState(false);
   const [manualTeamOpen, setManualTeamOpen] = useState(false);
   const [chapterFilter, setChapterFilter] = useState<string>('all');
@@ -1841,7 +1841,7 @@ export default function AdminJudgingSchedule({ readOnly = false, dataOverride }:
             </div>
           </div>
           <div className="flex gap-2 items-center flex-wrap justify-end">
-            {incompatibilities.length > 0 && (
+            {!readOnly && incompatibilities.length > 0 && (
               <Button
                 variant="outline"
                 size="sm"
@@ -1856,7 +1856,7 @@ export default function AdminJudgingSchedule({ readOnly = false, dataOverride }:
               </Button>
             )}
 
-            <Popover>
+            {!readOnly && <Popover>
               <PopoverTrigger asChild>
                 <Button variant="outline" size="sm">
                   <Filter className="h-4 w-4 mr-2" />
@@ -1930,9 +1930,9 @@ export default function AdminJudgingSchedule({ readOnly = false, dataOverride }:
                   </div>
                 )}
               </PopoverContent>
-            </Popover>
+            </Popover>}
 
-            {eventId && (
+            {eventId && !readOnly && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" size="sm">
@@ -2025,7 +2025,7 @@ export default function AdminJudgingSchedule({ readOnly = false, dataOverride }:
               const roomCount = allRooms.length;
 
               return (
-                <div className="border rounded-lg overflow-x-auto">
+                <div className={`border rounded-lg ${readOnly ? 'overflow-visible' : 'overflow-x-auto'}`}>
                   <table className="w-full text-xs border-collapse">
                     <thead className="sticky top-0 z-10">
                       <tr className="bg-green-600 text-white">
@@ -2281,7 +2281,7 @@ export default function AdminJudgingSchedule({ readOnly = false, dataOverride }:
                 {judgesGridData
                   .filter(g => turnFilters.size === 0 || turnFilters.has(g.turn))
                   .map(turnData => (
-                    <div key={turnData.turn} className="border rounded-lg overflow-x-auto">
+                    <div key={turnData.turn} className={`border rounded-lg ${readOnly ? 'overflow-visible' : 'overflow-x-auto'}`}>
                       <div className="bg-emerald-700 text-white px-3 py-2 font-bold text-sm">
                         TURNO {turnData.turnLabel.toUpperCase()}
                       </div>
