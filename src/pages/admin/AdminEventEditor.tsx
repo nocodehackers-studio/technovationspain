@@ -20,6 +20,7 @@ import { Event, EventType, TeamTurn } from "@/types/database";
 import { EventTeamImport } from "@/components/admin/events/EventTeamImport";
 import { JudgingManager } from "@/components/admin/events/JudgingManager";
 import { EventCheckinView } from "@/components/admin/events/EventCheckinView";
+import { EventPublicScheduleSection } from "@/components/admin/events/EventPublicScheduleSection";
 
 interface EventFormData {
   name: string;
@@ -402,7 +403,7 @@ export default function AdminEventEditor() {
           </TabsList>
 
           <div className="mt-6">
-            <TabsContent value="basic">
+            <TabsContent value="basic" className="space-y-6">
               <EventBasicInfoForm
                 name={formData.name}
                 eventType={formData.event_type}
@@ -411,6 +412,15 @@ export default function AdminEventEditor() {
                 turn={formData.turn}
                 onUpdate={handleUpdateField}
               />
+              {isEditing && eventId && formData.event_type === 'regional_final' && (
+                <EventPublicScheduleSection
+                  eventId={eventId}
+                  event={{
+                    event_type: formData.event_type,
+                    public_schedule_token: event?.public_schedule_token ?? null,
+                  }}
+                />
+              )}
             </TabsContent>
 
             <TabsContent value="location">

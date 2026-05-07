@@ -54,6 +54,7 @@ import TicketDetailPage from "./pages/events/TicketDetailPage";
 import WorkshopPreferencesPage from "./pages/events/WorkshopPreferencesPage";
 import ValidatePage from "./pages/validate/ValidatePage";
 import ConsentPage from "./pages/consent/ConsentPage";
+import EscaletaPublicPage from "./pages/public/EscaletaPublicPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -249,6 +250,7 @@ const App = () => (
             <Route path="/validate" element={<ValidatePage />} />
             <Route path="/validate/:code" element={<ValidatePage />} />
             <Route path="/consentimiento" element={<ConsentPage />} />
+            <Route path="/escaleta/:token" element={<EscaletaPublicPage />} />
 
             {/* Main app */}
             <Route path="/" element={<Index />} />
