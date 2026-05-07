@@ -18,6 +18,7 @@ import {
   Tooltip,
   TooltipTrigger,
   TooltipContent,
+  TooltipProvider,
 } from '@/components/ui/tooltip';
 import {
   Select,
@@ -83,6 +84,7 @@ import {
   MessageSquare,
   AlertTriangle,
   ChevronDown,
+  BadgeCheck,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import ExcelJS from 'exceljs';
@@ -343,6 +345,10 @@ export default function AdminJudgingSchedule() {
 
   const { config } = useJudgingConfig(eventId);
   const { judges: eventJudges, readyJudges, bajaJudges, onboardingPendingJudges } = useEventJudges(eventId);
+  const techGlobalOnboardedMap = useMemo(
+    () => new Map(eventJudges.map(j => [j.id, j.techGlobalOnboarded])),
+    [eventJudges]
+  );
   const {
     assignments,
     isLoading,
@@ -2282,10 +2288,23 @@ export default function AdminJudgingSchedule() {
                                               : 'bg-red-50 opacity-60'
                                           }`}
                                         >
-                                          <span className={`text-xs block truncate ${
+                                          <span className={`text-xs flex items-center gap-1 ${
                                             !judge.isActive ? 'line-through text-red-500' : 'font-medium'
                                           }`} title={judge.judgeName}>
-                                            {judge.judgeName}
+                                            <span className="truncate">{judge.judgeName}</span>
+                                            {techGlobalOnboardedMap.get(judge.judgeId) === true && (
+                                              <TooltipProvider delayDuration={200}>
+                                                <Tooltip>
+                                                  <TooltipTrigger asChild>
+                                                    <BadgeCheck
+                                                      className="h-3 w-3 text-green-600 shrink-0"
+                                                      aria-label="Onboarding Technovation Global completado"
+                                                    />
+                                                  </TooltipTrigger>
+                                                  <TooltipContent>Onboarding Technovation Global completado</TooltipContent>
+                                                </Tooltip>
+                                              </TooltipProvider>
+                                            )}
                                           </span>
                                           {judge.hubName && (
                                             <Badge variant="outline" className="text-[10px] px-1 py-0 mt-0.5">
