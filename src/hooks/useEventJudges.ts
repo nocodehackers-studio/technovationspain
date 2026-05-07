@@ -10,6 +10,7 @@ export interface JudgeForAssignment {
   conflictTeamIds: string[];
   conflictOtherText: string | null;
   onboardingCompleted: boolean;
+  techGlobalOnboarded: boolean | null;
   comments: string | null;
   isEventActive: boolean;
   judgeExcluded: boolean;
@@ -29,6 +30,7 @@ export function useEventJudges(eventId: string | undefined) {
           user_id,
           is_active,
           onboarding_completed,
+          tech_global_onboarded,
           schedule_preference,
           conflict_team_ids,
           conflict_other_text,
@@ -59,6 +61,7 @@ export function useEventJudges(eventId: string | undefined) {
         conflictTeamIds: (ja.conflict_team_ids || []) as string[],
         conflictOtherText: ja.conflict_other_text as string | null,
         onboardingCompleted: ja.onboarding_completed as boolean,
+        techGlobalOnboarded: ja.tech_global_onboarded as boolean | null,
         comments: ja.comments as string | null,
         isEventActive: ja.is_active as boolean,
         judgeExcluded: ja.profiles.judge_excluded as boolean,

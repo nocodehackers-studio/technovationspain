@@ -18,7 +18,8 @@ import {
   ChartTooltipContent,
 } from "@/components/ui/chart";
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, CartesianGrid } from "recharts";
-import { Download, Users, Calendar, FileText, Database, Scale } from "lucide-react";
+import { Download, Users, Calendar, FileText, Database, Scale, BadgeCheck } from "lucide-react";
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
@@ -187,6 +188,7 @@ export default function AdminReports() {
           user_id,
           is_active,
           onboarding_completed,
+          tech_global_onboarded,
           schedule_preference,
           event_id,
           event:events(id, name),
@@ -1061,7 +1063,24 @@ export default function AdminReports() {
                         const hub = hubs?.find(h => h.id === p?.hub_id)?.name || '—';
                         return (
                           <TableRow key={r.user_id}>
-                            <TableCell className="text-sm">{name}</TableCell>
+                            <TableCell className="text-sm">
+                              <span className="inline-flex items-center gap-1.5">
+                                {name}
+                                {r.tech_global_onboarded === true && (
+                                  <TooltipProvider delayDuration={200}>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <BadgeCheck
+                                          className="h-3.5 w-3.5 text-green-600 shrink-0"
+                                          aria-label="Onboarding Technovation Global completado"
+                                        />
+                                      </TooltipTrigger>
+                                      <TooltipContent>Onboarding Technovation Global completado</TooltipContent>
+                                    </Tooltip>
+                                  </TooltipProvider>
+                                )}
+                              </span>
+                            </TableCell>
                             <TableCell className="text-sm">{p?.email || '—'}</TableCell>
                             <TableCell className="text-sm">{p?.company_name || '—'}</TableCell>
                             <TableCell className="text-sm">{p?.state || '—'}</TableCell>

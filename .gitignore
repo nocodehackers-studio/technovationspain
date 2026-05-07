@@ -31,6 +31,10 @@ supabase/migrations_backup/
 # BMAD
 _bmad
 _bmad-output
+_bmad_output
+
+# Docs
+docs
 
 # Claude
 .claude
