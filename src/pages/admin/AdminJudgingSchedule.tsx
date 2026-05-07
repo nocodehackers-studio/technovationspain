@@ -2025,7 +2025,7 @@ export default function AdminJudgingSchedule({ readOnly = false, dataOverride }:
               const roomCount = allRooms.length;
 
               return (
-                <div className={`border rounded-lg ${readOnly ? 'overflow-visible' : 'overflow-x-auto'}`}>
+                <div className="border rounded-lg overflow-x-auto">
                   <table className="w-full text-xs border-collapse">
                     <thead className="sticky top-0 z-10">
                       <tr className="bg-green-600 text-white">
@@ -2281,7 +2281,7 @@ export default function AdminJudgingSchedule({ readOnly = false, dataOverride }:
                 {judgesGridData
                   .filter(g => turnFilters.size === 0 || turnFilters.has(g.turn))
                   .map(turnData => (
-                    <div key={turnData.turn} className={`border rounded-lg ${readOnly ? 'overflow-visible' : 'overflow-x-auto'}`}>
+                    <div key={turnData.turn} className="border rounded-lg overflow-x-auto">
                       <div className="bg-emerald-700 text-white px-3 py-2 font-bold text-sm">
                         TURNO {turnData.turnLabel.toUpperCase()}
                       </div>
