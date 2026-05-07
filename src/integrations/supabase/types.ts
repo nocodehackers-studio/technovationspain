@@ -774,6 +774,7 @@ export type Database = {
           location_name: string | null
           max_capacity: number | null
           name: string
+          public_schedule_token: string | null
           registration_close_date: string | null
           registration_open_date: string | null
           start_time: string | null
@@ -797,6 +798,7 @@ export type Database = {
           location_name?: string | null
           max_capacity?: number | null
           name: string
+          public_schedule_token?: string | null
           registration_close_date?: string | null
           registration_open_date?: string | null
           start_time?: string | null
@@ -820,6 +822,7 @@ export type Database = {
           location_name?: string | null
           max_capacity?: number | null
           name?: string
+          public_schedule_token?: string | null
           registration_close_date?: string | null
           registration_open_date?: string | null
           start_time?: string | null
@@ -1780,6 +1783,10 @@ export type Database = {
       drop_judge_on_entry_cancel: {
         Args: { p_registration_id: string }
         Returns: undefined
+      }
+      get_public_judging_schedule: {
+        Args: { p_token: string }
+        Returns: Json
       }
       get_user_role: {
         Args: { _user_id: string }

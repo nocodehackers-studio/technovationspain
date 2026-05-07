@@ -124,6 +124,7 @@ export interface Event {
   registration_open_date?: string | null;
   registration_close_date?: string | null;
   description?: string | null;
+  public_schedule_token?: string | null;
   created_at: string;
 }
 
