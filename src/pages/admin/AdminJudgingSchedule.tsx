@@ -89,7 +89,9 @@ import {
 import { toast } from 'sonner';
 import ExcelJS from 'exceljs';
 import { AddManualTeamDialog } from '@/components/admin/events/AddManualTeamDialog';
-import type { TeamTurn } from '@/types/database';
+import type { TeamTurn, JudgingEventConfig } from '@/types/database';
+import type { PanelWithRelations } from '@/hooks/useJudgingAssignment';
+import type { JudgeForAssignment } from '@/hooks/useEventJudges';
 
 
 // ============================================================================
@@ -114,6 +116,7 @@ interface SortableTeamItemProps {
   onDropTeam: (teamId: string, teamName: string) => void;
   catColors: Record<string, string>;
   hubsMap: Record<string, string>;
+  readOnly?: boolean;
 }
 
 const SortableTeamItem = React.memo(function SortableTeamItem({
@@ -122,8 +125,9 @@ const SortableTeamItem = React.memo(function SortableTeamItem({
   onDropTeam,
   catColors,
   hubsMap,
+  readOnly = false,
 }: SortableTeamItemProps) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: team.id });
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: team.id, disabled: readOnly });
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
@@ -140,14 +144,16 @@ const SortableTeamItem = React.memo(function SortableTeamItem({
       className={`flex items-center gap-1 py-0.5 ${team.assignment_type === 'manual' ? 'bg-amber-50 rounded px-0.5' : ''}`}
     >
       {/* Grip handle for intra-panel reorder (dnd-kit) */}
-      <span
-        {...attributes}
-        {...listeners}
-        onPointerDown={(e) => { e.stopPropagation(); (listeners as any)?.onPointerDown?.(e); }}
-        className="cursor-grab active:cursor-grabbing p-0.5 rounded hover:bg-muted shrink-0"
-      >
-        <GripVertical className="h-3 w-3 text-muted-foreground" />
-      </span>
+      {!readOnly && (
+        <span
+          {...attributes}
+          {...listeners}
+          onPointerDown={(e) => { e.stopPropagation(); (listeners as any)?.onPointerDown?.(e); }}
+          className="cursor-grab active:cursor-grabbing p-0.5 rounded hover:bg-muted shrink-0"
+        >
+          <GripVertical className="h-3 w-3 text-muted-foreground" />
+        </span>
+      )}
 
       <Badge variant="outline" className={`font-mono text-[10px] px-1 py-0 shrink-0 ${catColors[category] || ''}`}>
         {team.team_code}
@@ -160,24 +166,28 @@ const SortableTeamItem = React.memo(function SortableTeamItem({
       )}
 
       {/* Move between panels button (native D&D) */}
-      <span
-        draggable
-        onDragStart={(e) => {
-          e.stopPropagation();
-          onMoveStart(e, team.team_id, teamName, category, team.teams?.hub_id);
-        }}
-        className="cursor-grab p-0.5 rounded hover:bg-blue-100 shrink-0"
-      >
-        <ArrowRightLeft className="h-3 w-3 text-blue-500" />
-      </span>
+      {!readOnly && (
+        <span
+          draggable
+          onDragStart={(e) => {
+            e.stopPropagation();
+            onMoveStart(e, team.team_id, teamName, category, team.teams?.hub_id);
+          }}
+          className="cursor-grab p-0.5 rounded hover:bg-blue-100 shrink-0"
+        >
+          <ArrowRightLeft className="h-3 w-3 text-blue-500" />
+        </span>
+      )}
 
       {/* Drop team button */}
-      <button
-        onClick={(e) => { e.stopPropagation(); onDropTeam(team.team_id, teamName); }}
-        className="p-0.5 rounded hover:bg-red-100 shrink-0 opacity-0 group-hover/team:opacity-100 transition-opacity"
-      >
-        <UserMinus className="h-3 w-3 text-destructive" />
-      </button>
+      {!readOnly && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onDropTeam(team.team_id, teamName); }}
+          className="p-0.5 rounded hover:bg-red-100 shrink-0 opacity-0 group-hover/team:opacity-100 transition-opacity"
+        >
+          <UserMinus className="h-3 w-3 text-destructive" />
+        </button>
+      )}
     </div>
   );
 
@@ -268,14 +278,38 @@ const triggerXlsxDownload = (buffer: ArrayBuffer, filename: string) => {
 // Main Component
 // ============================================================================
 
-export default function AdminJudgingSchedule() {
-  const { eventId } = useParams();
+export interface AdminJudgingScheduleDataOverride {
+  event: { id: string; name: string; date: string | null; status: string | null; event_type: string };
+  assignments: PanelWithRelations[];
+  config: JudgingEventConfig | null;
+  eventJudges: JudgeForAssignment[];
+  eventTeams: Array<{
+    id: string;
+    team_id: string;
+    team_code: string;
+    category: string;
+    turn: 'morning' | 'afternoon' | string;
+    is_active: boolean;
+    teams: { id: string; name: string; hub_id: string | null } | null;
+  }>;
+  hubsMap: Record<string, string>;
+}
+
+interface AdminJudgingScheduleProps {
+  readOnly?: boolean;
+  dataOverride?: AdminJudgingScheduleDataOverride;
+}
+
+export default function AdminJudgingSchedule({ readOnly = false, dataOverride }: AdminJudgingScheduleProps = {}) {
+  const params = useParams();
+  const eventId = params.eventId ?? dataOverride?.event.id;
+  const hookEventId = dataOverride ? undefined : params.eventId;
   const navigate = useNavigate();
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [turnFilters, setTurnFilters] = useState<Set<string>>(new Set());
   const [activeView, setActiveView] = useState('sessions');
-  const [hideInactive, setHideInactive] = useState(false);
+  const [hideInactive, setHideInactive] = useState(readOnly);
   const [incompDialog, setIncompDialog] = useState(false);
   const [manualTeamOpen, setManualTeamOpen] = useState(false);
   const [chapterFilter, setChapterFilter] = useState<string>('all');
@@ -343,15 +377,31 @@ export default function AdminJudgingSchedule() {
   const exportingJudgesRef = useRef(false);
   const exportingTeamsRef = useRef(false);
 
-  const { config } = useJudgingConfig(eventId);
-  const { judges: eventJudges, readyJudges, bajaJudges, onboardingPendingJudges } = useEventJudges(eventId);
+  const { config: hookConfig } = useJudgingConfig(hookEventId);
+  const {
+    judges: hookEventJudges,
+    readyJudges: hookReadyJudges,
+    bajaJudges: hookBajaJudges,
+    onboardingPendingJudges: hookOnboardingPendingJudges,
+  } = useEventJudges(hookEventId);
+  const config = dataOverride?.config ?? hookConfig;
+  const eventJudges = dataOverride?.eventJudges ?? hookEventJudges;
+  const readyJudges = dataOverride
+    ? eventJudges.filter(j => j.isEventActive && j.onboardingCompleted)
+    : hookReadyJudges;
+  const bajaJudges = dataOverride
+    ? eventJudges.filter(j => !j.isEventActive && j.onboardingCompleted)
+    : hookBajaJudges;
+  const onboardingPendingJudges = dataOverride
+    ? eventJudges.filter(j => !j.isEventActive && !j.onboardingCompleted)
+    : hookOnboardingPendingJudges;
   const techGlobalOnboardedMap = useMemo(
     () => new Map(eventJudges.map(j => [j.id, j.techGlobalOnboarded])),
     [eventJudges]
   );
   const {
-    assignments,
-    isLoading,
+    assignments: hookAssignments,
+    isLoading: hookIsLoading,
     deactivateJudgeFromPanel,
     isDeactivating,
     addJudgeToPanel,
@@ -371,7 +421,9 @@ export default function AdminJudgingSchedule() {
     isDroppingJudge,
     reactivateJudge,
     isReactivatingJudge,
-  } = useJudgingAssignment(eventId);
+  } = useJudgingAssignment(hookEventId);
+  const assignments = dataOverride?.assignments ?? hookAssignments;
+  const isLoading = dataOverride ? false : hookIsLoading;
 
   // Default turn passed to AddManualTeamDialog: use the filtered turn when only
   // one is selected, else fall back to the first panel's turn.
@@ -414,18 +466,19 @@ export default function AdminJudgingSchedule() {
         .map(t => t.team_id)
     )
   );
-  const { data: allEventTeams = [] } = useQuery({
-    queryKey: ['event-teams-for-schedule', eventId],
+  const { data: hookEventTeams = [] } = useQuery({
+    queryKey: ['event-teams-for-schedule', hookEventId],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('event_teams')
         .select('id, team_id, team_code, category, turn, is_active, teams:team_id (id, name, hub_id)')
-        .eq('event_id', eventId!);
+        .eq('event_id', hookEventId!);
       if (error) throw error;
       return data || [];
     },
-    enabled: !!eventId,
+    enabled: !!hookEventId,
   });
+  const allEventTeams = dataOverride?.eventTeams ?? hookEventTeams;
   const pendingTeams = allEventTeams.filter(et => et.is_active !== false && !assignedTeamIds.has(et.team_id));
   const bajaTeams = allEventTeams.filter(et => et.is_active === false);
 
@@ -453,7 +506,7 @@ export default function AdminJudgingSchedule() {
   );
 
   // Build hub lookup: hubId → hubName
-  const { data: hubsMap = {}, isPending: hubsMapLoading } = useQuery({
+  const { data: hookHubsMap = {}, isPending: hookHubsMapLoading } = useQuery({
     queryKey: ['hubs-map'],
     queryFn: async () => {
       const { data } = await supabase.from('hubs').select('id, name');
@@ -461,7 +514,10 @@ export default function AdminJudgingSchedule() {
       for (const h of data || []) map[h.id] = h.name;
       return map;
     },
+    enabled: !dataOverride,
   });
+  const hubsMap = dataOverride?.hubsMap ?? hookHubsMap;
+  const hubsMapLoading = dataOverride ? false : hookHubsMapLoading;
 
   // Check if a team's hub conflicts with any judge's hub in a panel
   const getPanelHubConflict = useCallback((panelId: string, teamHubId: string | null): string | null => {
@@ -1664,13 +1720,17 @@ export default function AdminJudgingSchedule() {
     beginner: 'bg-amber-100 text-amber-800 border-amber-300',
   };
 
+  const Wrapper = readOnly
+    ? ({ children }: { children: React.ReactNode }) => <>{children}</>
+    : ({ children }: { children: React.ReactNode }) => <AdminLayout>{children}</AdminLayout>;
+
   if (isLoading) {
     return (
-      <AdminLayout>
+      <Wrapper>
         <div className="flex items-center justify-center py-12">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
         </div>
-      </AdminLayout>
+      </Wrapper>
     );
   }
 
@@ -1702,9 +1762,9 @@ export default function AdminJudgingSchedule() {
               : 'bg-blue-100 ring-2 ring-inset ring-blue-400'
             : ''
         } ${overCapacity ? 'border-l-2 border-l-orange-400' : ''}`}
-        onDragOver={(e) => handleDragOver(e, panel.id, subsession)}
-        onDragLeave={handleDragLeave}
-        onDrop={(e) => handleDrop(e, panel.id, subsession)}
+        onDragOver={readOnly ? undefined : (e) => handleDragOver(e, panel.id, subsession)}
+        onDragLeave={readOnly ? undefined : handleDragLeave}
+        onDrop={readOnly ? undefined : (e) => handleDrop(e, panel.id, subsession)}
       >
         {overCapacity && (
           <Badge className="bg-orange-100 text-orange-800 border-orange-300 text-[9px] px-1 py-0 mb-0.5">
@@ -1716,7 +1776,7 @@ export default function AdminJudgingSchedule() {
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
-            onDragEnd={handleSortEnd(panel.id, subsession, activeTeams)}
+            onDragEnd={readOnly ? undefined : handleSortEnd(panel.id, subsession, activeTeams)}
           >
             <SortableContext items={activeTeams.map(t => t.id)} strategy={verticalListSortingStrategy}>
               {activeTeams.map(team => (
@@ -1729,6 +1789,7 @@ export default function AdminJudgingSchedule() {
                   }
                   catColors={catColors}
                   hubsMap={hubsMap}
+                  readOnly={readOnly}
                 />
               ))}
             </SortableContext>
@@ -1746,12 +1807,14 @@ export default function AdminJudgingSchedule() {
             </Badge>
             <span className="truncate text-xs text-red-400 line-through">{team.teams?.name}</span>
             <Badge variant="destructive" className="text-[9px] px-1 py-0">BAJA</Badge>
-            <button
-              onClick={() => handleReactivateTeam(team.team_id)}
-              className="p-0.5 rounded hover:bg-green-100 shrink-0 opacity-0 group-hover/dropped:opacity-100 transition-opacity"
-            >
-              <UserPlus className="h-3 w-3 text-green-600" />
-            </button>
+            {!readOnly && (
+              <button
+                onClick={() => handleReactivateTeam(team.team_id)}
+                className="p-0.5 rounded hover:bg-green-100 shrink-0 opacity-0 group-hover/dropped:opacity-100 transition-opacity"
+              >
+                <UserPlus className="h-3 w-3 text-green-600" />
+              </button>
+            )}
           </div>
         ))}
       </div>
@@ -1759,24 +1822,26 @@ export default function AdminJudgingSchedule() {
   };
 
   return (
-    <AdminLayout>
+    <Wrapper>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <Button variant="ghost" size="sm" onClick={() => navigate(-1)}>
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Atrás
-            </Button>
+            {!readOnly && (
+              <Button variant="ghost" size="sm" onClick={() => navigate(-1)}>
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                Atrás
+              </Button>
+            )}
             <div>
               <h1 className="text-2xl font-bold">Escaleta de Jurados</h1>
               <p className="text-muted-foreground">
-                Vista y edición de la distribución jueces-equipos.
+                {readOnly ? 'Vista pública de la distribución jueces-equipos.' : 'Vista y edición de la distribución jueces-equipos.'}
               </p>
             </div>
           </div>
           <div className="flex gap-2 items-center flex-wrap justify-end">
-            {incompatibilities.length > 0 && (
+            {!readOnly && incompatibilities.length > 0 && (
               <Button
                 variant="outline"
                 size="sm"
@@ -1791,7 +1856,7 @@ export default function AdminJudgingSchedule() {
               </Button>
             )}
 
-            <Popover>
+            {!readOnly && <Popover>
               <PopoverTrigger asChild>
                 <Button variant="outline" size="sm">
                   <Filter className="h-4 w-4 mr-2" />
@@ -1865,9 +1930,9 @@ export default function AdminJudgingSchedule() {
                   </div>
                 )}
               </PopoverContent>
-            </Popover>
+            </Popover>}
 
-            {eventId && (
+            {eventId && !readOnly && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" size="sm">
@@ -1918,7 +1983,7 @@ export default function AdminJudgingSchedule() {
               </DropdownMenu>
             )}
 
-            {eventId && (
+            {eventId && !readOnly && (
               <Button
                 variant="default"
                 size="sm"
@@ -2065,7 +2130,7 @@ export default function AdminJudgingSchedule() {
             })()}
 
             {/* Pending Teams Section */}
-            {pendingTeams.length > 0 && (
+            {!readOnly && pendingTeams.length > 0 && (
               <div className="mt-4 border border-amber-200 bg-amber-50/50 rounded-lg p-4">
                 <h4 className="text-sm font-bold text-amber-800 mb-3">
                   Equipos pendientes de asignar ({pendingTeams.length})
@@ -2179,7 +2244,7 @@ export default function AdminJudgingSchedule() {
                             )}
                           </TableCell>
                           <TableCell>
-                            {t.isActive ? (
+                            {readOnly ? null : t.isActive ? (
                               <button
                                 onClick={() => setDropTeamDialog({ open: true, teamId: t.teamId, teamName: t.teamName })}
                                 className="p-1 rounded hover:bg-red-100"
@@ -2274,17 +2339,22 @@ export default function AdminJudgingSchedule() {
                                       const judge = visibleJudges[rowIdx];
                                       if (!judge) return <td key={room.roomNumber} className="border-l" />;
 
+                                      const canManageJudge = judge.isActive && !readOnly;
                                       const judgeContent = (
                                         <div
-                                          role={judge.isActive ? 'button' : undefined}
-                                          tabIndex={judge.isActive ? 0 : undefined}
-                                          onClick={judge.isActive ? () => openJudgeManageDialog(judge) : undefined}
-                                          onKeyDown={judge.isActive ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openJudgeManageDialog(judge); } } : undefined}
+                                          role={canManageJudge ? 'button' : undefined}
+                                          tabIndex={canManageJudge ? 0 : undefined}
+                                          onClick={canManageJudge ? () => openJudgeManageDialog(judge) : undefined}
+                                          onKeyDown={canManageJudge ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openJudgeManageDialog(judge); } } : undefined}
                                           className={`py-1 px-2 rounded max-w-[200px] ${
                                             judge.isActive
                                               ? judge.hasHubConflict
-                                                ? 'bg-amber-100 border border-amber-300 cursor-pointer hover:bg-amber-200'
-                                                : 'cursor-pointer hover:bg-gray-100'
+                                                ? readOnly
+                                                  ? 'bg-amber-100 border border-amber-300'
+                                                  : 'bg-amber-100 border border-amber-300 cursor-pointer hover:bg-amber-200'
+                                                : readOnly
+                                                  ? ''
+                                                  : 'cursor-pointer hover:bg-gray-100'
                                               : 'bg-red-50 opacity-60'
                                           }`}
                                         >
@@ -2319,12 +2389,14 @@ export default function AdminJudgingSchedule() {
                                                 ) : (
                                                   <Badge variant="destructive" className="text-[9px] px-1 py-0">BAJA</Badge>
                                                 )}
-                                                <button
-                                                  onClick={(e) => { e.stopPropagation(); handleReactivateJudge(judge.judgeId); }}
-                                                  className="p-0.5 rounded hover:bg-green-100"
-                                                >
-                                                  <UserPlus className="h-3 w-3 text-green-600" />
-                                                </button>
+                                                {!readOnly && (
+                                                  <button
+                                                    onClick={(e) => { e.stopPropagation(); handleReactivateJudge(judge.judgeId); }}
+                                                    className="p-0.5 rounded hover:bg-green-100"
+                                                  >
+                                                    <UserPlus className="h-3 w-3 text-green-600" />
+                                                  </button>
+                                                )}
                                               </div>
                                               {isSwapOrReplace(judge.deactivatedReason) && (
                                                 <span className="text-[9px] text-muted-foreground">desde S.{judge.session}</span>
@@ -2377,7 +2449,7 @@ export default function AdminJudgingSchedule() {
                   ))}
 
                 {/* Unassigned judges pool */}
-                {unassignedJudges.length > 0 && (
+                {!readOnly && unassignedJudges.length > 0 && (
                   <div className="border border-amber-200 bg-amber-50/50 rounded-lg p-4">
                     <h4 className="text-sm font-bold text-amber-800 mb-3">
                       Jueces sin asignar ({unassignedJudges.length})
@@ -2416,20 +2488,22 @@ export default function AdminJudgingSchedule() {
                           {j.hubId && hubsMap[j.hubId] && (
                             <span className="ml-1 opacity-75">({hubsMap[j.hubId]})</span>
                           )}
-                          <button
-                            onClick={() => handleReactivateJudge(j.id)}
-                            className="ml-1 hover:opacity-100 opacity-70"
-                            title="Reactivar juez"
-                          >
-                            <UserPlus className="h-3 w-3" />
-                          </button>
+                          {!readOnly && (
+                            <button
+                              onClick={() => handleReactivateJudge(j.id)}
+                              className="ml-1 hover:opacity-100 opacity-70"
+                              title="Reactivar juez"
+                            >
+                              <UserPlus className="h-3 w-3" />
+                            </button>
+                          )}
                         </Badge>
                       ))}
                     </div>
                   </div>
                 )}
 
-                {unassignedOnboardingPendingJudges.length > 0 && (
+                {!readOnly && unassignedOnboardingPendingJudges.length > 0 && (
                   <div className="border border-orange-200 bg-orange-50/50 rounded-lg p-4 mt-3">
                     <h4 className="text-sm font-bold text-orange-800 mb-3">
                       Pendientes de onboarding ({unassignedOnboardingPendingJudges.length})
@@ -2465,13 +2539,15 @@ export default function AdminJudgingSchedule() {
                       {bajaTeams.map(et => (
                         <Badge key={et.id} variant="destructive" className="opacity-75 gap-1">
                           {(et.teams as { name?: string } | null)?.name || et.team_code}
-                          <button
-                            onClick={() => handleReactivateTeam(et.team_id)}
-                            className="ml-1 hover:opacity-100 opacity-70"
-                            title="Reactivar equipo"
-                          >
-                            <UserPlus className="h-3 w-3" />
-                          </button>
+                          {!readOnly && (
+                            <button
+                              onClick={() => handleReactivateTeam(et.team_id)}
+                              className="ml-1 hover:opacity-100 opacity-70"
+                              title="Reactivar equipo"
+                            >
+                              <UserPlus className="h-3 w-3" />
+                            </button>
+                          )}
                         </Badge>
                       ))}
                     </div>
@@ -2937,7 +3013,7 @@ export default function AdminJudgingSchedule() {
                       </span>
                     </div>
                     <p className="text-sm">{inc.description}</p>
-                    {(inc.type === 'hub_conflict' || inc.type === 'conflict_team') && inc.judgeId && (
+                    {!readOnly && (inc.type === 'hub_conflict' || inc.type === 'conflict_team') && inc.judgeId && (
                       <Button
                         variant="outline"
                         size="sm"
@@ -2964,7 +3040,7 @@ export default function AdminJudgingSchedule() {
           </DialogContent>
         </Dialog>
 
-        {eventId && (
+        {eventId && !readOnly && (
           <AddManualTeamDialog
             open={manualTeamOpen}
             onOpenChange={setManualTeamOpen}
@@ -2974,6 +3050,6 @@ export default function AdminJudgingSchedule() {
           />
         )}
       </div>
-    </AdminLayout>
+    </Wrapper>
   );
 }
